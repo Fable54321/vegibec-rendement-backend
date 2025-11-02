@@ -84,6 +84,57 @@ router.post("/logout", (req, res) => {
   res.json({ message: "Logged out" });
 });
 
+// CHANGE PASSWORD
+router.post("/change-password", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing or invalid token" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  let userId: number;
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: number;
+      username: string;
+    };
+    userId = decoded.id;
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "Missing current or new password" });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT password_hash FROM users WHERE id = $1",
+      [userId]
+    );
+    if (result.rowCount === 0)
+      return res.status(404).json({ error: "User not found" });
+
+    const user = result.rows[0];
+    const valid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!valid)
+      return res.status(401).json({ error: "Current password is incorrect" });
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
+      newHash,
+      userId,
+    ]);
+
+    res.json({ message: "Password changed successfully" });
+  } catch (err) {
+    console.error("Change password error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // AUTH CHECK
 router.get("/me", (req, res) => {
   const authHeader = req.headers.authorization;
