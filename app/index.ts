@@ -232,6 +232,8 @@ app.get("/data/costs/seed_costs", async (req, res) => {
 
 app.use("/revenues", revenuesRoute);
 
-app.listen(3000, () =>
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () =>
   console.log("✅ Server running on http://localhost:3000")
 );
