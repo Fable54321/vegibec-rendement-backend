@@ -5,8 +5,8 @@ import { pool } from "../db";
 
 async function createAdmin() {
   try {
-    const username = process.env.INIT_ADMIN_USERNAME || "tim-dev";
-    const plainPassword = process.env.INIT_ADMIN_PASSWORD || "dev-password";
+    const username = process.env.INIT_ADMIN_USERNAME || "";
+    const plainPassword = process.env.INIT_ADMIN_PASSWORD || "";
     const saltRounds = 12;
 
     console.log(`🔐 Creating admin user "${username}"...`);

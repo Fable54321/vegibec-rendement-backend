@@ -1,19 +1,18 @@
 {
   "compilerOptions": {
-    "target": "es2022",                  // modern JS for Node
-    "module": "nodenext",                // ES modules in Node
-    "moduleResolution": "nodenext",      // proper module resolution
-    "rootDir": "./app",                  // source folder
-    "outDir": "./dist",                  // compiled output
-    "strict": true,                      // all strict checks
-    "esModuleInterop": true,             // allows default imports from commonjs modules
+    "target": "es2022",
+    "module": "commonjs",
+    "rootDir": "./app",
+    "outDir": "./dist",
+    "strict": true,
+    "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,                // skip type checks of node_modules
-    "noImplicitAny": true,               // optional but recommended
-    "sourceMap": true,                   // for debugging
-    "resolveJsonModule": true,   
-    "typeRoots": ["./node_modules/@types", "./types"],        
-    "types": ["node"]                    // node types
+    "skipLibCheck": true,
+    "noImplicitAny": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "types": ["node"]
   },
   "include": ["app/**/*"],
   "exclude": ["node_modules", "dist"]
