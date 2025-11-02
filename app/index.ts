@@ -1,0 +1,237 @@
+import dotenv from "dotenv";
+import { authMiddleware } from "./middleware/auth";
+
+dotenv.config();
+
+import express from "express";
+import { pool } from "./db";
+import cors from "cors";
+import revenuesRoute from "./routes/revenues";
+import authRoute from "./routes/auth";
+import cookieParser from "cookie-parser";
+
+const app = express();
+app.use(express.json());
+app.use(cookieParser());
+
+const allowedOrigins = [
+  "http://localhost:5173", // local dev
+  "https://vegibec-rendement.netlify.app", // production
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps or Postman)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true, // allow cookies
+  })
+);
+
+app.use("/auth", authRoute);
+
+app.use(authMiddleware);
+
+// --- Simple test route ---
+app.get("/", async (req, res) => {
+  const result = await pool.query("SELECT NOW()");
+  res.json(result.rows);
+});
+
+// --- POST: Insert new cost entry ---
+app.post("/data/costs", async (req, res) => {
+  try {
+    const {
+      vegetable,
+      category,
+      sub_category,
+      total_hours,
+      supervisor,
+      total_cost,
+      created_at,
+    } = req.body;
+
+    const dateValue = created_at ? new Date(created_at) : new Date();
+
+    const result = await pool.query(
+      `INSERT INTO task_costs 
+       (vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [
+        vegetable,
+        category,
+        sub_category,
+        total_hours,
+        supervisor,
+        total_cost,
+        dateValue,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Error inserting data:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// --- GET: Aggregated costs summary ---
+app.get("/data/costs/summary", async (req, res) => {
+  try {
+    const groupBy = req.query.groupBy as string | undefined;
+    const start = req.query.start as string | undefined;
+    const end = req.query.end as string | undefined;
+
+    const allowedFields = [
+      "vegetable",
+      "category",
+      "sub_category",
+      "supervisor",
+    ];
+    if (!groupBy || !allowedFields.includes(groupBy)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid or missing groupBy field" });
+    }
+
+    let query = `
+      SELECT ${groupBy === "sub_category" ? "sub_category, category" : groupBy},
+             SUM(total_hours) AS total_hours,
+             SUM(total_cost) AS total_cost
+      FROM task_costs
+    `;
+
+    const values: any[] = [];
+
+    // Add date filtering safely
+    if (start && end) {
+      query += ` WHERE created_at BETWEEN $1 AND $2`;
+      values.push(start, end);
+    } else if (start) {
+      query += ` WHERE created_at >= $1`;
+      values.push(start);
+    } else if (end) {
+      query += ` WHERE created_at <= $1`;
+      values.push(end);
+    }
+
+    if (groupBy === "sub_category") {
+      query += ` GROUP BY sub_category, category ORDER BY category, sub_category`;
+    } else {
+      query += ` GROUP BY ${groupBy} ORDER BY ${groupBy}`;
+    }
+
+    const result = await pool.query(query, values);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching summary:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+const other_costs = "other_costs";
+
+app.get("/data/costs/other_costs", async (req, res) => {
+  // Get start and end from query params, e.g., ?start=2025-01-01&end=2025-12-31
+  const { start, end } = req.query;
+
+  if (!start && !end) {
+    return res
+      .status(400)
+      .json({ error: "Missing 'start' or 'end' query parameter." });
+  }
+
+  let query = `
+    SELECT category, SUM(cost) AS total_cost
+    FROM ${other_costs}
+  `;
+  const values: any[] = [];
+
+  // Add date filtering
+  if (start && end) {
+    query += " WHERE created_at BETWEEN $1 AND $2";
+    values.push(start, end);
+  } else if (start) {
+    query += " WHERE created_at >= $1";
+    values.push(start);
+  } else if (end) {
+    query += " WHERE created_at <= $1";
+    values.push(end);
+  }
+
+  query += " GROUP BY category ORDER BY category";
+
+  try {
+    const result = await pool.query(query, values);
+    res.json(result.rows); // [{ category: "vacances_tet", total_cost: 1234 }, ...]
+  } catch (err) {
+    console.error("Error fetching other costs summary:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+app.get("/data/costs/seed_costs", async (req, res) => {
+  const { start, end, seed } = req.query;
+
+  // Validate query parameters
+  if (!start && !end) {
+    return res
+      .status(400)
+      .json({ error: "Missing 'start' or 'end' query parameter." });
+  }
+
+  let query = `
+    SELECT seed, SUM(cost) AS total_cost
+    FROM seed_costs
+  `;
+
+  const values: any[] = [];
+  const conditions: string[] = [];
+
+  // Add filters dynamically
+  if (start && end) {
+    conditions.push(
+      `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+    );
+    values.push(start, end);
+  } else if (start) {
+    conditions.push(`created_at >= $${values.length + 1}`);
+    values.push(start);
+  } else if (end) {
+    conditions.push(`created_at <= $${values.length + 1}`);
+    values.push(end);
+  }
+
+  if (seed) {
+    conditions.push(`seed = $${values.length + 1}`);
+    values.push(seed);
+  }
+
+  if (conditions.length > 0) {
+    query += " WHERE " + conditions.join(" AND ");
+  }
+
+  query += " GROUP BY seed ORDER BY seed";
+
+  try {
+    const result = await pool.query(query, values);
+    res.json(result.rows); // e.g. [{ seed: "carrot", total_cost: 2530.45 }]
+  } catch (err) {
+    console.error("Error fetching seed costs summary:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+app.use("/revenues", revenuesRoute);
+
+app.listen(3000, () =>
+  console.log("✅ Server running on http://localhost:3000")
+);
