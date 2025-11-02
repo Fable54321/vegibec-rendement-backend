@@ -10,7 +10,7 @@ const REFRESH_SECRET = process.env.REFRESH_SECRET || "super_refresh_secret";
 
 function generateAccessToken(user: any) {
   return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, {
-    expiresIn: "1h",
+    expiresIn: "30s",
   });
 }
 
