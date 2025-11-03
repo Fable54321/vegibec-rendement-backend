@@ -178,6 +178,21 @@ app.get("/data/costs/other_costs", async (req, res) => {
   }
 });
 
+app.get("/data/costs/latest", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at
+       FROM task_costs
+       ORDER BY created_at DESC
+       LIMIT 10`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching latest costs:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
 app.get("/data/costs/seed_costs", async (req, res) => {
   const { start, end, seed } = req.query;
 
