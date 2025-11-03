@@ -193,6 +193,17 @@ app.get("/data/costs/latest", async (req, res) => {
   }
 });
 
+app.delete("/data/costs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("DELETE FROM task_costs WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting entry:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
 app.get("/data/costs/seed_costs", async (req, res) => {
   const { start, end, seed } = req.query;
 
