@@ -181,7 +181,7 @@ app.get("/data/costs/other_costs", async (req, res) => {
 app.get("/data/costs/latest", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at
+      `SELECT id, vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at
        FROM task_costs
        ORDER BY created_at DESC
        LIMIT 10`
