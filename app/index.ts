@@ -256,6 +256,38 @@ app.get("/data/costs/seed_costs", async (req, res) => {
   }
 });
 
+app.get("/data/packaging_costs/per_vegetable", async (req, res) => {
+  try {
+    const { start, end } = req.query;
+
+    const values: any[] = [];
+    let query = `
+      SELECT vegetable, SUM(cost) AS total_cost
+      FROM packaging_costs
+    `;
+
+    // Add date filtering if provided
+    if (start && end) {
+      query += ` WHERE created_at BETWEEN $1 AND $2`;
+      values.push(start, end);
+    } else if (start) {
+      query += ` WHERE created_at >= $1`;
+      values.push(start);
+    } else if (end) {
+      query += ` WHERE created_at <= $1`;
+      values.push(end);
+    }
+
+    query += ` GROUP BY vegetable ORDER BY vegetable`;
+
+    const result = await pool.query(query, values);
+    res.json(result.rows); // [{ vegetable: "CHOU", total_cost: 1234 }, ...]
+  } catch (err) {
+    console.error("Error fetching packaging costs per vegetable:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
 app.use("/revenues", revenuesRoute);
 
 const PORT = process.env.PORT || 3000;
