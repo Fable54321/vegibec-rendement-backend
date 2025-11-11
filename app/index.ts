@@ -288,26 +288,19 @@ app.get("/data/packaging_costs/per_vegetable", async (req, res) => {
   }
 });
 
-app.get("/data/costs/soil_products", async (req, res) => {
+// Route for soil products grouped by vegetable
+app.get("/data/costs/soil_products/vegetable", async (req, res) => {
   try {
-    const { groupBy, start, end } = req.query;
-
-    const allowedFields = ["category", "vegetable"];
-    if (!groupBy || !allowedFields.includes(groupBy as string)) {
-      return res
-        .status(400)
-        .json({ error: "Invalid or missing 'groupBy' parameter." });
-    }
+    const { start, end } = req.query;
 
     let query = `
-      SELECT ${groupBy}, SUM(cost) AS total_cost
+      SELECT vegetable, SUM(cost) AS total_cost
       FROM soil_products
     `;
 
     const values: any[] = [];
     const conditions: string[] = [];
 
-    // Optional date filtering
     if (start && end) {
       conditions.push(
         `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
@@ -325,12 +318,52 @@ app.get("/data/costs/soil_products", async (req, res) => {
       query += " WHERE " + conditions.join(" AND ");
     }
 
-    query += ` GROUP BY ${groupBy} ORDER BY ${groupBy}`;
+    query += " GROUP BY vegetable ORDER BY vegetable";
 
     const result = await pool.query(query, values);
-    res.json(result.rows); // e.g. [{ category: "Compost", total_cost: 540.25 }]
+    res.json(result.rows);
   } catch (err) {
-    console.error("Error fetching soil products summary:", err);
+    console.error("Error fetching soil products by vegetable:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// Route for soil products grouped by category
+app.get("/data/costs/soil_products/category", async (req, res) => {
+  try {
+    const { start, end } = req.query;
+
+    let query = `
+      SELECT category, SUM(cost) AS total_cost
+      FROM soil_products
+    `;
+
+    const values: any[] = [];
+    const conditions: string[] = [];
+
+    if (start && end) {
+      conditions.push(
+        `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+      );
+      values.push(start, end);
+    } else if (start) {
+      conditions.push(`created_at >= $${values.length + 1}`);
+      values.push(start);
+    } else if (end) {
+      conditions.push(`created_at <= $${values.length + 1}`);
+      values.push(end);
+    }
+
+    if (conditions.length > 0) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+
+    query += " GROUP BY category ORDER BY category";
+
+    const result = await pool.query(query, values);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching soil products by category:", err);
     res.status(500).json({ error: "Database error" });
   }
 });
