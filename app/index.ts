@@ -7,6 +7,7 @@ import express from "express";
 import { pool } from "./db";
 import cors from "cors";
 import revenuesRoute from "./routes/revenues";
+import employeesRoute from "./routes/employees";
 import authRoute from "./routes/auth";
 import cookieParser from "cookie-parser";
 
@@ -369,6 +370,8 @@ app.get("/data/costs/soil_products/category", async (req, res) => {
 });
 
 app.use("/revenues", revenuesRoute);
+
+app.use("/employees", employeesRoute);
 
 const PORT = process.env.PORT || 3000;
 
