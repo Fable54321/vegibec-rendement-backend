@@ -10,6 +10,7 @@ import revenuesRoute from "./routes/revenues";
 import employeesRoute from "./routes/employees";
 import authRoute from "./routes/auth";
 import cookieParser from "cookie-parser";
+import salaryPeriodsRoutes from "./routes/salaryPeriods";
 
 const app = express();
 app.use(express.json());
@@ -372,6 +373,8 @@ app.get("/data/costs/soil_products/category", async (req, res) => {
 app.use("/revenues", revenuesRoute);
 
 app.use("/employees", employeesRoute);
+
+app.use("/salary-periods", salaryPeriodsRoutes);
 
 const PORT = process.env.PORT || 3000;
 
