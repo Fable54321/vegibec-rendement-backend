@@ -62,4 +62,46 @@ router.get("/check", async (req, res) => {
   }
 });
 
+router.put("/", async (req: Request, res: Response) => {
+  try {
+    const { employee_name, year, start_date, yearly_amount } = req.body;
+
+    if (!employee_name || !yearly_amount || !year || !start_date) {
+      return res.status(400).json({ error: "Champs requis manquants." });
+    }
+
+    // 1️⃣ Find existing entry for the employee & year
+    const existingResult = await pool.query(
+      `SELECT * FROM salary_periods WHERE employee_name = $1 AND start_date::text LIKE $2`,
+      [employee_name, `${year}-%`] // Matches any start_date in the given year
+    );
+
+    if (existingResult.rows.length > 0) {
+      const existingEntry = existingResult.rows[0];
+
+      // 2️⃣ Update existing entry's end_date to be the day before new start_date
+      const newEndDate = new Date(start_date);
+      newEndDate.setDate(newEndDate.getDate() - 1); // day before
+      await pool.query(
+        `UPDATE salary_periods SET end_date = $1 WHERE id = $2`,
+        [newEndDate.toISOString().split("T")[0], existingEntry.id]
+      );
+    }
+
+    // 3️⃣ Insert the new salary period
+    const days_in_year = new Date(year, 1, 29).getDate() === 29 ? 366 : 365;
+
+    const insertResult = await pool.query(
+      `INSERT INTO salary_periods (employee_name, yearly_amount, start_date, days_in_year)
+             VALUES ($1, $2, $3, $4) RETURNING *`,
+      [employee_name, yearly_amount, start_date, days_in_year]
+    );
+
+    res.json(insertResult.rows[0]);
+  } catch (err) {
+    console.error("Erreur lors de la modification du salaire :", err);
+    res.status(500).json({ error: "Erreur serveur." });
+  }
+});
+
 export default router;
