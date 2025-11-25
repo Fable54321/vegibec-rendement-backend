@@ -35,4 +35,31 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/check", async (req, res) => {
+  const { employee_name, year } = req.query;
+
+  if (!employee_name || !year) {
+    return res.status(400).json({ error: "Nom de l'employé et année requis." });
+  }
+
+  try {
+    const startDate = `${year}-01-01`;
+    const result = await pool.query(
+      `SELECT * FROM salary_periods WHERE employee_name = $1 AND start_date = $2`,
+      [employee_name, startDate]
+    );
+
+    if (result.rows.length > 0) {
+      return res.json({ exists: true });
+    } else {
+      return res.json({ exists: false });
+    }
+  } catch (err) {
+    console.error("Erreur lors de la vérification :", err);
+    return res
+      .status(500)
+      .json({ error: "Erreur serveur lors de la vérification." });
+  }
+});
+
 export default router;
