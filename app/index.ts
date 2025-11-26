@@ -139,44 +139,77 @@ app.get("/data/costs/summary", async (req, res) => {
   }
 });
 
-const other_costs = "other_costs";
-
 app.get("/data/costs/other_costs", async (req, res) => {
-  // Get start and end from query params, e.g., ?start=2025-01-01&end=2025-12-31
   const { start, end } = req.query;
 
   if (!start && !end) {
     return res
       .status(400)
-      .json({ error: "Missing 'start' or 'end' query parameter." });
+      .json({ error: "Paramètres 'start' ou 'end' manquants." });
   }
-
-  let query = `
-    SELECT category, SUM(cost) AS total_cost
-    FROM ${other_costs}
-  `;
-  const values: any[] = [];
-
-  // Add date filtering
-  if (start && end) {
-    query += " WHERE created_at BETWEEN $1 AND $2";
-    values.push(start, end);
-  } else if (start) {
-    query += " WHERE created_at >= $1";
-    values.push(start);
-  } else if (end) {
-    query += " WHERE created_at <= $1";
-    values.push(end);
-  }
-
-  query += " GROUP BY category ORDER BY category";
 
   try {
-    const result = await pool.query(query, values);
-    res.json(result.rows); // [{ category: "vacances_tet", total_cost: 1234 }, ...]
+    // --- 1️⃣ Handle 2024 (old table) ---
+    const year = start ? new Date(start as string).getFullYear() : undefined;
+    let results2024: any[] = [];
+
+    if (year && year <= 2024) {
+      let query = `SELECT category, SUM(cost) AS total_cost FROM other_costs`;
+      const values: any[] = [];
+
+      if (start && end) {
+        query += " WHERE created_at BETWEEN $1 AND $2";
+        values.push(start, end);
+      } else if (start) {
+        query += " WHERE created_at >= $1";
+        values.push(start);
+      } else if (end) {
+        query += " WHERE created_at <= $1";
+        values.push(end);
+      }
+
+      query += " GROUP BY category ORDER BY category";
+
+      const result = await pool.query(query, values);
+      results2024 = result.rows;
+    }
+
+    // --- 2️⃣ Handle 2025+ (new tables) ---
+    let results2025: any[] = [];
+    if (!year || year >= 2025) {
+      // Salary total
+      let salaryQuery = `SELECT 'salaires' AS category, SUM(yearly_amount / days_in_year * LEAST($2::date, COALESCE(end_date, $2::date))::date - start_date::date + 1) AS total_cost
+                         FROM salary_periods
+                         WHERE start_date <= $2::date`;
+      const salaryValues = [start, end || start];
+      const salaryResult = await pool.query(salaryQuery, salaryValues);
+      results2025.push(salaryResult.rows[0]);
+
+      // Other costs new totals
+      let otherQuery = `SELECT category, SUM(total) AS total_cost 
+                        FROM other_costs_new`;
+      const otherValues: any[] = [];
+      if (start && end) {
+        otherQuery += " WHERE created_at BETWEEN $1 AND $2";
+        otherValues.push(start, end);
+      } else if (start) {
+        otherQuery += " WHERE created_at >= $1";
+        otherValues.push(start);
+      } else if (end) {
+        otherQuery += " WHERE created_at <= $1";
+        otherValues.push(end);
+      }
+      otherQuery += " GROUP BY category ORDER BY category";
+      const otherResult = await pool.query(otherQuery, otherValues);
+      results2025 = results2025.concat(otherResult.rows);
+    }
+
+    // --- 3️⃣ Combine and return ---
+    const combinedResults = [...results2024, ...results2025];
+    res.json(combinedResults);
   } catch (err) {
-    console.error("Error fetching other costs summary:", err);
-    res.status(500).json({ error: "Database error" });
+    console.error("Erreur lors de la récupération des coûts :", err);
+    res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
