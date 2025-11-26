@@ -210,7 +210,7 @@ app.get("/data/costs/other_costs", async (req, res) => {
 
       // 2️⃣ Other costs
       const otherCostsQuery = `
-        SELECT category, SUM(total) AS total_cost
+        SELECT category, SUM(total_cost) AS total_cost
         FROM other_costs_new
         WHERE year = $1
         GROUP BY category
