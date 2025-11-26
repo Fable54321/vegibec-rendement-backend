@@ -104,4 +104,53 @@ router.put("/", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/salary-periods/total-until", async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ error: "Date requise." });
+    }
+
+    const result = await pool.query(
+      `
+      WITH ordered_periods AS (
+        SELECT
+          employee_name,
+          yearly_amount,
+          start_date,
+          days_in_year,
+          LEAD(start_date) OVER (
+            PARTITION BY employee_name
+            ORDER BY start_date
+          ) AS next_start
+        FROM salary_periods
+        WHERE start_date <= $1
+      )
+      SELECT
+        SUM(
+          (yearly_amount / days_in_year) *
+          GREATEST(
+            0,
+            LEAST(
+              $1,
+              COALESCE(next_start - INTERVAL '1 day', $1)
+            ) - start_date + 1
+          )
+        ) AS total_paid
+      FROM ordered_periods;
+      `,
+      [date]
+    );
+
+    res.json({
+      date,
+      total_paid: Number(result.rows[0].total_paid || 0),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur de calcul." });
+  }
+});
+
 export default router;
