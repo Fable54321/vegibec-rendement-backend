@@ -191,18 +191,30 @@ app.get("/data/costs/other_costs", async (req, res) => {
 
       // 1️⃣ Salaries
       const salaryQuery = `
-        SELECT SUM(
-          CASE 
-            WHEN end_date IS NULL OR end_date > $2 THEN 
-              yearly_amount / days_in_year * (EXTRACT(DOY FROM $2::date) - EXTRACT(DOY FROM start_date::date) + 1)
-            ELSE 
-              yearly_amount / days_in_year * (EXTRACT(DOY FROM end_date::date) - EXTRACT(DOY FROM start_date::date) + 1)
-          END
-        ) AS total_cost
-        FROM salary_periods
-        WHERE EXTRACT(YEAR FROM start_date) = $1
-      `;
-      const salaryResult = await pool.query(salaryQuery, [year, end]);
+  SELECT SUM(
+    CASE 
+      -- Compute overlap between the salary period and requested range
+      WHEN (end_date IS NULL OR end_date >= $2::date) THEN 
+        yearly_amount / days_in_year * (
+          GREATEST(
+            0,
+            LEAST($2::date, COALESCE(end_date, $2::date)) - GREATEST(start_date, $1::date) + 1
+          )
+        )
+      ELSE 
+        yearly_amount / days_in_year * (
+          GREATEST(
+            0,
+            LEAST(end_date, $2::date) - GREATEST(start_date, $1::date) + 1
+          )
+        )
+    END
+  ) AS total_cost
+  FROM salary_periods
+  WHERE start_date <= $2::date
+    AND (end_date IS NULL OR end_date >= $1::date)
+`;
+      const salaryResult = await pool.query(salaryQuery, [start, end]);
       results.push({
         category: "salaire",
         total_cost: Number(salaryResult.rows[0].total_cost || 0),
