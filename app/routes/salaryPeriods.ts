@@ -159,20 +159,20 @@ router.get("/by-year/:year", async (req: Request, res: Response) => {
 
     const result = await pool.query(
       `
-      SELECT 
-        employee_name, 
-        yearly_amount, 
+      SELECT DISTINCT ON (employee_name)
+        employee_name,
+        yearly_amount,
         start_date
       FROM salary_periods
       WHERE EXTRACT(YEAR FROM start_date) = $1
-      ORDER BY employee_name, start_date;
+      ORDER BY employee_name, start_date DESC;
       `,
       [year]
     );
 
     res.json(result.rows);
   } catch (err) {
-    console.error("Error fetching by year:", err);
+    console.error("Error fetching latest salaries:", err);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
