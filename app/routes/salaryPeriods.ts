@@ -153,4 +153,28 @@ router.get("/salary-periods/total-until", async (req, res) => {
   }
 });
 
+router.get("/by-year/:year", async (req: Request, res: Response) => {
+  try {
+    const { year } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT 
+        employee_name, 
+        yearly_amount, 
+        start_date
+      FROM salary_periods
+      WHERE EXTRACT(YEAR FROM start_date) = $1
+      ORDER BY employee_name, start_date;
+      `,
+      [year]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching by year:", err);
+    res.status(500).json({ error: "Erreur serveur." });
+  }
+});
+
 export default router;
