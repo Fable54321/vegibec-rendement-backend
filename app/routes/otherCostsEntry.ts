@@ -36,24 +36,28 @@ router.post("/", async (req, res) => {
     else tableName = "other_costs_new";
 
     if (tableName === "other_costs_new") {
-      // No vegetable column, just insert new row
+      // UPSERT by category + year to accumulate total_cost
       query = `
-        INSERT INTO other_costs_new (total_cost, year, created_at, updated_at)
-        VALUES ($1, $2, $3, $3)
-        RETURNING id
-      `;
-      values = [amount, year, effectiveDate];
+    INSERT INTO other_costs_new (category, total_cost, year, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $4)
+    ON CONFLICT (category, year)
+    DO UPDATE SET
+      total_cost = other_costs_new.total_cost + EXCLUDED.total_cost,
+      updated_at = EXCLUDED.updated_at
+    RETURNING id
+  `;
+      values = [category, amount, year, effectiveDate];
     } else {
       // Tables with vegetable: UPSERT to add to existing total_cost
       query = `
-        INSERT INTO ${tableName} (vegetable, total_cost, year, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (vegetable, year)
-        DO UPDATE SET
-          total_cost = ${tableName}.total_cost + EXCLUDED.total_cost,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `;
+    INSERT INTO ${tableName} (vegetable, total_cost, year, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $4)
+    ON CONFLICT (vegetable, year)
+    DO UPDATE SET
+      total_cost = ${tableName}.total_cost + EXCLUDED.total_cost,
+      updated_at = EXCLUDED.updated_at
+    RETURNING id
+  `;
       values = [vegetable || "AUCUNE", amount, year, effectiveDate];
     }
 
