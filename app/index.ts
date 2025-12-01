@@ -332,7 +332,8 @@ app.get("/data/costs/seed_costs", async (req, res) => {
     } else {
       // Use new table for 2025+
       // We need to get total per seed, then calculate daily rate
-      let query = `SELECT vegetable, total_cost, EXTRACT(DOY FROM updated_at) AS day_of_year FROM seed_costs_new`;
+      // Use new table for 2025+
+      let query = `SELECT vegetable, total_cost FROM seed_costs_new`;
       const values: any[] = [];
       const conditions: string[] = [];
 
@@ -350,27 +351,22 @@ app.get("/data/costs/seed_costs", async (req, res) => {
       // Compute total for requested range
       const computed: { vegetable: string; total_cost: number }[] = [];
 
-      const rangeStart = startDate || new Date(year, 0, 1);
-      const rangeEnd = endDate || today;
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31);
+      const daysInYear =
+        (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24) +
+        1;
 
-      const daysElapsed = (date: Date) => {
-        const startOfYear = new Date(date.getFullYear(), 0, 1);
-        return (
-          Math.floor(
-            (date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
-          ) + 1
-        );
-      };
+      const rangeStart = startDate || startOfYear;
+      const rangeEnd = endDate || new Date();
+
+      const daysInRange =
+        Math.floor(
+          (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
 
       result.rows.forEach((row: any) => {
-        const totalCost = Number(row.total_cost || 0);
-        const currentDay = daysElapsed(rangeEnd); // how many days so far in the year
-        const dailyRate = totalCost / currentDay;
-
-        // Compute how many days in the requested range
-        const startDay = Math.max(daysElapsed(rangeStart), 1);
-        const endDay = Math.min(daysElapsed(rangeEnd), currentDay);
-        const daysInRange = endDay - startDay + 1;
+        const dailyRate = Number(row.total_cost) / daysInYear;
 
         computed.push({
           vegetable: row.vegetable,
