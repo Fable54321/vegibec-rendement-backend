@@ -29,8 +29,16 @@ router.post("/", async (req, res) => {
     let values: any[] = [];
 
     // CATEGORY → TABLE
+    const soilCategories = [
+      "Chaux calcique",
+      "Engrais chimiques",
+      "Engrais verts",
+      "Fumier",
+      "Terre et Terreaux",
+    ];
+
     if (category === "SEMENCE") tableName = "seed_costs_new";
-    else if (category === "PRODUITS DU SOL")
+    else if (soilCategories.includes(category))
       tableName = "soil_products_costs_new";
     else if (category === "EMBALLAGE") tableName = "packaging_costs_new";
     else tableName = "other_costs_new";
@@ -38,26 +46,38 @@ router.post("/", async (req, res) => {
     if (tableName === "other_costs_new") {
       // UPSERT by category + year to accumulate total_cost
       query = `
-    INSERT INTO other_costs_new (category, total_cost, year, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $4)
-    ON CONFLICT (category, year)
-    DO UPDATE SET
-      total_cost = other_costs_new.total_cost + EXCLUDED.total_cost,
-      updated_at = EXCLUDED.updated_at
-    RETURNING id
-  `;
+        INSERT INTO other_costs_new (category, total_cost, year, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4)
+        ON CONFLICT (category, year)
+        DO UPDATE SET
+          total_cost = other_costs_new.total_cost + EXCLUDED.total_cost,
+          updated_at = EXCLUDED.updated_at
+        RETURNING id
+      `;
       values = [category, amount, year, effectiveDate];
+    } else if (tableName === "soil_products_costs_new") {
+      // UPSERT by vegetable + category + year
+      query = `
+        INSERT INTO soil_products_costs_new (vegetable, category, total_cost, year, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $5)
+        ON CONFLICT (vegetable, category, year)
+        DO UPDATE SET
+          total_cost = soil_products_costs_new.total_cost + EXCLUDED.total_cost,
+          updated_at = EXCLUDED.updated_at
+        RETURNING id
+      `;
+      values = [vegetable || "AUCUNE", category, amount, year, effectiveDate];
     } else {
       // Tables with vegetable: UPSERT to add to existing total_cost
       query = `
-    INSERT INTO ${tableName} (vegetable, total_cost, year, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $4)
-    ON CONFLICT (vegetable, year)
-    DO UPDATE SET
-      total_cost = ${tableName}.total_cost + EXCLUDED.total_cost,
-      updated_at = EXCLUDED.updated_at
-    RETURNING id
-  `;
+        INSERT INTO ${tableName} (vegetable, total_cost, year, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4)
+        ON CONFLICT (vegetable, year)
+        DO UPDATE SET
+          total_cost = ${tableName}.total_cost + EXCLUDED.total_cost,
+          updated_at = EXCLUDED.updated_at
+        RETURNING id
+      `;
       values = [vegetable || "AUCUNE", amount, year, effectiveDate];
     }
 
