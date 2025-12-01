@@ -12,59 +12,59 @@ const router = express.Router();
  *  - Everything else -> other_costs_new
  */
 router.post("/", async (req, res) => {
-  const { category, amount, vegetable } = req.body;
-
-  if (!category || !amount) {
-    return res.status(400).json({ error: "Données manquantes" });
-  }
-
-  const safeVegetable =
-    vegetable && vegetable.trim() !== "" ? vegetable : "AUCUNE";
-  const year = new Date().getFullYear();
-
-  let tableName = "other_costs_new";
-
-  if (category === "SEMENCE") tableName = "seed_costs_new";
-  else if (category === "PRODUITS DU SOL")
-    tableName = "soil_products_costs_new";
-  else if (category === "EMBALLAGE") tableName = "packaging_costs_new";
-
   try {
-    // ✅ 1️⃣ Check if this year + vegetable already exists
-    const existing = await pool.query(
-      `
-      SELECT id, total_cost
-      FROM ${tableName}
-      WHERE year = $1 AND vegetable = $2
-      `,
-      [year, safeVegetable]
-    );
+    const { category, amount, vegetable } = req.body;
 
-    if (existing.rows.length > 0) {
-      // ✅ 2️⃣ UPDATE -> add to existing total
-      await pool.query(
-        `
-        UPDATE ${tableName}
-        SET total_cost = total_cost + $1
-        WHERE id = $2
-        `,
-        [amount, existing.rows[0].id]
-      );
-    } else {
-      // ✅ 3️⃣ INSERT new row
-      await pool.query(
-        `
-        INSERT INTO ${tableName} (year, vegetable, total_cost)
-        VALUES ($1, $2, $3)
-        `,
-        [year, safeVegetable, amount]
-      );
+    if (!category || !amount) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Données manquantes" });
     }
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error("POST /other-costs-entry error:", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    let tableName = "";
+    let insertQuery = "";
+    let values: any[] = [];
+
+    // ✅ CATEGORY → TABLE MAPPING
+    if (category === "SEMENCE") {
+      tableName = "seed_costs_new";
+    } else if (category === "PRODUITS DU SOL") {
+      tableName = "soil_products_costs_new";
+    } else if (category === "EMBALLAGE") {
+      tableName = "packaging_costs_new";
+    } else {
+      tableName = "other_costs_new";
+    }
+
+    // ✅ TABLE WITHOUT VEGETABLE COLUMN
+    if (tableName === "other_costs_new") {
+      insertQuery = `
+        INSERT INTO other_costs_new (entry_date, total_cost)
+        VALUES (CURRENT_DATE, $1)
+        RETURNING id
+      `;
+      values = [amount];
+    }
+
+    // ✅ TABLES WITH VEGETABLE COLUMN
+    else {
+      insertQuery = `
+        INSERT INTO ${tableName} (entry_date, vegetable, total_cost)
+        VALUES (CURRENT_DATE, $1, $2)
+        RETURNING id
+      `;
+      values = [vegetable || "AUCUNE", amount];
+    }
+
+    const result = await pool.query(insertQuery, values);
+
+    res.json({
+      success: true,
+      insertedId: result.rows[0].id,
+    });
+  } catch (error) {
+    console.error("Erreur otherCostsEntry:", error);
+    res.status(500).json({ success: false });
   }
 });
 
