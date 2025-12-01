@@ -13,7 +13,7 @@ const router = express.Router();
  */
 router.post("/", async (req, res) => {
   try {
-    const { category, amount, vegetable } = req.body;
+    const { category, amount, vegetable, entryDate } = req.body;
 
     if (!category || amount === undefined) {
       return res
@@ -21,11 +21,15 @@ router.post("/", async (req, res) => {
         .json({ success: false, message: "Données manquantes" });
     }
 
+    // ✅ If date provided → use it, else use NOW()
+    const effectiveDate = entryDate ? new Date(entryDate) : new Date();
+    const year = effectiveDate.getFullYear();
+
     let tableName = "";
     let query = "";
     let values: any[] = [];
 
-    // ✅ CATEGORY → TABLE
+    // ✅ CATEGORY → TABLE MAPPING
     if (category === "SEMENCE") {
       tableName = "seed_costs_new";
     } else if (category === "PRODUITS DU SOL") {
@@ -36,24 +40,24 @@ router.post("/", async (req, res) => {
       tableName = "other_costs_new";
     }
 
-    // ✅ TABLE WITHOUT VEGETABLE COLUMN
+    // ✅ TABLE WITHOUT VEGETABLE
     if (tableName === "other_costs_new") {
       query = `
-        INSERT INTO other_costs_new (total_cost)
-        VALUES ($1)
+        INSERT INTO other_costs_new (total_cost, year, created_at, updated_at)
+        VALUES ($1, $2, $3, $3)
         RETURNING id
       `;
-      values = [amount];
+      values = [amount, year, effectiveDate];
     }
 
-    // ✅ TABLES WITH VEGETABLE COLUMN
+    // ✅ TABLES WITH VEGETABLE
     else {
       query = `
-        INSERT INTO ${tableName} (vegetable, total_cost)
-        VALUES ($1, $2)
+        INSERT INTO ${tableName} (vegetable, total_cost, year, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4)
         RETURNING id
       `;
-      values = [vegetable || "AUCUNE", amount];
+      values = [vegetable || "AUCUNE", amount, year, effectiveDate];
     }
 
     const result = await pool.query(query, values);
