@@ -440,7 +440,7 @@ app.use("/employees", employeesRoute);
 
 app.use("/salary-periods", salaryPeriodsRoutes);
 
-app.use("/api/other-costs-entry", otherCostsEntry);
+app.use("/other-costs-entry", otherCostsEntry);
 
 const PORT = process.env.PORT || 3000;
 
