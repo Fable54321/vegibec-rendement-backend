@@ -21,7 +21,6 @@ router.post("/", async (req, res) => {
         .json({ success: false, message: "Données manquantes" });
     }
 
-    // ✅ If date provided → use it, else use NOW()
     const effectiveDate = entryDate ? new Date(entryDate) : new Date();
     const year = effectiveDate.getFullYear();
 
@@ -29,32 +28,30 @@ router.post("/", async (req, res) => {
     let query = "";
     let values: any[] = [];
 
-    // ✅ CATEGORY → TABLE MAPPING
-    if (category === "SEMENCE") {
-      tableName = "seed_costs_new";
-    } else if (category === "PRODUITS DU SOL") {
+    // CATEGORY → TABLE
+    if (category === "SEMENCE") tableName = "seed_costs_new";
+    else if (category === "PRODUITS DU SOL")
       tableName = "soil_products_costs_new";
-    } else if (category === "EMBALLAGE") {
-      tableName = "packaging_costs_new";
-    } else {
-      tableName = "other_costs_new";
-    }
+    else if (category === "EMBALLAGE") tableName = "packaging_costs_new";
+    else tableName = "other_costs_new";
 
-    // ✅ TABLE WITHOUT VEGETABLE
     if (tableName === "other_costs_new") {
+      // No vegetable column, just insert new row
       query = `
         INSERT INTO other_costs_new (total_cost, year, created_at, updated_at)
         VALUES ($1, $2, $3, $3)
         RETURNING id
       `;
       values = [amount, year, effectiveDate];
-    }
-
-    // ✅ TABLES WITH VEGETABLE
-    else {
+    } else {
+      // Tables with vegetable: UPSERT to add to existing total_cost
       query = `
         INSERT INTO ${tableName} (vegetable, total_cost, year, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
+        ON CONFLICT (vegetable, year)
+        DO UPDATE SET
+          total_cost = ${tableName}.total_cost + EXCLUDED.total_cost,
+          updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
       values = [vegetable || "AUCUNE", amount, year, effectiveDate];
