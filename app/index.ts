@@ -363,7 +363,7 @@ app.get("/data/costs/seed_costs", async (req, res) => {
         const daysInRange = endDay - startDay + 1;
 
         computed.push({
-          vegetable: row.seed,
+          vegetable: row.vegetable,
           total_cost: dailyRate * daysInRange,
         });
       });
