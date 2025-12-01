@@ -453,35 +453,65 @@ app.get("/data/costs/soil_products/vegetable", async (req, res) => {
   try {
     const { start, end } = req.query;
 
-    let query = `
-      SELECT vegetable, SUM(cost) AS total_cost
-      FROM soil_products
-    `;
+    const startDate = start ? new Date(start as string) : null;
+    const endDate = end ? new Date(end as string) : null;
+    const today = new Date();
 
-    const values: any[] = [];
-    const conditions: string[] = [];
+    const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
-    if (start && end) {
-      conditions.push(
-        `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+    if (year === 2024) {
+      // Old table logic
+      const values: any[] = [];
+      let query = `SELECT vegetable, SUM(cost) AS total_cost FROM soil_products`;
+      const conditions: string[] = [];
+
+      if (start && end) {
+        conditions.push(
+          `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+        );
+        values.push(start, end);
+      } else if (start) {
+        conditions.push(`created_at >= $${values.length + 1}`);
+        values.push(start);
+      } else if (end) {
+        conditions.push(`created_at <= $${values.length + 1}`);
+        values.push(end);
+      }
+
+      if (conditions.length) query += " WHERE " + conditions.join(" AND ");
+
+      query += " GROUP BY vegetable ORDER BY vegetable";
+
+      const result = await pool.query(query, values);
+      return res.json(result.rows);
+    } else {
+      // 2025+: new table
+      const values: any[] = [year];
+      const result = await pool.query(
+        `SELECT vegetable, total_cost FROM soil_products_costs_new WHERE year = $1`,
+        values
       );
-      values.push(start, end);
-    } else if (start) {
-      conditions.push(`created_at >= $${values.length + 1}`);
-      values.push(start);
-    } else if (end) {
-      conditions.push(`created_at <= $${values.length + 1}`);
-      values.push(end);
+
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31);
+      const daysInYear =
+        (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24) +
+        1;
+
+      const rangeStart = startDate || startOfYear;
+      const rangeEnd = endDate || today;
+      const daysInRange =
+        Math.floor(
+          (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
+
+      const computed = result.rows.map((row: any) => ({
+        vegetable: row.vegetable,
+        total_cost: (Number(row.total_cost) / daysInYear) * daysInRange,
+      }));
+
+      return res.json(computed);
     }
-
-    if (conditions.length > 0) {
-      query += " WHERE " + conditions.join(" AND ");
-    }
-
-    query += " GROUP BY vegetable ORDER BY vegetable";
-
-    const result = await pool.query(query, values);
-    res.json(result.rows);
   } catch (err) {
     console.error("Error fetching soil products by vegetable:", err);
     res.status(500).json({ error: "Database error" });
@@ -493,35 +523,75 @@ app.get("/data/costs/soil_products/category", async (req, res) => {
   try {
     const { start, end } = req.query;
 
-    let query = `
-      SELECT category, SUM(cost) AS total_cost
-      FROM soil_products
-    `;
+    const startDate = start ? new Date(start as string) : null;
+    const endDate = end ? new Date(end as string) : null;
+    const today = new Date();
 
-    const values: any[] = [];
-    const conditions: string[] = [];
+    const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
-    if (start && end) {
-      conditions.push(
-        `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+    if (year === 2024) {
+      // Old table logic
+      const values: any[] = [];
+      let query = `SELECT category, SUM(cost) AS total_cost FROM soil_products`;
+      const conditions: string[] = [];
+
+      if (start && end) {
+        conditions.push(
+          `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+        );
+        values.push(start, end);
+      } else if (start) {
+        conditions.push(`created_at >= $${values.length + 1}`);
+        values.push(start);
+      } else if (end) {
+        conditions.push(`created_at <= $${values.length + 1}`);
+        values.push(end);
+      }
+
+      if (conditions.length) query += " WHERE " + conditions.join(" AND ");
+
+      query += " GROUP BY category ORDER BY category";
+
+      const result = await pool.query(query, values);
+      return res.json(result.rows);
+    } else {
+      // 2025+: new table
+      const values: any[] = [year];
+      const result = await pool.query(
+        `SELECT category, total_cost FROM soil_products_costs_new WHERE year = $1`,
+        values
       );
-      values.push(start, end);
-    } else if (start) {
-      conditions.push(`created_at >= $${values.length + 1}`);
-      values.push(start);
-    } else if (end) {
-      conditions.push(`created_at <= $${values.length + 1}`);
-      values.push(end);
+
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31);
+      const daysInYear =
+        (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24) +
+        1;
+
+      const rangeStart = startDate || startOfYear;
+      const rangeEnd = endDate || today;
+      const daysInRange =
+        Math.floor(
+          (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
+
+      // Group by category
+      const grouped: Record<string, number> = {};
+      result.rows.forEach((row: any) => {
+        const dailyRate = Number(row.total_cost) / daysInYear;
+        if (!grouped[row.category]) grouped[row.category] = 0;
+        grouped[row.category] += dailyRate * daysInRange;
+      });
+
+      const computed = Object.entries(grouped).map(
+        ([category, total_cost]) => ({
+          category,
+          total_cost,
+        })
+      );
+
+      return res.json(computed);
     }
-
-    if (conditions.length > 0) {
-      query += " WHERE " + conditions.join(" AND ");
-    }
-
-    query += " GROUP BY category ORDER BY category";
-
-    const result = await pool.query(query, values);
-    res.json(result.rows);
   } catch (err) {
     console.error("Error fetching soil products by category:", err);
     res.status(500).json({ error: "Database error" });
