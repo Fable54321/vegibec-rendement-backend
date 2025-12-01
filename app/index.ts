@@ -386,28 +386,62 @@ app.get("/data/packaging_costs/per_vegetable", async (req, res) => {
   try {
     const { start, end } = req.query;
 
-    const values: any[] = [];
-    let query = `
-      SELECT vegetable, SUM(cost) AS total_cost
-      FROM packaging_costs
-    `;
+    const startDate = start ? new Date(start as string) : null;
+    const endDate = end ? new Date(end as string) : null;
+    const today = new Date();
 
-    // Add date filtering if provided
-    if (start && end) {
-      query += ` WHERE created_at BETWEEN $1 AND $2`;
-      values.push(start, end);
-    } else if (start) {
-      query += ` WHERE created_at >= $1`;
-      values.push(start);
-    } else if (end) {
-      query += ` WHERE created_at <= $1`;
-      values.push(end);
+    // Determine year from start date or today
+    const year = startDate ? startDate.getFullYear() : today.getFullYear();
+
+    if (year === 2024) {
+      // Keep old table logic for 2024
+      const values: any[] = [];
+      let query = `SELECT vegetable, SUM(cost) AS total_cost FROM packaging_costs`;
+
+      if (start && end) {
+        query += ` WHERE created_at BETWEEN $1 AND $2`;
+        values.push(start, end);
+      } else if (start) {
+        query += ` WHERE created_at >= $1`;
+        values.push(start);
+      } else if (end) {
+        query += ` WHERE created_at <= $1`;
+        values.push(end);
+      }
+
+      query += ` GROUP BY vegetable ORDER BY vegetable`;
+
+      const result = await pool.query(query, values);
+      return res.json(result.rows);
+    } else {
+      // 2025+ use packaging_costs_new
+      const values: any[] = [];
+      let query = `SELECT vegetable, total_cost FROM packaging_costs_new WHERE year = $1`;
+      values.push(year);
+
+      const result = await pool.query(query, values);
+
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31);
+      const daysInYear =
+        (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24) +
+        1;
+
+      const rangeStart = startDate || startOfYear;
+      const rangeEnd = endDate || today;
+
+      const daysInRange =
+        Math.floor(
+          (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
+
+      const computed = result.rows.map((row: any) => ({
+        vegetable: row.vegetable,
+        total_cost: (Number(row.total_cost) / daysInYear) * daysInRange,
+      }));
+
+      return res.json(computed);
     }
-
-    query += ` GROUP BY vegetable ORDER BY vegetable`;
-
-    const result = await pool.query(query, values);
-    res.json(result.rows); // [{ vegetable: "CHOU", total_cost: 1234 }, ...]
   } catch (err) {
     console.error("Error fetching packaging costs per vegetable:", err);
     res.status(500).json({ error: "Database error" });
