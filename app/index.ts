@@ -213,40 +213,32 @@ app.get("/data/costs/other_costs", async (req, res) => {
       });
 
       // 2025+: other_costs_new - spread total_cost over elapsed days
+      // 2025+: other_costs_new - spread total_cost over the whole year
       const otherCostsQuery = `
-        SELECT category, total_cost, EXTRACT(DOY FROM updated_at) AS day_of_year
-        FROM other_costs_new
-        WHERE year = $1
-      `;
+  SELECT category, total_cost
+  FROM other_costs_new
+  WHERE year = $1
+`;
       const otherResult = await pool.query(otherCostsQuery, [year]);
 
-      const today = endDate;
       const startOfYear = new Date(year, 0, 1);
-      const daysElapsed =
-        Math.floor(
-          (today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
-        ) + 1;
+      const endOfYear = new Date(year, 11, 31);
+      const daysInYear =
+        (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24) +
+        1;
 
       otherResult.rows.forEach((row: any) => {
-        const dailyRate = Number(row.total_cost) / daysElapsed;
+        const dailyRate = Number(row.total_cost) / daysInYear;
 
-        // Compute the number of days in the requested range
+        // Compute days in the requested range
         const rangeStart = startDate
-          ? Math.max(
-              1,
-              Math.floor(
-                (startDate.getTime() - startOfYear.getTime()) /
-                  (1000 * 60 * 60 * 24)
-              ) + 1
-            )
-          : 1;
-        const rangeEnd = Math.min(
-          daysElapsed,
-          Math.floor(
-            (today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
-          ) + 1
-        );
-        const daysInRange = rangeEnd - rangeStart + 1;
+          ? Math.max(startOfYear.getTime(), startDate.getTime())
+          : startOfYear.getTime();
+        const rangeEnd = endDate
+          ? Math.min(endOfYear.getTime(), endDate.getTime())
+          : endOfYear.getTime();
+        const daysInRange =
+          Math.floor((rangeEnd - rangeStart) / (1000 * 60 * 60 * 24)) + 1;
 
         results.push({
           category: row.category,
