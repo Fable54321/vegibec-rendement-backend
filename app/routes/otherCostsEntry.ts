@@ -15,17 +15,17 @@ router.post("/", async (req, res) => {
   try {
     const { category, amount, vegetable } = req.body;
 
-    if (!category || !amount) {
+    if (!category || amount === undefined) {
       return res
         .status(400)
         .json({ success: false, message: "Données manquantes" });
     }
 
     let tableName = "";
-    let insertQuery = "";
+    let query = "";
     let values: any[] = [];
 
-    // ✅ CATEGORY → TABLE MAPPING
+    // ✅ CATEGORY → TABLE
     if (category === "SEMENCE") {
       tableName = "seed_costs_new";
     } else if (category === "PRODUITS DU SOL") {
@@ -38,9 +38,9 @@ router.post("/", async (req, res) => {
 
     // ✅ TABLE WITHOUT VEGETABLE COLUMN
     if (tableName === "other_costs_new") {
-      insertQuery = `
-        INSERT INTO other_costs_new (entry_date, total_cost)
-        VALUES (CURRENT_DATE, $1)
+      query = `
+        INSERT INTO other_costs_new (total_cost)
+        VALUES ($1)
         RETURNING id
       `;
       values = [amount];
@@ -48,15 +48,15 @@ router.post("/", async (req, res) => {
 
     // ✅ TABLES WITH VEGETABLE COLUMN
     else {
-      insertQuery = `
-        INSERT INTO ${tableName} (entry_date, vegetable, total_cost)
-        VALUES (CURRENT_DATE, $1, $2)
+      query = `
+        INSERT INTO ${tableName} (vegetable, total_cost)
+        VALUES ($1, $2)
         RETURNING id
       `;
       values = [vegetable || "AUCUNE", amount];
     }
 
-    const result = await pool.query(insertQuery, values);
+    const result = await pool.query(query, values);
 
     res.json({
       success: true,
@@ -64,8 +64,10 @@ router.post("/", async (req, res) => {
     });
   } catch (error) {
     console.error("Erreur otherCostsEntry:", error);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
+
+export default router;
 
 export default router;
