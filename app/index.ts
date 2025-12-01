@@ -11,6 +11,7 @@ import employeesRoute from "./routes/employees";
 import authRoute from "./routes/auth";
 import cookieParser from "cookie-parser";
 import salaryPeriodsRoutes from "./routes/salaryPeriods";
+import otherCostsEntry from "./routes/otherCostsEntry";
 
 const app = express();
 app.use(express.json());
@@ -438,6 +439,8 @@ app.use("/revenues", revenuesRoute);
 app.use("/employees", employeesRoute);
 
 app.use("/salary-periods", salaryPeriodsRoutes);
+
+app.use("/api/other-costs-entry", otherCostsEntry);
 
 const PORT = process.env.PORT || 3000;
 
