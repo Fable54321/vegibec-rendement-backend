@@ -449,6 +449,7 @@ app.get("/data/packaging_costs/per_vegetable", async (req, res) => {
 });
 
 // Route for soil products grouped by vegetable
+// GET totals per vegetable
 app.get("/data/costs/soil_products/vegetable", async (req, res) => {
   try {
     const { start, end } = req.query;
@@ -456,7 +457,6 @@ app.get("/data/costs/soil_products/vegetable", async (req, res) => {
     const startDate = start ? new Date(start as string) : null;
     const endDate = end ? new Date(end as string) : null;
     const today = new Date();
-
     const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
     if (year === 2024) {
@@ -479,24 +479,23 @@ app.get("/data/costs/soil_products/vegetable", async (req, res) => {
       }
 
       if (conditions.length) query += " WHERE " + conditions.join(" AND ");
-
       query += " GROUP BY vegetable ORDER BY vegetable";
 
       const result = await pool.query(query, values);
       return res.json(result.rows);
     } else {
-      // 2025+: new table
-      const values: any[] = [year];
+      // 2025+ table logic
       const result = await pool.query(
         `SELECT vegetable, total_cost FROM soil_products_costs_new WHERE year = $1`,
-        values
+        [year]
       );
 
       const startOfYear = new Date(year, 0, 1);
       const endOfYear = new Date(year, 11, 31);
       const daysInYear =
-        (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24) +
-        1;
+        Math.floor(
+          (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
 
       const rangeStart = startDate || startOfYear;
       const rangeEnd = endDate || today;
@@ -518,7 +517,7 @@ app.get("/data/costs/soil_products/vegetable", async (req, res) => {
   }
 });
 
-// Route for soil products grouped by category
+// GET totals per category
 app.get("/data/costs/soil_products/category", async (req, res) => {
   try {
     const { start, end } = req.query;
@@ -526,7 +525,6 @@ app.get("/data/costs/soil_products/category", async (req, res) => {
     const startDate = start ? new Date(start as string) : null;
     const endDate = end ? new Date(end as string) : null;
     const today = new Date();
-
     const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
     if (year === 2024) {
@@ -549,24 +547,23 @@ app.get("/data/costs/soil_products/category", async (req, res) => {
       }
 
       if (conditions.length) query += " WHERE " + conditions.join(" AND ");
-
       query += " GROUP BY category ORDER BY category";
 
       const result = await pool.query(query, values);
       return res.json(result.rows);
     } else {
-      // 2025+: new table
-      const values: any[] = [year];
+      // 2025+ table logic (category totals)
       const result = await pool.query(
-        `SELECT category, total_cost FROM soil_products_costs_new WHERE year = $1`,
-        values
+        `SELECT category, total_cost FROM soil_products_category_totals_new WHERE year = $1`,
+        [year]
       );
 
       const startOfYear = new Date(year, 0, 1);
       const endOfYear = new Date(year, 11, 31);
       const daysInYear =
-        (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24) +
-        1;
+        Math.floor(
+          (endOfYear.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
 
       const rangeStart = startDate || startOfYear;
       const rangeEnd = endDate || today;
@@ -575,20 +572,10 @@ app.get("/data/costs/soil_products/category", async (req, res) => {
           (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
         ) + 1;
 
-      // Group by category
-      const grouped: Record<string, number> = {};
-      result.rows.forEach((row: any) => {
-        const dailyRate = Number(row.total_cost) / daysInYear;
-        if (!grouped[row.category]) grouped[row.category] = 0;
-        grouped[row.category] += dailyRate * daysInRange;
-      });
-
-      const computed = Object.entries(grouped).map(
-        ([category, total_cost]) => ({
-          category,
-          total_cost,
-        })
-      );
+      const computed = result.rows.map((row: any) => ({
+        category: row.category,
+        total_cost: (Number(row.total_cost) / daysInYear) * daysInRange,
+      }));
 
       return res.json(computed);
     }
