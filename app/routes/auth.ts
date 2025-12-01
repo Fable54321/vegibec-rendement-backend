@@ -73,12 +73,19 @@ router.post("/refresh", (req, res) => {
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as {
       id: number;
       username: string;
+      role: string;
     };
+
     const newAccessToken = jwt.sign(
-      { id: decoded.id, username: decoded.username },
+      {
+        id: decoded.id,
+        username: decoded.username,
+        role: decoded.role, // ✅ ROLE IS PRESERVED
+      },
       JWT_SECRET,
       { expiresIn: "1h" }
     );
+
     res.json({ token: newAccessToken });
   } catch (err) {
     console.error("Refresh error:", err);
@@ -106,6 +113,7 @@ router.post("/change-password", async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET) as {
       id: number;
       username: string;
+      role: string;
     };
     userId = decoded.id;
   } catch {
