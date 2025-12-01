@@ -150,7 +150,9 @@ app.get("/data/costs/other_costs", async (req, res) => {
       .json({ error: "Missing 'start' or 'end' query parameter." });
   }
 
-  const year = new Date(start!).getFullYear(); // extract year from start
+  const startDate = start ? new Date(start) : null;
+  const endDate = end ? new Date(end) : new Date();
+  const year = startDate?.getFullYear() || endDate.getFullYear();
 
   try {
     let results: { category: string; total_cost: number }[] = [];
@@ -180,59 +182,75 @@ app.get("/data/costs/other_costs", async (req, res) => {
         total_cost: Number(row.total_cost),
       }));
     } else {
-      // 2025+: combine salaries + other_costs_new
-      const categories = [
-        "férié_locaux",
-        "férié_tet",
-        "location_terre",
-        "préavis_locaux",
-        "vacances_locaux",
-        "vacance_tet",
-      ];
-
-      // 1️⃣ Salaries
+      // 2025+: salaries handled as before
       const salaryQuery = `
-  SELECT SUM(
-    CASE 
-      -- Compute overlap between the salary period and requested range
-      WHEN (end_date IS NULL OR end_date >= $2::date) THEN 
-        yearly_amount / days_in_year * (
-          GREATEST(
-            0,
-            LEAST($2::date, COALESCE(end_date, $2::date)) - GREATEST(start_date, $1::date) + 1
-          )
-        )
-      ELSE 
-        yearly_amount / days_in_year * (
-          GREATEST(
-            0,
-            LEAST(end_date, $2::date) - GREATEST(start_date, $1::date) + 1
-          )
-        )
-    END
-  ) AS total_cost
-  FROM salary_periods
-  WHERE start_date <= $2::date
-    AND (end_date IS NULL OR end_date >= $1::date)
-`;
+        SELECT SUM(
+          CASE 
+            WHEN (end_date IS NULL OR end_date >= $2::date) THEN 
+              yearly_amount / days_in_year * (
+                GREATEST(
+                  0,
+                  LEAST($2::date, COALESCE(end_date, $2::date)) - GREATEST(start_date, $1::date) + 1
+                )
+              )
+            ELSE 
+              yearly_amount / days_in_year * (
+                GREATEST(
+                  0,
+                  LEAST(end_date, $2::date) - GREATEST(start_date, $1::date) + 1
+                )
+              )
+          END
+        ) AS total_cost
+        FROM salary_periods
+        WHERE start_date <= $2::date
+          AND (end_date IS NULL OR end_date >= $1::date)
+      `;
       const salaryResult = await pool.query(salaryQuery, [start, end]);
       results.push({
         category: "salaire",
         total_cost: Number(salaryResult.rows[0].total_cost || 0),
       });
 
-      // 2️⃣ Other costs
+      // 2025+: other_costs_new - spread total_cost over elapsed days
       const otherCostsQuery = `
-        SELECT category, SUM(total_cost) AS total_cost
+        SELECT category, total_cost, EXTRACT(DOY FROM updated_at) AS day_of_year
         FROM other_costs_new
         WHERE year = $1
-        GROUP BY category
       `;
       const otherResult = await pool.query(otherCostsQuery, [year]);
-      otherResult.rows.forEach((row) => {
+
+      const today = endDate;
+      const startOfYear = new Date(year, 0, 1);
+      const daysElapsed =
+        Math.floor(
+          (today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
+
+      otherResult.rows.forEach((row: any) => {
+        const dailyRate = Number(row.total_cost) / daysElapsed;
+
+        // Compute the number of days in the requested range
+        const rangeStart = startDate
+          ? Math.max(
+              1,
+              Math.floor(
+                (startDate.getTime() - startOfYear.getTime()) /
+                  (1000 * 60 * 60 * 24)
+              ) + 1
+            )
+          : 1;
+        const rangeEnd = Math.min(
+          daysElapsed,
+          Math.floor(
+            (today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
+          ) + 1
+        );
+        const daysInRange = rangeEnd - rangeStart + 1;
+
         results.push({
           category: row.category,
-          total_cost: Number(row.total_cost),
+          total_cost: dailyRate * daysInRange,
         });
       });
     }
