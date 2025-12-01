@@ -322,12 +322,12 @@ app.get("/data/costs/seed_costs", async (req, res) => {
     } else {
       // Use new table for 2025+
       // We need to get total per seed, then calculate daily rate
-      let query = `SELECT seed, total_cost, EXTRACT(DOY FROM updated_at) AS day_of_year FROM seed_costs_new`;
+      let query = `SELECT vegetable, total_cost, EXTRACT(DOY FROM updated_at) AS day_of_year FROM seed_costs_new`;
       const values: any[] = [];
       const conditions: string[] = [];
 
       if (seed) {
-        conditions.push(`seed = $${values.length + 1}`);
+        conditions.push(`vegetable = $${values.length + 1}`);
         values.push(seed);
       }
 
@@ -338,7 +338,7 @@ app.get("/data/costs/seed_costs", async (req, res) => {
       const result = await pool.query(query, values);
 
       // Compute total for requested range
-      const computed: { seed: string; total_cost: number }[] = [];
+      const computed: { vegetable: string; total_cost: number }[] = [];
 
       const rangeStart = startDate || new Date(year, 0, 1);
       const rangeEnd = endDate || today;
@@ -363,7 +363,7 @@ app.get("/data/costs/seed_costs", async (req, res) => {
         const daysInRange = endDay - startDay + 1;
 
         computed.push({
-          seed: row.seed,
+          vegetable: row.seed,
           total_cost: dailyRate * daysInRange,
         });
       });
