@@ -273,49 +273,103 @@ app.delete("/data/costs/:id", async (req, res) => {
 app.get("/data/costs/seed_costs", async (req, res) => {
   const { start, end, seed } = req.query;
 
-  // Validate query parameters
   if (!start && !end) {
     return res
       .status(400)
       .json({ error: "Missing 'start' or 'end' query parameter." });
   }
 
-  let query = `
-    SELECT seed, SUM(cost) AS total_cost
-    FROM seed_costs
-  `;
+  const startDate = start ? new Date(start as string) : null;
+  const endDate = end ? new Date(end as string) : null;
+  const today = new Date();
 
-  const values: any[] = [];
-  const conditions: string[] = [];
-
-  // Add filters dynamically
-  if (start && end) {
-    conditions.push(
-      `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
-    );
-    values.push(start, end);
-  } else if (start) {
-    conditions.push(`created_at >= $${values.length + 1}`);
-    values.push(start);
-  } else if (end) {
-    conditions.push(`created_at <= $${values.length + 1}`);
-    values.push(end);
-  }
-
-  if (seed) {
-    conditions.push(`seed = $${values.length + 1}`);
-    values.push(seed);
-  }
-
-  if (conditions.length > 0) {
-    query += " WHERE " + conditions.join(" AND ");
-  }
-
-  query += " GROUP BY seed ORDER BY seed";
+  // Determine the year to choose table
+  const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
   try {
-    const result = await pool.query(query, values);
-    res.json(result.rows); // e.g. [{ seed: "carrot", total_cost: 2530.45 }]
+    if (year === 2024) {
+      // Use old table
+      let query = `SELECT seed, SUM(cost) AS total_cost FROM seed_costs`;
+      const values: any[] = [];
+      const conditions: string[] = [];
+
+      if (startDate && endDate) {
+        conditions.push(
+          `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+        );
+        values.push(startDate, endDate);
+      } else if (startDate) {
+        conditions.push(`created_at >= $${values.length + 1}`);
+        values.push(startDate);
+      } else if (endDate) {
+        conditions.push(`created_at <= $${values.length + 1}`);
+        values.push(endDate);
+      }
+
+      if (seed) {
+        conditions.push(`seed = $${values.length + 1}`);
+        values.push(seed);
+      }
+
+      if (conditions.length) {
+        query += " WHERE " + conditions.join(" AND ");
+      }
+
+      query += " GROUP BY seed ORDER BY seed";
+
+      const result = await pool.query(query, values);
+      return res.json(result.rows);
+    } else {
+      // Use new table for 2025+
+      // We need to get total per seed, then calculate daily rate
+      let query = `SELECT seed, total_cost, EXTRACT(DOY FROM updated_at) AS day_of_year FROM seed_costs_new`;
+      const values: any[] = [];
+      const conditions: string[] = [];
+
+      if (seed) {
+        conditions.push(`seed = $${values.length + 1}`);
+        values.push(seed);
+      }
+
+      if (conditions.length) {
+        query += " WHERE " + conditions.join(" AND ");
+      }
+
+      const result = await pool.query(query, values);
+
+      // Compute total for requested range
+      const computed: { seed: string; total_cost: number }[] = [];
+
+      const rangeStart = startDate || new Date(year, 0, 1);
+      const rangeEnd = endDate || today;
+
+      const daysElapsed = (date: Date) => {
+        const startOfYear = new Date(date.getFullYear(), 0, 1);
+        return (
+          Math.floor(
+            (date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
+          ) + 1
+        );
+      };
+
+      result.rows.forEach((row: any) => {
+        const totalCost = Number(row.total_cost || 0);
+        const currentDay = daysElapsed(rangeEnd); // how many days so far in the year
+        const dailyRate = totalCost / currentDay;
+
+        // Compute how many days in the requested range
+        const startDay = Math.max(daysElapsed(rangeStart), 1);
+        const endDay = Math.min(daysElapsed(rangeEnd), currentDay);
+        const daysInRange = endDay - startDay + 1;
+
+        computed.push({
+          seed: row.seed,
+          total_cost: dailyRate * daysInRange,
+        });
+      });
+
+      return res.json(computed);
+    }
   } catch (err) {
     console.error("Error fetching seed costs summary:", err);
     res.status(500).json({ error: "Database error" });
