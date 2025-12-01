@@ -9,15 +9,23 @@ const JWT_SECRET = process.env.JWT_SECRET || "super_secret";
 const REFRESH_SECRET = process.env.REFRESH_SECRET || "super_refresh_secret";
 
 function generateAccessToken(user: any) {
-  return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, {
-    expiresIn: "30s",
-  });
+  return jwt.sign(
+    { id: user.id, username: user.username, role: user.role },
+    JWT_SECRET,
+    {
+      expiresIn: "30s",
+    }
+  );
 }
 
 function generateRefreshToken(user: any) {
-  return jwt.sign({ id: user.id, username: user.username }, REFRESH_SECRET, {
-    expiresIn: "7d",
-  });
+  return jwt.sign(
+    { id: user.id, username: user.username, role: user.role },
+    REFRESH_SECRET,
+    {
+      expiresIn: "7d",
+    }
+  );
 }
 
 // LOGIN

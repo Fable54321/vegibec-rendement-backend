@@ -25,8 +25,14 @@ export const authMiddleware = (
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-    req.user = { id: decoded.id, username: decoded.username };
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload & {
+      role?: string;
+    };
+    req.user = {
+      id: decoded.id,
+      username: decoded.username,
+      role: decoded.role,
+    };
     next();
   } catch (err: any) {
     if (err.name === "TokenExpiredError") {
@@ -34,4 +40,18 @@ export const authMiddleware = (
     }
     res.status(401).json({ message: "Invalid token" });
   }
+};
+
+export const requireRole = (allowedRoles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user || !req.user.role) {
+      return res.status(403).json({ message: "Role not found" });
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    next();
+  };
 };

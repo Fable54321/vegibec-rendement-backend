@@ -1,12 +1,16 @@
 import express, { Request, Response } from "express";
 import { pool } from "../db";
+import { requireRole } from "../middleware/auth";
 
 const router = express.Router();
 
 // GET /revenues/romaine-redistribution
-router.get("/romaine-redistribution", async (req: Request, res: Response) => {
-  try {
-    const query = `
+router.get(
+  "/romaine-redistribution",
+  requireRole(["admin", "guest"]),
+  async (req: Request, res: Response) => {
+    try {
+      const query = `
       WITH lettuce_revenues AS (
         SELECT 
           vegetable, 
@@ -35,26 +39,30 @@ router.get("/romaine-redistribution", async (req: Request, res: Response) => {
       FROM combined;
     `;
 
-    const result = await pool.query(query);
+      const result = await pool.query(query);
 
-    return res.json(result.rows);
-  } catch (error) {
-    console.error("Error calculating lettuce redistribution:", error);
-    return res.status(500).json({ error: "Database error" });
-  }
-});
-
-router.get("/by-year", async (req: Request, res: Response) => {
-  try {
-    const { year_from } = req.query;
-
-    if (!year_from) {
-      return res
-        .status(400)
-        .json({ error: "Missing 'year_from' query parameter" });
+      return res.json(result.rows);
+    } catch (error) {
+      console.error("Error calculating lettuce redistribution:", error);
+      return res.status(500).json({ error: "Database error" });
     }
+  }
+);
 
-    const query = `
+router.get(
+  "/by-year",
+  requireRole(["admin", "guest"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { year_from } = req.query;
+
+      if (!year_from) {
+        return res
+          .status(400)
+          .json({ error: "Missing 'year_from' query parameter" });
+      }
+
+      const query = `
       SELECT 
         vegetable,
         SUM(REPLACE(total_revenue::text, ',', '')::numeric) AS total_revenue
@@ -64,13 +72,14 @@ router.get("/by-year", async (req: Request, res: Response) => {
       ORDER BY total_revenue DESC;
     `;
 
-    const result = await pool.query(query, [year_from]);
+      const result = await pool.query(query, [year_from]);
 
-    return res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching revenues by year:", error);
-    return res.status(500).json({ error: "Database error" });
+      return res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching revenues by year:", error);
+      return res.status(500).json({ error: "Database error" });
+    }
   }
-});
+);
 
 export default router;

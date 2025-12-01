@@ -1,41 +1,46 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db"; // your existing pg pool
+import { requireRole } from "../middleware/auth";
 
 const router = Router();
 
-router.post("/", async (req: Request, res: Response) => {
-  try {
-    const { employee_name, yearly_amount, year } = req.body;
+router.post(
+  "/",
+  requireRole(["admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { employee_name, yearly_amount, year } = req.body;
 
-    // Validate
-    if (!employee_name || !yearly_amount || !year) {
-      return res.status(400).json({ error: "Missing required fields." });
-    }
+      // Validate
+      if (!employee_name || !yearly_amount || !year) {
+        return res.status(400).json({ error: "Missing required fields." });
+      }
 
-    // Start date = January 1st of the given year
-    const start_date = `${year}-01-01`;
+      // Start date = January 1st of the given year
+      const start_date = `${year}-01-01`;
 
-    // Days in year (handles leap years)
-    const days_in_year = new Date(year, 1, 29).getDate() === 29 ? 366 : 365;
+      // Days in year (handles leap years)
+      const days_in_year = new Date(year, 1, 29).getDate() === 29 ? 366 : 365;
 
-    const query = `
+      const query = `
             INSERT INTO salary_periods (employee_name, yearly_amount, start_date, days_in_year)
             VALUES ($1, $2, $3, $4)
             RETURNING *;
         `;
 
-    const values = [employee_name, yearly_amount, start_date, days_in_year];
+      const values = [employee_name, yearly_amount, start_date, days_in_year];
 
-    const result = await pool.query(query, values);
+      const result = await pool.query(query, values);
 
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error("Error inserting salary period:", err);
-    res.status(500).json({ error: "Internal server error" });
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      console.error("Error inserting salary period:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
   }
-});
+);
 
-router.get("/check", async (req, res) => {
+router.get("/check", requireRole(["admin"]), async (req, res) => {
   const { employee_name, year } = req.query;
 
   if (!employee_name || !year) {
@@ -62,7 +67,7 @@ router.get("/check", async (req, res) => {
   }
 });
 
-router.put("/", async (req: Request, res: Response) => {
+router.put("/", requireRole(["admin"]), async (req: Request, res: Response) => {
   try {
     const { employee_name, year, start_date, yearly_amount } = req.body;
 
@@ -104,16 +109,19 @@ router.put("/", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/salary-periods/total-until", async (req, res) => {
-  try {
-    const { date } = req.query;
+router.get(
+  "/salary-periods/total-until",
+  requireRole(["admin", "guest"]),
+  async (req, res) => {
+    try {
+      const { date } = req.query;
 
-    if (!date) {
-      return res.status(400).json({ error: "Date requise." });
-    }
+      if (!date) {
+        return res.status(400).json({ error: "Date requise." });
+      }
 
-    const result = await pool.query(
-      `
+      const result = await pool.query(
+        `
       WITH ordered_periods AS (
         SELECT
           employee_name,
@@ -140,25 +148,29 @@ router.get("/salary-periods/total-until", async (req, res) => {
         ) AS total_paid
       FROM ordered_periods;
       `,
-      [date]
-    );
+        [date]
+      );
 
-    res.json({
-      date,
-      total_paid: Number(result.rows[0].total_paid || 0),
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erreur de calcul." });
+      res.json({
+        date,
+        total_paid: Number(result.rows[0].total_paid || 0),
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Erreur de calcul." });
+    }
   }
-});
+);
 
-router.get("/by-year/:year", async (req: Request, res: Response) => {
-  try {
-    const { year } = req.params;
+router.get(
+  "/by-year/:year",
+  requireRole(["admin", "guest"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { year } = req.params;
 
-    const result = await pool.query(
-      `
+      const result = await pool.query(
+        `
       SELECT DISTINCT ON (employee_name)
         employee_name,
         yearly_amount,
@@ -167,14 +179,15 @@ router.get("/by-year/:year", async (req: Request, res: Response) => {
       WHERE EXTRACT(YEAR FROM start_date) = $1
       ORDER BY employee_name, start_date DESC;
       `,
-      [year]
-    );
+        [year]
+      );
 
-    res.json(result.rows);
-  } catch (err) {
-    console.error("Error fetching latest salaries:", err);
-    res.status(500).json({ error: "Erreur serveur." });
+      res.json(result.rows);
+    } catch (err) {
+      console.error("Error fetching latest salaries:", err);
+      res.status(500).json({ error: "Erreur serveur." });
+    }
   }
-});
+);
 
 export default router;

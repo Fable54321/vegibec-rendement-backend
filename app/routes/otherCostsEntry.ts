@@ -1,5 +1,6 @@
 import express from "express";
 import { pool } from "../db"; // ✅ adjust path if needed
+import { requireRole } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const router = express.Router();
  *  - EMBALLAGE -> packaging_costs_new
  *  - Everything else -> other_costs_new
  */
-router.post("/", async (req, res) => {
+router.post("/", requireRole(["admin"]), async (req, res) => {
   try {
     const { category, amount, vegetable, entryDate } = req.body;
 
