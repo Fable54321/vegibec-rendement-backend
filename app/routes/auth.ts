@@ -96,7 +96,7 @@ router.post("/refresh", (req, res) => {
 // LOGOUT
 router.post("/logout", (req, res) => {
   res.clearCookie("refreshToken");
-  res.json({ message: "Logged out" });
+  res.json({ message: "Vous êtes maintenant déconnecté" });
 });
 
 // CHANGE PASSWORD
