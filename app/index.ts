@@ -347,8 +347,6 @@ app.get(
         return res.json(result.rows);
       } else {
         // Use new table for 2025+
-        // We need to get total per seed, then calculate daily rate
-        // Use new table for 2025+
         let query = `SELECT vegetable, total_cost FROM seed_costs_new`;
         const values: any[] = [];
         const conditions: string[] = [];
@@ -364,26 +362,35 @@ app.get(
 
         const result = await pool.query(query, values);
 
-        // Compute total for requested range
+        // --- FIXED 260-DAY PERIOD ---
+        const PERIOD_START = new Date(year, 2, 1); // March 1
+        const PERIOD_END = new Date(year, 10, 15); // Nov 15
+        const TOTAL_PERIOD_DAYS = 260;
+
+        // User date range (fallback to full period)
+        const userStart = startDate || PERIOD_START;
+        const userEnd = endDate || PERIOD_END;
+
+        // Compute intersection of:
+        //    [userStart, userEnd] ∩ [PERIOD_START, PERIOD_END]
+        const rangeStart = userStart > PERIOD_START ? userStart : PERIOD_START;
+        const rangeEnd = userEnd < PERIOD_END ? userEnd : PERIOD_END;
+
+        let daysInRange = 0;
+
+        if (rangeEnd >= rangeStart) {
+          daysInRange =
+            Math.floor(
+              (rangeEnd.getTime() - rangeStart.getTime()) /
+                (1000 * 60 * 60 * 24)
+            ) + 1;
+        }
+
+        // Final computed output
         const computed: { vegetable: string; total_cost: number }[] = [];
 
-        const startOfYear = new Date(year, 0, 1);
-        const endOfYear = new Date(year, 11, 31);
-        const daysInYear =
-          (endOfYear.getTime() - startOfYear.getTime()) /
-            (1000 * 60 * 60 * 24) +
-          1;
-
-        const rangeStart = startDate || startOfYear;
-        const rangeEnd = endDate || new Date();
-
-        const daysInRange =
-          Math.floor(
-            (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
-          ) + 1;
-
         result.rows.forEach((row: any) => {
-          const dailyRate = Number(row.total_cost) / daysInYear;
+          const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
 
           computed.push({
             vegetable: row.vegetable,
