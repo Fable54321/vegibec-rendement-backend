@@ -418,11 +418,13 @@ app.get(
       const endDate = end ? new Date(end as string) : null;
       const today = new Date();
 
-      // Determine year from start date or today
+      // Determine year from start or fallback to current
       const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
+      /* ---------------------------
+         2024 LOGIC (unchanged)
+      --------------------------- */
       if (year === 2024) {
-        // Keep old table logic for 2024
         const values: any[] = [];
         let query = `SELECT vegetable, SUM(cost) AS total_cost FROM packaging_costs`;
 
@@ -441,36 +443,49 @@ app.get(
 
         const result = await pool.query(query, values);
         return res.json(result.rows);
-      } else {
-        // 2025+ use packaging_costs_new
-        const values: any[] = [];
-        let query = `SELECT vegetable, total_cost FROM packaging_costs_new WHERE year = $1`;
-        values.push(year);
+      }
 
-        const result = await pool.query(query, values);
+      /* ---------------------------
+         2025+ LOGIC (SEASONAL: Mar 1 → Nov 15, 260 days)
+      --------------------------- */
 
-        const startOfYear = new Date(year, 0, 1);
-        const endOfYear = new Date(year, 11, 31);
-        const daysInYear =
-          (endOfYear.getTime() - startOfYear.getTime()) /
-            (1000 * 60 * 60 * 24) +
-          1;
+      const values: any[] = [year];
+      let query = `SELECT vegetable, total_cost FROM packaging_costs_new WHERE year = $1`;
+      const result = await pool.query(query, values);
 
-        const rangeStart = startDate || startOfYear;
-        const rangeEnd = endDate || today;
+      // FIXED SEASON WINDOW
+      const PERIOD_START = new Date(year, 2, 1); // March 1
+      const PERIOD_END = new Date(year, 10, 15); // Nov 15
+      const TOTAL_PERIOD_DAYS = 260;
 
-        const daysInRange =
+      // User date range, default to full seasonal window
+      const userStart = startDate || PERIOD_START;
+      const userEnd = endDate || PERIOD_END;
+
+      // Intersection: [userStart, userEnd] ∩ [PERIOD_START, PERIOD_END]
+      const rangeStart = userStart > PERIOD_START ? userStart : PERIOD_START;
+      const rangeEnd = userEnd < PERIOD_END ? userEnd : PERIOD_END;
+
+      let daysInRange = 0;
+
+      if (rangeEnd >= rangeStart) {
+        daysInRange =
           Math.floor(
             (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
           ) + 1;
-
-        const computed = result.rows.map((row: any) => ({
-          vegetable: row.vegetable,
-          total_cost: (Number(row.total_cost) / daysInYear) * daysInRange,
-        }));
-
-        return res.json(computed);
       }
+
+      // Compute response
+      const computed = result.rows.map((row: any) => {
+        const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
+
+        return {
+          vegetable: row.vegetable,
+          total_cost: dailyRate * daysInRange,
+        };
+      });
+
+      return res.json(computed);
     } catch (err) {
       console.error("Error fetching packaging costs per vegetable:", err);
       res.status(500).json({ error: "Database error" });
