@@ -507,11 +507,14 @@ app.get(
       const today = new Date();
       const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
+      /* --------------------------
+         2024 OLD TABLE LOGIC
+      --------------------------- */
       if (year === 2024) {
-        // Old table logic
         const values: any[] = [];
-        let query = `SELECT vegetable, SUM(cost) AS total_cost FROM soil_products`;
         const conditions: string[] = [];
+
+        let query = `SELECT vegetable, SUM(cost) AS total_cost FROM soil_products`;
 
         if (start && end) {
           conditions.push(
@@ -531,35 +534,49 @@ app.get(
 
         const result = await pool.query(query, values);
         return res.json(result.rows);
-      } else {
-        // 2025+ table logic
-        const result = await pool.query(
-          `SELECT vegetable, total_cost FROM soil_products_costs_new WHERE year = $1`,
-          [year]
-        );
+      }
 
-        const startOfYear = new Date(year, 0, 1);
-        const endOfYear = new Date(year, 11, 31);
-        const daysInYear =
-          Math.floor(
-            (endOfYear.getTime() - startOfYear.getTime()) /
-              (1000 * 60 * 60 * 24)
-          ) + 1;
+      /* --------------------------
+         2025+ NEW TABLE LOGIC
+         Seasonal: March 1 → Nov 15 (260 days)
+      --------------------------- */
 
-        const rangeStart = startDate || startOfYear;
-        const rangeEnd = endDate || today;
-        const daysInRange =
+      const result = await pool.query(
+        `SELECT vegetable, total_cost FROM soil_products_costs_new WHERE year = $1`,
+        [year]
+      );
+
+      // Fixed seasonal period
+      const PERIOD_START = new Date(year, 2, 1); // March 1
+      const PERIOD_END = new Date(year, 10, 15); // Nov 15
+      const TOTAL_PERIOD_DAYS = 260;
+
+      // User-specified or fallback range
+      const userStart = startDate || PERIOD_START;
+      const userEnd = endDate || PERIOD_END;
+
+      // Intersection with seasonal window
+      const rangeStart = userStart > PERIOD_START ? userStart : PERIOD_START;
+      const rangeEnd = userEnd < PERIOD_END ? userEnd : PERIOD_END;
+
+      let daysInRange = 0;
+      if (rangeEnd >= rangeStart) {
+        daysInRange =
           Math.floor(
             (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
           ) + 1;
-
-        const computed = result.rows.map((row: any) => ({
-          vegetable: row.vegetable,
-          total_cost: (Number(row.total_cost) / daysInYear) * daysInRange,
-        }));
-
-        return res.json(computed);
       }
+
+      const computed = result.rows.map((row: any) => {
+        const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
+
+        return {
+          vegetable: row.vegetable,
+          total_cost: dailyRate * daysInRange,
+        };
+      });
+
+      return res.json(computed);
     } catch (err) {
       console.error("Error fetching soil products by vegetable:", err);
       res.status(500).json({ error: "Database error" });
