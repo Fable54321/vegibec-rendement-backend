@@ -4,35 +4,44 @@ import { requireRole } from "../middleware/auth";
 
 const router = Router();
 
-router.post("/send-data", requireRole(["admin"]), async (req, res) => {
-  try {
-    const { vegetable, units_sold, date_of_sale } = req.body;
+router.post(
+  "/send-data",
+  requireRole(["admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { vegetable, value, is_kg, date_of_sale } = req.body;
 
-    if (!vegetable || !units_sold) {
-      return res.status(400).json({
-        error: "Missing required fields: vegetable, units_sold",
+      if (!vegetable || value == null) {
+        return res.status(400).json({
+          error: "Missing required fields: vegetable, value",
+        });
+      }
+
+      if (vegetable === "CHOU DE BRUXELLES" && !is_kg) {
+        return res.status(400).json({
+          error: "Missing required field: is_kg for CHOU DE BRUXELLES",
+        });
+      }
+
+      const saleDate = date_of_sale ? new Date(date_of_sale) : new Date();
+
+      const result = await pool.query(
+        `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+        [vegetable, value, is_kg || false, saleDate]
+      );
+
+      res.status(201).json({
+        success: true,
+        entry: result.rows[0],
       });
+    } catch (err) {
+      console.error("Error inserting units_sold:", err);
+      res.status(500).json({ error: "Database error" });
     }
-
-    const saleDate = date_of_sale ? new Date(date_of_sale) : new Date();
-
-    const result = await pool.query(
-      `INSERT INTO units_sold (vegetable, units_sold, date_of_sale)
-         VALUES ($1, $2, $3)
-         RETURNING *`,
-      [vegetable, units_sold, saleDate]
-    );
-
-    // ⭐ This is the line you add/replace:
-    res.status(201).json({
-      success: true,
-      entry: result.rows[0],
-    });
-  } catch (err) {
-    console.error("Error inserting units_sold:", err);
-    res.status(500).json({ error: "Database error" });
   }
-});
+);
 
 router.get(
   "/totals",
