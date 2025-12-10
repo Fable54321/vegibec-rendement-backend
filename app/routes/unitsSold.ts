@@ -59,23 +59,22 @@ router.get(
       const startDate = new Date(start);
       const endDate = new Date(end);
 
-      // Ensure start <= end
       if (startDate > endDate) {
         return res
           .status(400)
           .json({ error: "'start' date cannot be after 'end' date." });
       }
 
-      // ❌ Check that both dates are in the same year
       if (startDate.getFullYear() !== endDate.getFullYear()) {
         return res
           .status(400)
           .json({ error: "Date range cannot cross different years." });
       }
 
-      // Query total units sold per vegetable
       const result = await pool.query(
-        `SELECT vegetable, SUM(units_sold) AS total_units
+        `SELECT vegetable,
+                SUM(CASE WHEN is_kg = false THEN units_sold ELSE 0 END) AS total_units,
+                SUM(CASE WHEN is_kg = true THEN units_sold ELSE 0 END) AS total_kg
          FROM units_sold
          WHERE date_of_sale BETWEEN $1 AND $2
          GROUP BY vegetable
