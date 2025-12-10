@@ -12,7 +12,7 @@ import authRoute from "./routes/auth";
 import cookieParser from "cookie-parser";
 import salaryPeriodsRoutes from "./routes/salaryPeriods";
 import otherCostsEntry from "./routes/otherCostsEntry";
-import unitsSold from "./routes/UnitsSold";
+import unitsSold from "./routes/unitsSold";
 
 const app = express();
 app.use(express.json());
