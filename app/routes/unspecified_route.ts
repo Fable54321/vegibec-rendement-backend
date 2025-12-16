@@ -17,25 +17,21 @@ const router = express.Router();
  */
 router.post("/", requireRole(["admin"]), async (req, res) => {
   try {
-    const { description, amount, cost_year, cost_type, entry_date } = req.body;
+    const {
+      description,
+      amount,
+      cost_year,
+      cost_type,
+      vegetable, // 👈 NEW
+      entry_date,
+    } = req.body;
 
-    // --- Basic validation ---
     if (!description || !amount || !cost_year || !cost_type) {
-      return res.status(400).json({
-        error: "Missing required fields",
-      });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
     if (!["annual", "seasonal"].includes(cost_type)) {
-      return res.status(400).json({
-        error: "Invalid cost_type (must be 'annual' or 'seasonal')",
-      });
-    }
-
-    if (Number(amount) <= 0) {
-      return res.status(400).json({
-        error: "Amount must be greater than 0",
-      });
+      return res.status(400).json({ error: "Invalid cost_type" });
     }
 
     const dateValue = entry_date ? new Date(entry_date) : new Date();
@@ -43,12 +39,19 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     const result = await pool.query(
       `
         INSERT INTO unspecified_costs
-          (description, amount, cost_year, cost_type, entry_date)
+          (description, amount, cost_year, cost_type, vegetable, entry_date)
         VALUES
-          ($1, $2, $3, $4, $5)
+          ($1, $2, $3, $4, $5, $6)
         RETURNING *
         `,
-      [description, amount, cost_year, cost_type, dateValue]
+      [
+        description,
+        amount,
+        cost_year,
+        cost_type,
+        vegetable || null, // 👈 important
+        dateValue,
+      ]
     );
 
     res.status(201).json(result.rows[0]);
