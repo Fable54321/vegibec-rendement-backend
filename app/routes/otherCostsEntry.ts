@@ -14,16 +14,24 @@ const router = express.Router();
  */
 router.post("/", requireRole(["admin"]), async (req, res) => {
   try {
-    const { category, amount, vegetable, entryDate } = req.body;
+    const { category, amount, vegetable, year } = req.body;
 
-    if (!category || amount === undefined) {
+    if (!category || amount === undefined || !year) {
       return res
         .status(400)
         .json({ success: false, message: "Données manquantes" });
     }
 
-    const effectiveDate = entryDate ? new Date(entryDate) : new Date();
-    const year = effectiveDate.getFullYear();
+    const currentYear = new Date().getFullYear();
+
+    if (year < 2000 || year > currentYear + 1) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Année invalide" });
+    }
+
+    // System timestamp (NOT business logic)
+    const now = new Date();
 
     // Soil product categories
     const soilCategories = [
@@ -35,7 +43,6 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     ];
 
     if (category === "SEMENCE") {
-      // UPSERT into seed_costs_new
       const query = `
         INSERT INTO seed_costs_new (vegetable, total_cost, year, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
@@ -45,11 +52,12 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-      const values = [vegetable || "AUCUNE", amount, year, effectiveDate];
+
+      const values = [vegetable || "AUCUNE", amount, year, now];
       const result = await pool.query(query, values);
+
       return res.json({ success: true, insertedId: result.rows[0].id });
     } else if (soilCategories.includes(category)) {
-      // UPSERT into soil_products_costs_new (per vegetable)
       const vegQuery = `
         INSERT INTO soil_products_costs_new (vegetable, total_cost, year, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
@@ -59,10 +67,10 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-      const vegValues = [vegetable || "AUCUNE", amount, year, effectiveDate];
+
+      const vegValues = [vegetable || "AUCUNE", amount, year, now];
       const vegResult = await pool.query(vegQuery, vegValues);
 
-      // UPSERT into soil_products_category_totals_new (per category)
       const catQuery = `
         INSERT INTO soil_products_category_totals_new (category, total_cost, year, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
@@ -72,7 +80,8 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-      const catValues = [category, amount, year, effectiveDate];
+
+      const catValues = [category, amount, year, now];
       const catResult = await pool.query(catQuery, catValues);
 
       return res.json({
@@ -81,7 +90,6 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         insertedCategoryId: catResult.rows[0].id,
       });
     } else if (category === "EMBALLAGE") {
-      // UPSERT into packaging_costs_new
       const query = `
         INSERT INTO packaging_costs_new (vegetable, total_cost, year, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
@@ -91,11 +99,12 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-      const values = [vegetable || "AUCUNE", amount, year, effectiveDate];
+
+      const values = [vegetable || "AUCUNE", amount, year, now];
       const result = await pool.query(query, values);
+
       return res.json({ success: true, insertedId: result.rows[0].id });
     } else {
-      // UPSERT into other_costs_new
       const query = `
         INSERT INTO other_costs_new (category, total_cost, year, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
@@ -105,8 +114,10 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-      const values = [category, amount, year, effectiveDate];
+
+      const values = [category, amount, year, now];
       const result = await pool.query(query, values);
+
       return res.json({ success: true, insertedId: result.rows[0].id });
     }
   } catch (error) {
