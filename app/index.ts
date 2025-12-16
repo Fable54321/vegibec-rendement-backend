@@ -348,38 +348,28 @@ app.get(
         const result = await pool.query(query, values);
         return res.json(result.rows);
       } else {
-        // Use new table for 2025+
-        let query = `SELECT vegetable, total_cost FROM seed_costs_new`;
-        const values: any[] = [];
-        const conditions: string[] = [];
+        let query = `SELECT vegetable, total_cost FROM seed_costs_new WHERE year = $1`;
+        const values: any[] = [year];
 
         if (seed) {
-          conditions.push(`vegetable = $${values.length + 1}`);
+          query += ` AND vegetable = $${values.length + 1}`;
           values.push(seed);
-        }
-
-        if (conditions.length) {
-          query += " WHERE " + conditions.join(" AND ");
         }
 
         const result = await pool.query(query, values);
 
-        // --- FIXED 260-DAY PERIOD ---
-        const PERIOD_START = new Date(year, 2, 1); // March 1
+        // Seasonal calculation
+        const PERIOD_START = new Date(year, 2, 1); // Mar 1
         const PERIOD_END = new Date(year, 10, 15); // Nov 15
         const TOTAL_PERIOD_DAYS = 260;
 
-        // User date range (fallback to full period)
         const userStart = startDate || PERIOD_START;
         const userEnd = endDate || PERIOD_END;
 
-        // Compute intersection of:
-        //    [userStart, userEnd] ∩ [PERIOD_START, PERIOD_END]
         const rangeStart = userStart > PERIOD_START ? userStart : PERIOD_START;
         const rangeEnd = userEnd < PERIOD_END ? userEnd : PERIOD_END;
 
         let daysInRange = 0;
-
         if (rangeEnd >= rangeStart) {
           daysInRange =
             Math.floor(
@@ -388,17 +378,11 @@ app.get(
             ) + 1;
         }
 
-        // Final computed output
-        const computed: { vegetable: string; total_cost: number }[] = [];
-
-        result.rows.forEach((row: any) => {
-          const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
-
-          computed.push({
-            vegetable: row.vegetable,
-            total_cost: dailyRate * daysInRange,
-          });
-        });
+        const computed = result.rows.map((row: any) => ({
+          vegetable: row.vegetable,
+          total_cost:
+            (Number(row.total_cost) / TOTAL_PERIOD_DAYS) * daysInRange,
+        }));
 
         return res.json(computed);
       }
