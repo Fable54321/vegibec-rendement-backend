@@ -23,15 +23,14 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     }
 
     const currentYear = new Date().getFullYear();
-
     if (year < 2000 || year > currentYear + 1) {
       return res
         .status(400)
         .json({ success: false, message: "Année invalide" });
     }
 
-    // System timestamp (NOT business logic)
-    const now = new Date();
+    // Use the first day of the specified year for created_at / updated_at
+    const recordDate = new Date(year, 0, 1);
 
     // Soil product categories
     const soilCategories = [
@@ -52,8 +51,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-
-      const values = [vegetable || "AUCUNE", amount, year, now];
+      const values = [vegetable || "AUCUNE", amount, year, recordDate];
       const result = await pool.query(query, values);
 
       return res.json({ success: true, insertedId: result.rows[0].id });
@@ -67,8 +65,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-
-      const vegValues = [vegetable || "AUCUNE", amount, year, now];
+      const vegValues = [vegetable || "AUCUNE", amount, year, recordDate];
       const vegResult = await pool.query(vegQuery, vegValues);
 
       const catQuery = `
@@ -80,8 +77,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-
-      const catValues = [category, amount, year, now];
+      const catValues = [category, amount, year, recordDate];
       const catResult = await pool.query(catQuery, catValues);
 
       return res.json({
@@ -99,8 +95,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-
-      const values = [vegetable || "AUCUNE", amount, year, now];
+      const values = [vegetable || "AUCUNE", amount, year, recordDate];
       const result = await pool.query(query, values);
 
       return res.json({ success: true, insertedId: result.rows[0].id });
@@ -114,8 +109,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
           updated_at = EXCLUDED.updated_at
         RETURNING id
       `;
-
-      const values = [category, amount, year, now];
+      const values = [category, amount, year, recordDate];
       const result = await pool.query(query, values);
 
       return res.json({ success: true, insertedId: result.rows[0].id });
