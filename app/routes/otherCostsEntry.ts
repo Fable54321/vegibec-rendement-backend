@@ -51,7 +51,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     const costEntryQuery = `
       INSERT INTO cost_entries
       (category, amount, vegetable, year, cost_domain, employee_name, description, is_seasonal, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING id
     `;
     const costEntryValues = [
