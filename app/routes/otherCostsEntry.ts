@@ -50,7 +50,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     // Insert into cost_entries table for audit tracking
     const costEntryQuery = `
       INSERT INTO cost_entries
-      (category, amount, vegetable, year, cost_domain, employee_name, description, is_seasonal, created_at, updated_at)
+      (category, amount, vegetable, year, cost_domain, employee_name, description, is_seasonal, created_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
       RETURNING id
     `;
