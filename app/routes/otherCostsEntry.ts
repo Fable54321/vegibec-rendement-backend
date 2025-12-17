@@ -14,9 +14,25 @@ const router = express.Router();
  */
 router.post("/", requireRole(["admin"]), async (req, res) => {
   try {
-    const { category, amount, vegetable, year } = req.body;
+    const {
+      category,
+      amount,
+      vegetable,
+      year,
+      cost_domain,
+      employee_name,
+      description,
+      is_seasonal,
+    } = req.body;
 
-    if (!category || amount === undefined || !year) {
+    // Validate required fields
+    if (
+      !category ||
+      amount === undefined ||
+      !year ||
+      !cost_domain ||
+      !employee_name
+    ) {
       return res
         .status(400)
         .json({ success: false, message: "Données manquantes" });
@@ -29,91 +45,127 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         .json({ success: false, message: "Année invalide" });
     }
 
-    // Use the first day of the specified year for created_at / updated_at
-    const recordDate = new Date(year, 0, 1);
+    const recordDate = new Date(year, 0, 1); // first day of the year
 
-    // Soil product categories
-    const soilCategories = [
-      "Chaux calcique",
-      "Engrais chimiques",
-      "Engrais verts",
-      "Fumier",
-      "Terre et Terreaux",
+    // Insert into cost_entries table for audit tracking
+    const costEntryQuery = `
+      INSERT INTO cost_entries
+      (category, amount, vegetable, year, cost_domain, employee_name, description, is_seasonal, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+      RETURNING id
+    `;
+    const costEntryValues = [
+      category,
+      amount,
+      vegetable,
+      year,
+      cost_domain,
+      employee_name,
+      description ?? null,
+      is_seasonal ?? null,
+      recordDate,
     ];
+    const costEntryResult = await pool.query(costEntryQuery, costEntryValues);
 
-    if (category === "SEMENCE") {
-      const query = `
-        INSERT INTO seed_costs_new (vegetable, total_cost, year, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (vegetable, year)
-        DO UPDATE SET
-          total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `;
-      const values = [vegetable || "AUCUNE", amount, year, recordDate];
-      const result = await pool.query(query, values);
+    // Update the appropriate table based on cost_domain
+    switch (cost_domain) {
+      case "SEMENCE":
+        await pool.query(
+          `
+          INSERT INTO seed_costs_new (vegetable, total_cost, year, created_at, updated_at)
+          VALUES ($1,$2,$3,$4,$4)
+          ON CONFLICT (vegetable, year)
+          DO UPDATE SET
+            total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
+            updated_at = EXCLUDED.updated_at
+        `,
+          [vegetable || "AUCUNE", amount, year, recordDate]
+        );
+        break;
 
-      return res.json({ success: true, insertedId: result.rows[0].id });
-    } else if (soilCategories.includes(category)) {
-      const vegQuery = `
-        INSERT INTO soil_products_costs_new (vegetable, total_cost, year, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (vegetable, year)
-        DO UPDATE SET
-          total_cost = soil_products_costs_new.total_cost + EXCLUDED.total_cost,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `;
-      const vegValues = [vegetable || "AUCUNE", amount, year, recordDate];
-      const vegResult = await pool.query(vegQuery, vegValues);
+      case "EMBALLAGE":
+        await pool.query(
+          `
+          INSERT INTO packaging_costs_new (vegetable, total_cost, year, created_at, updated_at)
+          VALUES ($1,$2,$3,$4,$4)
+          ON CONFLICT (vegetable, year)
+          DO UPDATE SET
+            total_cost = packaging_costs_new.total_cost + EXCLUDED.total_cost,
+            updated_at = EXCLUDED.updated_at
+        `,
+          [vegetable || "AUCUNE", amount, year, recordDate]
+        );
+        break;
 
-      const catQuery = `
-        INSERT INTO soil_products_category_totals_new (category, total_cost, year, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (category, year)
-        DO UPDATE SET
-          total_cost = soil_products_category_totals_new.total_cost + EXCLUDED.total_cost,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `;
-      const catValues = [category, amount, year, recordDate];
-      const catResult = await pool.query(catQuery, catValues);
+      case "UNSPECIFIED":
+        await pool.query(
+          `
+          INSERT INTO unspecified_costs_new (description, total_cost, year, vegetable, is_seasonal, created_at, updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$6)
+        `,
+          [
+            description,
+            amount,
+            year,
+            vegetable,
+            is_seasonal ?? false,
+            recordDate,
+          ]
+        );
+        break;
 
-      return res.json({
-        success: true,
-        insertedVegetableId: vegResult.rows[0].id,
-        insertedCategoryId: catResult.rows[0].id,
-      });
-    } else if (category === "EMBALLAGE") {
-      const query = `
-        INSERT INTO packaging_costs_new (vegetable, total_cost, year, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (vegetable, year)
-        DO UPDATE SET
-          total_cost = packaging_costs_new.total_cost + EXCLUDED.total_cost,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `;
-      const values = [vegetable || "AUCUNE", amount, year, recordDate];
-      const result = await pool.query(query, values);
+      default:
+        // soil categories or other costs
+        const soilCategories = [
+          "Chaux calcique",
+          "Engrais chimiques",
+          "Engrais verts",
+          "Fumier",
+          "Terre et Terreaux",
+        ];
 
-      return res.json({ success: true, insertedId: result.rows[0].id });
-    } else {
-      const query = `
-        INSERT INTO other_costs_new (category, total_cost, year, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (category, year)
-        DO UPDATE SET
-          total_cost = other_costs_new.total_cost + EXCLUDED.total_cost,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `;
-      const values = [category, amount, year, recordDate];
-      const result = await pool.query(query, values);
+        if (soilCategories.includes(cost_domain)) {
+          // soil products cost
+          await pool.query(
+            `
+            INSERT INTO soil_products_costs_new (vegetable, total_cost, year, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$4)
+            ON CONFLICT (vegetable, year)
+            DO UPDATE SET
+              total_cost = soil_products_costs_new.total_cost + EXCLUDED.total_cost,
+              updated_at = EXCLUDED.updated_at
+          `,
+            [vegetable || "AUCUNE", amount, year, recordDate]
+          );
 
-      return res.json({ success: true, insertedId: result.rows[0].id });
+          await pool.query(
+            `
+            INSERT INTO soil_products_category_totals_new (category, total_cost, year, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$4)
+            ON CONFLICT (category, year)
+            DO UPDATE SET
+              total_cost = soil_products_category_totals_new.total_cost + EXCLUDED.total_cost,
+              updated_at = EXCLUDED.updated_at
+          `,
+            [category, amount, year, recordDate]
+          );
+        } else {
+          // generic other costs
+          await pool.query(
+            `
+            INSERT INTO other_costs_new (category, total_cost, year, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$4)
+            ON CONFLICT (category, year)
+            DO UPDATE SET
+              total_cost = other_costs_new.total_cost + EXCLUDED.total_cost,
+              updated_at = EXCLUDED.updated_at
+          `,
+            [category, amount, year, recordDate]
+          );
+        }
     }
+
+    return res.json({ success: true, costEntryId: costEntryResult.rows[0].id });
   } catch (error) {
     console.error("Erreur otherCostsEntry:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
