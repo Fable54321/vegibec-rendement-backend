@@ -145,4 +145,70 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
   }
 });
 
+router.get("/", requireRole(["admin"]), async (req, res) => {
+  try {
+    const { domain, page = 1, limit = 20, year, vegetable } = req.query;
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const conditions: string[] = [];
+    const values: any[] = [];
+
+    let idx = 1;
+
+    if (domain) {
+      conditions.push(`cost_domain = $${idx++}`);
+      values.push(domain);
+    }
+
+    if (year) {
+      conditions.push(`year = $${idx++}`);
+      values.push(Number(year));
+    }
+
+    if (vegetable) {
+      conditions.push(`vegetable = $${idx++}`);
+      values.push(vegetable);
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const dataQuery = `
+      SELECT *
+      FROM cost_entries
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${idx++}
+      OFFSET $${idx}
+    `;
+
+    values.push(Number(limit), offset);
+
+    const countQuery = `
+      SELECT COUNT(*)::int AS total
+      FROM cost_entries
+      ${whereClause}
+    `;
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(dataQuery, values),
+      pool.query(countQuery, values.slice(0, values.length - 2)),
+    ]);
+
+    res.json({
+      entries: dataResult.rows,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: countResult.rows[0].total,
+        totalPages: Math.ceil(countResult.rows[0].total / Number(limit)),
+      },
+    });
+  } catch (err) {
+    console.error("Error fetching journal:", err);
+    res.status(500).json({ error: "Failed to fetch journal entries" });
+  }
+});
+
 export default router;
