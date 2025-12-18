@@ -99,7 +99,6 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
       case "UNSPECIFIED": {
         const costType = is_seasonal ? "seasonal" : "annual";
-        const now = new Date();
 
         await pool.query(
           `
@@ -113,7 +112,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       updated_at,
       vegetable
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$6,$7)
+    VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), $6)
     RETURNING *
     `,
           [
@@ -121,9 +120,8 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
             amount, // $2
             year, // $3
             costType, // $4
-            recordDate ?? now, // $5
-            now, // $6 (created_at & updated_at)
-            vegetable || null, // $7
+            recordDate, // $5
+            vegetable || null, // $6
           ]
         );
 
