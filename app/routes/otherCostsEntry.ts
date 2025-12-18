@@ -100,8 +100,11 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       case "UNSPECIFIED":
         await pool.query(
           `
-          INSERT INTO unspecified_costs (description, total_cost, year, vegetable, is_seasonal, created_at, updated_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$6)
+          INSERT INTO unspecified_costs
+  (description, amount, cost_year, cost_type, vegetable)
+VALUES
+  ($1, $2, $3, $4, $5)
+RETURNING *
         `,
           [
             description,
