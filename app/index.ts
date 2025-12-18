@@ -14,6 +14,7 @@ import salaryPeriodsRoutes from "./routes/salaryPeriods";
 import otherCostsEntry from "./routes/otherCostsEntry";
 import unitsSold from "./routes/unitsSold";
 import unspecifiedRoute from "./routes/unspecified_route";
+import journalRoute from "./routes/journal";
 
 const app = express();
 app.use(express.json());
@@ -654,6 +655,8 @@ app.use("/other-costs-entry", otherCostsEntry);
 app.use("/units", unitsSold);
 
 app.use("/unspecified", unspecifiedRoute);
+
+app.use("/journal", journalRoute);
 
 const PORT = process.env.PORT || 3000;
 
