@@ -21,9 +21,9 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       description,
       amount,
       cost_year,
-      cost_type,
-      vegetable, // 👈 NEW
-      entry_date,
+      cost_type, // "annual" | "seasonal"
+      vegetable,
+      employee_name,
     } = req.body;
 
     if (!description || !amount || !cost_year || !cost_type) {
@@ -34,27 +34,74 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       return res.status(400).json({ error: "Invalid cost_type" });
     }
 
-    const dateValue = entry_date ? new Date(entry_date) : new Date();
+    const isSeasonal = cost_type === "seasonal";
+    const recordDate = new Date(cost_year, 0, 1);
 
-    const result = await pool.query(
-      `
-        INSERT INTO unspecified_costs
-          (description, amount, cost_year, cost_type, vegetable, entry_date)
-        VALUES
-          ($1, $2, $3, $4, $5, $6)
-        RETURNING *
-        `,
-      [
-        description,
-        amount,
-        cost_year,
-        cost_type,
-        vegetable || null, // 👈 important
-        dateValue,
-      ]
+    /* ---------------------------------
+       1️⃣ INSERT INTO cost_entries (AUDIT)
+    --------------------------------- */
+    const costEntryQuery = `
+      INSERT INTO cost_entries
+        (
+          category,
+          amount,
+          vegetable,
+          year,
+          cost_domain,
+          employee_name,
+          description,
+          is_seasonal,
+          entry_type,
+          created_at
+        )
+      VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,'addition',$9)
+      RETURNING id
+    `;
+
+    const costEntryValues = [
+      "HORS CATÉGORIE",
+      amount,
+      vegetable || "AUCUNE",
+      cost_year,
+      "UNSPECIFIED",
+      employee_name || null,
+      description,
+      isSeasonal, // never null here
+      recordDate,
+    ];
+
+    const costEntryResult = await pool.query(costEntryQuery, costEntryValues);
+
+    /* ---------------------------------
+       2️⃣ INSERT INTO unspecified_costs
+    --------------------------------- */
+    const unspecifiedQuery = `
+      INSERT INTO unspecified_costs
+        (description, amount, cost_year, cost_type, vegetable)
+      VALUES
+        ($1,$2,$3,$4,$5)
+      RETURNING *
+    `;
+
+    const unspecifiedValues = [
+      description,
+      amount,
+      cost_year,
+      cost_type,
+      vegetable || "AUCUNE",
+    ];
+
+    const unspecifiedResult = await pool.query(
+      unspecifiedQuery,
+      unspecifiedValues
     );
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      success: true,
+      costEntryId: costEntryResult.rows[0].id,
+      unspecifiedCost: unspecifiedResult.rows[0],
+    });
   } catch (err) {
     console.error("Error inserting unspecified cost:", err);
     res.status(500).json({ error: "Database error" });
