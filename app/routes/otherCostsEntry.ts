@@ -97,25 +97,38 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         );
         break;
 
-      case "UNSPECIFIED":
+      case "UNSPECIFIED": {
+        const costType = is_seasonal ? "seasonal" : "annual";
+        const now = new Date();
+
         await pool.query(
           `
-          INSERT INTO unspecified_costs
-  (description, amount, cost_year, cost_type, vegetable)
-VALUES
-  ($1, $2, $3, $4, $5)
-RETURNING *
-        `,
+    INSERT INTO unspecified_costs (
+      description,
+      amount,
+      cost_year,
+      cost_type,
+      entry_date,
+      created_at,
+      updated_at,
+      vegetable
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$6,$7)
+    RETURNING *
+    `,
           [
-            description,
-            amount,
-            year,
-            vegetable,
-            is_seasonal ?? false,
-            recordDate,
+            description, // $1
+            amount, // $2
+            year, // $3
+            costType, // $4
+            recordDate ?? now, // $5
+            now, // $6 (created_at & updated_at)
+            vegetable || null, // $7
           ]
         );
+
         break;
+      }
 
       default:
         // soil categories or other costs
