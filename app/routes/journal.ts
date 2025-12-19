@@ -11,17 +11,17 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
 
   try {
     const entryId = Number(req.params.id);
-    if (!entryId) throw new Error("Invalid entry ID");
-
     await client.query("BEGIN");
 
-    // 1️⃣ Fetch original entry
+    // 1️⃣ Fetch original journal entry
     const { rows } = await client.query(
       `SELECT * FROM cost_entries WHERE id = $1`,
       [entryId]
     );
 
-    if (!rows.length) throw new Error("Entry not found");
+    if (!rows.length) {
+      throw new Error("Entry not found");
+    }
 
     const original = rows[0];
     const reversalAmount = -original.amount;
@@ -38,13 +38,11 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
         cost_domain,
         employee_name,
         description,
-        business_description,
         is_seasonal,
         entry_type,
-        corrected_entry_id,
-        created_at
+        corrected_entry_id
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'deletion',$10,NOW())
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'deletion',$9)
       `,
       [
         original.category,
@@ -53,54 +51,49 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
         original.year,
         original.cost_domain,
         original.employee_name,
-        `Suppression de l'entrée #${original.id}`, // journal description
-        original.business_description ?? null, // preserve UNSPECIFIED description if present
+        `Supression de l'entrée #${original.id}`,
         original.is_seasonal,
         original.id,
       ]
     );
 
-    // 3️⃣ Apply reversal to aggregate tables
+    // 3️⃣ Update the appropriate table
     switch (original.cost_domain) {
       case "SEMENCE":
         await client.query(
-          `UPDATE seed_costs_new
-           SET total_cost = total_cost + $1
-           WHERE vegetable = $2 AND year = $3`,
+          `
+          UPDATE seed_costs_new
+          SET total_cost = total_cost + $1
+          WHERE vegetable = $2 AND year = $3
+          `,
           [reversalAmount, original.vegetable || "AUCUNE", recordYear]
         );
         break;
 
       case "EMBALLAGE":
         await client.query(
-          `UPDATE packaging_costs_new
-           SET total_cost = total_cost + $1
-           WHERE vegetable = $2 AND year = $3`,
+          `
+          UPDATE packaging_costs_new
+          SET total_cost = total_cost + $1
+          WHERE vegetable = $2 AND year = $3
+          `,
           [reversalAmount, original.vegetable || "AUCUNE", recordYear]
         );
         break;
 
       case "UNSPECIFIED":
-        // Insert negative entry into unspecified_costs
+        // Delete the specific row from unspecified_costs
         await client.query(
           `
-          INSERT INTO unspecified_costs (
-            description,
-            amount,
-            cost_year,
-            cost_type,
-            vegetable,
-            created_at,
-            updated_at
-          )
-          VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
+          DELETE FROM unspecified_costs
+          WHERE cost_year = $1
+            AND vegetable = $2
+            AND description = $3
           `,
           [
-            `Suppression de l'entrée #${original.id}`,
-            reversalAmount,
             recordYear,
-            original.is_seasonal ? "seasonal" : "annual",
             original.vegetable || null,
+            original.business_description || original.description,
           ]
         );
         break;
@@ -116,27 +109,32 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
 
         if (soilCategories.includes(original.cost_domain)) {
           await client.query(
-            `UPDATE soil_products_costs_new
-             SET total_cost = total_cost + $1
-             WHERE vegetable = $2 AND year = $3`,
+            `
+            UPDATE soil_products_costs_new
+            SET total_cost = total_cost + $1
+            WHERE vegetable = $2 AND year = $3
+            `,
             [reversalAmount, original.vegetable || "AUCUNE", recordYear]
           );
 
           await client.query(
-            `UPDATE soil_products_category_totals_new
-             SET total_cost = total_cost + $1
-             WHERE category = $2 AND year = $3`,
+            `
+            UPDATE soil_products_category_totals_new
+            SET total_cost = total_cost + $1
+            WHERE category = $2 AND year = $3
+            `,
             [reversalAmount, original.category, recordYear]
           );
         } else {
           await client.query(
-            `UPDATE other_costs_new
-             SET total_cost = total_cost + $1
-             WHERE category = $2 AND year = $3`,
+            `
+            UPDATE other_costs_new
+            SET total_cost = total_cost + $1
+            WHERE category = $2 AND year = $3
+            `,
             [reversalAmount, original.category, recordYear]
           );
         }
-        break;
       }
     }
 
@@ -144,7 +142,7 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("Delete failed:", err);
+    console.error(err);
     res.status(500).json({ error: "Delete failed" });
   } finally {
     client.release();
