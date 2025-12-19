@@ -25,8 +25,9 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
     }
 
     const original = rows[0];
+    const reversalAmount = -original.amount;
 
-    // 2️⃣ Insert compensating entry
+    // 2️⃣ Insert compensating journal entry
     await client.query(
       `
       INSERT INTO cost_entries (
@@ -39,14 +40,13 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
         description,
         is_seasonal,
         entry_type,
-        corrected_entry_id,
-        created_at
+        corrected_entry_id
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'deletion',$9,NOW())
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'deletion',$9)
       `,
       [
         original.category,
-        -original.amount,
+        reversalAmount,
         original.vegetable,
         original.year,
         original.cost_domain,
@@ -56,6 +56,94 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
         original.id,
       ]
     );
+
+    // 3️⃣ Apply reversal to aggregate tables
+    const recordYear = original.year;
+
+    switch (original.cost_domain) {
+      case "SEMENCE":
+        await client.query(
+          `
+          UPDATE seed_costs_new
+          SET total_cost = total_cost + $1
+          WHERE vegetable = $2 AND year = $3
+          `,
+          [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+        );
+        break;
+
+      case "EMBALLAGE":
+        await client.query(
+          `
+          UPDATE packaging_costs_new
+          SET total_cost = total_cost + $1
+          WHERE vegetable = $2 AND year = $3
+          `,
+          [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+        );
+        break;
+
+      case "UNSPECIFIED":
+        await client.query(
+          `
+          INSERT INTO unspecified_costs (
+            description,
+            amount,
+            cost_year,
+            cost_type,
+            vegetable
+          )
+          VALUES ($1,$2,$3,$4,$5)
+          `,
+          [
+            `Deletion of entry #${original.id}`,
+            reversalAmount,
+            recordYear,
+            original.is_seasonal ? "seasonal" : "annual",
+            original.vegetable || null,
+          ]
+        );
+        break;
+
+      default: {
+        const soilCategories = [
+          "Chaux calcique",
+          "Engrais chimiques",
+          "Engrais verts",
+          "Fumier",
+          "Terre et Terreaux",
+        ];
+
+        if (soilCategories.includes(original.cost_domain)) {
+          await client.query(
+            `
+            UPDATE soil_products_costs_new
+            SET total_cost = total_cost + $1
+            WHERE vegetable = $2 AND year = $3
+            `,
+            [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+          );
+
+          await client.query(
+            `
+            UPDATE soil_products_category_totals_new
+            SET total_cost = total_cost + $1
+            WHERE category = $2 AND year = $3
+            `,
+            [reversalAmount, original.category, recordYear]
+          );
+        } else {
+          await client.query(
+            `
+            UPDATE other_costs_new
+            SET total_cost = total_cost + $1
+            WHERE category = $2 AND year = $3
+            `,
+            [reversalAmount, original.category, recordYear]
+          );
+        }
+      }
+    }
 
     await client.query("COMMIT");
     res.json({ success: true });
