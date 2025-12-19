@@ -195,7 +195,7 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
         original.year,
         original.cost_domain,
         original.employee_name,
-        `Correction of entry #${original.id}`,
+        `Correction de l'entrée #${original.id}`,
         original.is_seasonal,
         original.id,
       ]
@@ -218,7 +218,7 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
         correctedYear,
         original.cost_domain,
         original.employee_name,
-        `Corrected version of entry #${original.id}`,
+        `Valeur corrigée de l'entrée #${original.id}`,
         correctedIsSeasonal,
         original.id,
       ]
