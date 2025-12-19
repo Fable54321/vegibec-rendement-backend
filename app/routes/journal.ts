@@ -42,7 +42,7 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
         entry_type,
         corrected_entry_id
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'deletion',$9)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'suppression',$9)
       `,
       [
         original.category,
@@ -160,7 +160,7 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
 
     await client.query("BEGIN");
 
-    // 1️⃣ Fetch original
+    // 1️⃣ Fetch original journal entry
     const { rows } = await client.query(
       `SELECT * FROM cost_entries WHERE id = $1`,
       [entryId]
@@ -168,8 +168,10 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
     if (!rows.length) throw new Error("Entry not found");
 
     const original = rows[0];
+    const recordYear = original.year;
+    const reversalAmount = -original.amount;
 
-    // 2️⃣ Reverse original
+    // 2️⃣ Reverse original in journal
     await client.query(
       `
       INSERT INTO cost_entries (
@@ -181,18 +183,87 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
       `,
       [
         original.category,
-        -original.amount,
+        reversalAmount,
         original.vegetable,
         original.year,
         original.cost_domain,
         original.employee_name,
-        `Correction of entry #${original.id}`,
+        `Correction de l'entrée #${original.id}`,
         original.is_seasonal,
         original.id,
       ]
     );
 
-    // 3️⃣ Insert corrected entry
+    // 3️⃣ Reverse original in target tables
+    switch (original.cost_domain) {
+      case "SEMENCE":
+        await client.query(
+          `UPDATE seed_costs_new
+           SET total_cost = total_cost + $1
+           WHERE vegetable = $2 AND year = $3`,
+          [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+        );
+        break;
+
+      case "EMBALLAGE":
+        await client.query(
+          `UPDATE packaging_costs_new
+           SET total_cost = total_cost + $1
+           WHERE vegetable = $2 AND year = $3`,
+          [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+        );
+        break;
+
+      case "UNSPECIFIED":
+        // Update the specific row in unspecified_costs
+        await client.query(
+          `UPDATE unspecified_costs
+           SET amount = amount + $1
+           WHERE cost_year = $2 AND vegetable = $3 AND description = $4`,
+          [
+            reversalAmount,
+            recordYear,
+            original.vegetable || null,
+            original.business_description || original.description,
+          ]
+        );
+        break;
+
+      default: {
+        const soilCategories = [
+          "Chaux calcique",
+          "Engrais chimiques",
+          "Engrais verts",
+          "Fumier",
+          "Terre et Terreaux",
+        ];
+
+        if (soilCategories.includes(original.cost_domain)) {
+          await client.query(
+            `UPDATE soil_products_costs_new
+             SET total_cost = total_cost + $1
+             WHERE vegetable = $2 AND year = $3`,
+            [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+          );
+
+          await client.query(
+            `UPDATE soil_products_category_totals_new
+             SET total_cost = total_cost + $1
+             WHERE category = $2 AND year = $3`,
+            [reversalAmount, original.category, recordYear]
+          );
+        } else {
+          await client.query(
+            `UPDATE other_costs_new
+             SET total_cost = total_cost + $1
+             WHERE category = $2 AND year = $3`,
+            [reversalAmount, original.category, recordYear]
+          );
+        }
+      }
+    }
+
+    // 4️⃣ Insert corrected journal entry
     await client.query(
       `
       INSERT INTO cost_entries (
@@ -214,6 +285,74 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
         original.id,
       ]
     );
+
+    // 5️⃣ Apply corrected amount to target tables
+    switch (original.cost_domain) {
+      case "SEMENCE":
+        await client.query(
+          `UPDATE seed_costs_new
+           SET total_cost = total_cost + $1
+           WHERE vegetable = $2 AND year = $3`,
+          [amount, vegetable || "AUCUNE", year]
+        );
+        break;
+
+      case "EMBALLAGE":
+        await client.query(
+          `UPDATE packaging_costs_new
+           SET total_cost = total_cost + $1
+           WHERE vegetable = $2 AND year = $3`,
+          [amount, vegetable || "AUCUNE", year]
+        );
+        break;
+
+      case "UNSPECIFIED":
+        await client.query(
+          `UPDATE unspecified_costs
+           SET amount = amount + $1
+           WHERE cost_year = $2 AND vegetable = $3 AND description = $4`,
+          [
+            amount,
+            year,
+            vegetable || null,
+            original.business_description || original.description,
+          ]
+        );
+        break;
+
+      default: {
+        const soilCategories = [
+          "Chaux calcique",
+          "Engrais chimiques",
+          "Engrais verts",
+          "Fumier",
+          "Terre et Terreaux",
+        ];
+
+        if (soilCategories.includes(original.cost_domain)) {
+          await client.query(
+            `UPDATE soil_products_costs_new
+             SET total_cost = total_cost + $1
+             WHERE vegetable = $2 AND year = $3`,
+            [amount, vegetable || "AUCUNE", year]
+          );
+
+          await client.query(
+            `UPDATE soil_products_category_totals_new
+             SET total_cost = total_cost + $1
+             WHERE category = $2 AND year = $3`,
+            [amount, category, year]
+          );
+        } else {
+          await client.query(
+            `UPDATE other_costs_new
+             SET total_cost = total_cost + $1
+             WHERE category = $2 AND year = $3`,
+            [amount, category, year]
+          );
+        }
+      }
+    }
 
     await client.query("COMMIT");
     res.json({ success: true });
