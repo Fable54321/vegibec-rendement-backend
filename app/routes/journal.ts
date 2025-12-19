@@ -171,25 +171,27 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
     const recordYear = original.year;
     const reversalAmount = -original.amount;
 
-    // 2️⃣ Reverse original in journal
+    const correctedCategory = category ?? original.category ?? "UNSPECIFIED";
+    const correctedVegetable = vegetable ?? original.vegetable ?? "AUCUNE";
+
     await client.query(
       `
-      INSERT INTO cost_entries (
-        category, amount, vegetable, year, cost_domain,
-        employee_name, description, is_seasonal,
-        entry_type, corrected_entry_id, created_at
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'correction',$9,NOW())
-      `,
+  INSERT INTO cost_entries (
+    category, amount, vegetable, year, cost_domain,
+    employee_name, description, is_seasonal,
+    entry_type, corrected_entry_id, created_at
+  )
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'addition',$9,NOW())
+  `,
       [
-        original.category,
-        reversalAmount,
-        original.vegetable,
-        original.year,
+        correctedCategory,
+        amount,
+        correctedVegetable,
+        year,
         original.cost_domain,
         original.employee_name,
-        `Correction de l'entrée #${original.id}`,
-        original.is_seasonal,
+        `Corrected version of entry #${original.id}`,
+        is_seasonal ?? original.is_seasonal,
         original.id,
       ]
     );
