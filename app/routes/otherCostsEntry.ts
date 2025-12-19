@@ -22,8 +22,11 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       cost_domain,
       employee_name,
       description,
+
       is_seasonal,
     } = req.body;
+
+    const businessDescription = description;
 
     // Validate required fields
     if (
@@ -49,8 +52,8 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     const costEntryQuery = `
   INSERT INTO cost_entries
-  (category, amount, vegetable, year, cost_domain, employee_name, description, is_seasonal)
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  (category, amount, vegetable, year, cost_domain, employee_name, business_description, description, is_seasonal)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8, $9)
   RETURNING id
 `;
 
@@ -61,6 +64,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       year,
       cost_domain,
       employee_name,
+      businessDescription ?? null,
       description ?? null,
       is_seasonal ?? null,
     ];
