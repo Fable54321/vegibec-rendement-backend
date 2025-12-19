@@ -156,6 +156,8 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
 
   try {
     const entryId = Number(req.params.id);
+    const { amount, category, vegetable, year, is_seasonal } = req.body;
+
     await client.query("BEGIN");
 
     // 1️⃣ Fetch original journal entry
@@ -166,19 +168,17 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
     if (!rows.length) throw new Error("Entry not found");
 
     const original = rows[0];
-    const recordYear = original.year;
+
+    // 2️⃣ Determine corrected/fallback values
+    const correctedAmount = amount ?? original.amount;
+    const correctedCategory = category ?? original.category ?? "UNSPECIFIED";
+    const correctedVegetable = vegetable ?? original.vegetable ?? "AUCUNE";
+    const correctedYear = year ?? original.year;
+    const correctedIsSeasonal = is_seasonal ?? original.is_seasonal;
+
     const reversalAmount = -original.amount;
 
-    // 2️⃣ Fallbacks for corrected values
-    const correctedAmount = req.body.amount ?? original.amount;
-    const correctedCategory =
-      req.body.category ?? original.category ?? "UNSPECIFIED";
-    const correctedVegetable =
-      req.body.vegetable ?? original.vegetable ?? "AUCUNE";
-    const correctedYear = req.body.year ?? original.year;
-    const correctedIsSeasonal = req.body.is_seasonal ?? original.is_seasonal;
-
-    // 3️⃣ Insert reversal journal entry
+    // 3️⃣ Insert reversal in journal
     await client.query(
       `
       INSERT INTO cost_entries (
@@ -195,13 +195,13 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
         original.year,
         original.cost_domain,
         original.employee_name,
-        `Correction de l'entrée #${original.id}`,
+        `Correction of entry #${original.id}`,
         original.is_seasonal,
         original.id,
       ]
     );
 
-    // 4️⃣ Insert corrected journal entry
+    // 4️⃣ Insert corrected entry in journal
     await client.query(
       `
       INSERT INTO cost_entries (
@@ -218,20 +218,28 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
         correctedYear,
         original.cost_domain,
         original.employee_name,
-        `Version corrigée de l'entrée #${original.id}`,
+        `Corrected version of entry #${original.id}`,
         correctedIsSeasonal,
         original.id,
       ]
     );
 
-    // 5️⃣ Apply reversal to aggregate tables
+    // 5️⃣ Reverse original in target tables
     switch (original.cost_domain) {
       case "SEMENCE":
         await client.query(
           `UPDATE seed_costs_new
            SET total_cost = total_cost + $1
            WHERE vegetable = $2 AND year = $3`,
-          [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+          [reversalAmount, original.vegetable || "AUCUNE", original.year]
+        );
+
+        // Apply corrected amount
+        await client.query(
+          `UPDATE seed_costs_new
+           SET total_cost = total_cost + $1
+           WHERE vegetable = $2 AND year = $3`,
+          [correctedAmount, correctedVegetable, correctedYear]
         );
         break;
 
@@ -240,20 +248,42 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
           `UPDATE packaging_costs_new
            SET total_cost = total_cost + $1
            WHERE vegetable = $2 AND year = $3`,
-          [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+          [reversalAmount, original.vegetable || "AUCUNE", original.year]
+        );
+
+        await client.query(
+          `UPDATE packaging_costs_new
+           SET total_cost = total_cost + $1
+           WHERE vegetable = $2 AND year = $3`,
+          [correctedAmount, correctedVegetable, correctedYear]
         );
         break;
 
       case "UNSPECIFIED":
+        // Reverse original
         await client.query(
           `UPDATE unspecified_costs
            SET amount = amount + $1
            WHERE cost_year = $2 AND vegetable = $3 AND description = $4`,
           [
             reversalAmount,
-            recordYear,
+            original.year,
             original.vegetable || null,
             original.business_description ?? original.description,
+          ]
+        );
+
+        // Insert corrected entry
+        await client.query(
+          `INSERT INTO unspecified_costs
+             (description, amount, cost_year, cost_type, vegetable, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+          [
+            `Correction of entry #${original.id}`,
+            correctedAmount,
+            correctedYear,
+            correctedIsSeasonal ? "seasonal" : "annual",
+            correctedVegetable || null,
           ]
         );
         break;
@@ -268,25 +298,50 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
         ];
 
         if (soilCategories.includes(original.cost_domain)) {
+          // Reverse original
           await client.query(
             `UPDATE soil_products_costs_new
              SET total_cost = total_cost + $1
              WHERE vegetable = $2 AND year = $3`,
-            [reversalAmount, original.vegetable || "AUCUNE", recordYear]
+            [reversalAmount, original.vegetable || "AUCUNE", original.year]
           );
 
           await client.query(
             `UPDATE soil_products_category_totals_new
              SET total_cost = total_cost + $1
              WHERE category = $2 AND year = $3`,
-            [reversalAmount, original.category, recordYear]
+            [reversalAmount, original.category, original.year]
+          );
+
+          // Apply corrected
+          await client.query(
+            `UPDATE soil_products_costs_new
+             SET total_cost = total_cost + $1
+             WHERE vegetable = $2 AND year = $3`,
+            [correctedAmount, correctedVegetable, correctedYear]
+          );
+
+          await client.query(
+            `UPDATE soil_products_category_totals_new
+             SET total_cost = total_cost + $1
+             WHERE category = $2 AND year = $3`,
+            [correctedAmount, correctedCategory, correctedYear]
           );
         } else {
+          // Reverse original
           await client.query(
             `UPDATE other_costs_new
              SET total_cost = total_cost + $1
              WHERE category = $2 AND year = $3`,
-            [reversalAmount, original.category, recordYear]
+            [reversalAmount, original.category, original.year]
+          );
+
+          // Apply corrected
+          await client.query(
+            `UPDATE other_costs_new
+             SET total_cost = total_cost + $1
+             WHERE category = $2 AND year = $3`,
+            [correctedAmount, correctedCategory, correctedYear]
           );
         }
       }
