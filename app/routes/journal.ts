@@ -51,7 +51,7 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
         original.year,
         original.cost_domain,
         original.employee_name,
-        `Deletion of entry #${original.id}`,
+        `Supression de l'entrée #${original.id}`,
         original.is_seasonal,
         original.id,
       ]
