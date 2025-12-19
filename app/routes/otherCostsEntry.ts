@@ -47,13 +47,13 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     const recordDate = new Date(year, 0, 1); // first day of the year
 
-    // Insert into cost_entries table for audit tracking
     const costEntryQuery = `
-      INSERT INTO cost_entries
-      (category, amount, vegetable, year, cost_domain, employee_name, description, is_seasonal, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      RETURNING id
-    `;
+  INSERT INTO cost_entries
+  (category, amount, vegetable, year, cost_domain, employee_name, description, is_seasonal)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  RETURNING id
+`;
+
     const costEntryValues = [
       category,
       amount,
@@ -63,7 +63,6 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       employee_name,
       description ?? null,
       is_seasonal ?? null,
-      recordDate,
     ];
     const costEntryResult = await pool.query(costEntryQuery, costEntryValues);
 
