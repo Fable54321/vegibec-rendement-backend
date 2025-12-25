@@ -58,4 +58,90 @@ router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
   }
 });
 
+/**
+ * DELETE /units-sold/:id
+ * "Deletes" an entry by adding a negative entry
+ */
+router.delete("/:id", requireRole(["admin"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find the original entry
+    const original = await pool.query(
+      "SELECT vegetable, units_sold, is_kg, date_of_sale FROM units_sold WHERE id = $1",
+      [id]
+    );
+
+    if (original.rowCount === 0) {
+      return res.status(404).json({ error: "Entry not found" });
+    }
+
+    const entry = original.rows[0];
+
+    // Insert a negative entry to offset
+    await pool.query(
+      `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
+       VALUES ($1, $2, $3, $4)`,
+      [entry.vegetable, -entry.units_sold, entry.is_kg, new Date()]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting units sold entry:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+/**
+ * POST /units-sold/:id/correct
+ * Corrects an entry by negating original and adding corrected value
+ * Body: { units_sold: number, date_of_sale?: string, is_kg?: boolean }
+ */
+router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { units_sold, date_of_sale, is_kg } = req.body;
+
+    if (units_sold === undefined) {
+      return res.status(400).json({ error: "units_sold is required" });
+    }
+
+    // Find the original entry
+    const original = await pool.query(
+      "SELECT vegetable, units_sold, is_kg, date_of_sale FROM units_sold WHERE id = $1",
+      [id]
+    );
+
+    if (original.rowCount === 0) {
+      return res.status(404).json({ error: "Entry not found" });
+    }
+
+    const entry = original.rows[0];
+
+    // Step 1: negate original entry
+    await pool.query(
+      `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
+       VALUES ($1, $2, $3, $4)`,
+      [entry.vegetable, -entry.units_sold, entry.is_kg, new Date()]
+    );
+
+    // Step 2: insert corrected entry
+    await pool.query(
+      `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        entry.vegetable,
+        units_sold,
+        is_kg ?? entry.is_kg,
+        date_of_sale ?? new Date(),
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error correcting units sold entry:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
 export default router;
