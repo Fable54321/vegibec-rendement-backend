@@ -267,24 +267,49 @@ app.get(
   }
 );
 
-app.get(
-  "/data/costs/latest",
-  requireRole(["admin", "guest"]),
-  async (req, res) => {
-    try {
-      const result = await pool.query(
-        `SELECT id, vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at
-       FROM task_costs
-       ORDER BY created_at DESC
-       LIMIT 10`
-      );
-      res.json(result.rows);
-    } catch (err) {
-      console.error("Error fetching latest costs:", err);
-      res.status(500).json({ error: "Database error" });
-    }
+app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
+  try {
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const offset = (page - 1) * limit;
+
+    // 1️⃣ Get total count
+    const countResult = await pool.query(`SELECT COUNT(*) FROM task_costs`);
+    const totalCount = Number(countResult.rows[0].count);
+    const totalPages = Math.max(Math.ceil(totalCount / limit), 1);
+
+    // 2️⃣ Get paginated data
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          vegetable,
+          category,
+          sub_category,
+          total_hours,
+          supervisor,
+          total_cost,
+          created_at
+        FROM task_costs
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+        `,
+      [limit, offset]
+    );
+
+    res.json({
+      entries: result.rows,
+      pagination: {
+        page,
+        totalPages,
+        totalCount,
+      },
+    });
+  } catch (err) {
+    console.error("Error fetching task costs:", err);
+    res.status(500).json({ error: "Database error" });
   }
-);
+});
 
 app.delete("/data/costs/:id", requireRole(["admin"]), async (req, res) => {
   try {
