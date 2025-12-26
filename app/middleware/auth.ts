@@ -17,6 +17,17 @@ export const authMiddleware = (
   res: Response,
   next: NextFunction
 ) => {
+  // ✅ Skip auth for public routes
+  const publicPaths = ["/api/vegReports"];
+  if (publicPaths.some((path) => req.path.startsWith(path))) {
+    return next();
+  }
+
+  // ✅ Skip auth for OPTIONS requests (CORS preflight)
+  if (req.method === "OPTIONS") {
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Missing or invalid token" });
