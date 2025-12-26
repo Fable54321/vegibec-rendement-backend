@@ -25,7 +25,7 @@ app.use(cookieParser());
 const allowedOrigins = [
   "http://localhost:5173", // local dev
   "https://vegibec-rendement.netlify.app",
-  "https://vegibec-usda.netlify.app/", // production
+  "https://vegibec-usda.netlify.app", // production
 ];
 
 app.use(
