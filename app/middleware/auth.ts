@@ -18,8 +18,8 @@ export const authMiddleware = (
   next: NextFunction
 ) => {
   // ✅ Skip auth for public routes
-  const publicPaths = ["/api/vegReports"];
-  if (publicPaths.some((path) => req.path.startsWith(path))) {
+  const publicPaths = ["/api/vegReports", "/auth"];
+  if (publicPaths.some((path) => req.originalUrl.startsWith(path))) {
     return next();
   }
 
