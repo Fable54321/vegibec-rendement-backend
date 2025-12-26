@@ -16,6 +16,7 @@ import unitsSold from "./routes/unitsSold";
 import unspecifiedRoute from "./routes/unspecified_route";
 import journalRoute from "./routes/journal";
 import unitsSoldEntries from "./routes/unitsSoldEntries";
+import vegReportsRouter from "./routes/USDA";
 
 const app = express();
 app.use(express.json());
@@ -41,6 +42,8 @@ app.use(
     credentials: true, // allow cookies
   })
 );
+
+app.use("/api/vegReports", vegReportsRouter);
 
 app.use("/auth", authRoute);
 
