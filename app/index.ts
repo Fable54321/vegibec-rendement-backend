@@ -17,6 +17,7 @@ import unspecifiedRoute from "./routes/unspecified_route";
 import journalRoute from "./routes/journal";
 import unitsSoldEntries from "./routes/unitsSoldEntries";
 import vegReportsRouter from "./routes/USDA";
+import rateConverterRoute from "./routes/rateConverter";
 
 const app = express();
 app.use(express.json());
@@ -43,6 +44,8 @@ app.use(
     credentials: true, // allow cookies
   })
 );
+
+app.use("/api/rate-converter", rateConverterRoute);
 
 app.use("/api/vegReports", vegReportsRouter);
 
