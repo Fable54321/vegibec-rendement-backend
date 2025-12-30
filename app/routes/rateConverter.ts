@@ -6,11 +6,11 @@ const router = express.Router();
 // Simple in-memory cache
 const fxCache = new Map<string, number>();
 
-interface CurrencyFreaksResponse {
-  date: string;
-  base: string;
-  rates: {
-    CAD: string;
+interface FreeCurrencyHistoricalResponse {
+  data: {
+    [date: string]: {
+      CAD: number;
+    };
   };
 }
 
@@ -20,6 +20,19 @@ router.get("/fx-rate", async (req, res) => {
   if (!date) {
     return res.status(400).json({ error: "Missing date" });
   }
+
+  const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
+  if (!isValidDate) {
+    return res
+      .status(400)
+      .json({ error: "Date invalide. Utilisez AAAA-MM-DD." });
+  }
+
+  const normalizedDate = new Date(`${date}T00:00:00Z`)
+    .toISOString()
+    .slice(0, 10);
+
+  const cacheKey = `${normalizedDate}:USD:CAD`;
 
   // Check cache first
   if (fxCache.has(date)) {
@@ -34,19 +47,20 @@ router.get("/fx-rate", async (req, res) => {
 
   try {
     const response = await fetch(
-      `https://api.currencyfreaks.com/v2.0/rates/historical?apikey=${process.env.CURRENCYFREAKS_KEY}&date=${date}&base=USD&symbols=CAD`
+      `https://api.freecurrencyapi.com/v1/historical?apikey=${process.env.FREECURRENCY_API_KEY}&date=${date}&currencies=CAD`
     );
 
     if (!response.ok) {
       return res
         .status(response.status)
-        .json({ error: "CurrencyFreaks API error" });
+        .json({ error: "freecurrencyAPI error" });
     }
 
-    const data = (await response.json()) as CurrencyFreaksResponse;
+    const data = (await response.json()) as FreeCurrencyHistoricalResponse;
 
-    const rate = parseFloat(data.rates.CAD);
-    if (Number.isNaN(rate)) {
+    const rate = data?.data?.[date]?.CAD;
+
+    if (typeof rate !== "number") {
       return res.status(500).json({ error: "Invalid FX response" });
     }
 
