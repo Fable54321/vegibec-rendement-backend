@@ -288,19 +288,19 @@ app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
     // 2️⃣ Get paginated data
     const result = await pool.query(
       `
-        SELECT
-          id,
-          vegetable,
-          category,
-          sub_category,
-          total_hours,
-          supervisor,
-          total_cost,
-          created_at
-        FROM task_costs
-        ORDER BY created_at DESC
-        LIMIT $1 OFFSET $2
-        `,
+    SELECT
+      id,
+      vegetable,
+      category,
+      sub_category,
+      total_hours,
+      supervisor,
+      total_cost,
+      created_at
+    FROM task_costs
+    ORDER BY id DESC
+    LIMIT $1 OFFSET $2
+  `,
       [limit, offset]
     );
 
