@@ -296,7 +296,8 @@ app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
       total_hours,
       supervisor,
       total_cost,
-      created_at
+      created_at,
+      field
     FROM task_costs
     ORDER BY id DESC
     LIMIT $1 OFFSET $2
