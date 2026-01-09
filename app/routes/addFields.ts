@@ -33,3 +33,5 @@ router.patch("/", requireRole(["admin"]), async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 });
+
+export default router;
