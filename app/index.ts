@@ -20,6 +20,7 @@ import vegReportsRouter from "./routes/USDA";
 import rateConverterRoute from "./routes/rateConverter";
 import getFieldsRoute from "./routes/getFields";
 import addFieldsRoute from "./routes/addFields";
+import supervisorRoute from "./routes/supervisors";
 
 const app = express();
 app.use(express.json());
@@ -701,6 +702,8 @@ app.use("/journal", journalRoute);
 app.use("/units-sold-entries", unitsSoldEntries);
 
 app.use("/getFields", getFieldsRoute);
+
+app.use("/supervisors", supervisorRoute);
 
 const PORT = process.env.PORT || 3000;
 
