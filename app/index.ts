@@ -19,6 +19,7 @@ import unitsSoldEntries from "./routes/unitsSoldEntries";
 import vegReportsRouter from "./routes/USDA";
 import rateConverterRoute from "./routes/rateConverter";
 import getFieldsRoute from "./routes/getFields";
+import addFieldsRoute from "./routes/addFields";
 
 const app = express();
 app.use(express.json());
@@ -99,6 +100,8 @@ app.post("/data/costs", requireRole(["admin"]), async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 });
+
+app.use("/fix-field", addFieldsRoute);
 
 // --- GET: Aggregated costs summary ---
 app.get(
