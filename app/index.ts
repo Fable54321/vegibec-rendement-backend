@@ -18,6 +18,7 @@ import journalRoute from "./routes/journal";
 import unitsSoldEntries from "./routes/unitsSoldEntries";
 import vegReportsRouter from "./routes/USDA";
 import rateConverterRoute from "./routes/rateConverter";
+import getFieldsRoute from "./routes/getFields";
 
 const app = express();
 app.use(express.json());
@@ -693,6 +694,8 @@ app.use("/unspecified", unspecifiedRoute);
 app.use("/journal", journalRoute);
 
 app.use("/units-sold-entries", unitsSoldEntries);
+
+app.use("/getFields", getFieldsRoute);
 
 const PORT = process.env.PORT || 3000;
 
