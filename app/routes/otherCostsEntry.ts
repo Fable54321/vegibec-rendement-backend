@@ -22,7 +22,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       cost_domain,
       employee_name,
       description,
-
+      cultivar,
       is_seasonal,
     } = req.body;
 
@@ -75,14 +75,21 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       case "SEMENCE":
         await pool.query(
           `
-          INSERT INTO seed_costs_new (vegetable, total_cost, year, created_at, updated_at)
-          VALUES ($1,$2,$3,$4,$4)
-          ON CONFLICT (vegetable, year)
-          DO UPDATE SET
-            total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
-            updated_at = EXCLUDED.updated_at
-        `,
-          [vegetable || "AUCUNE", amount, year, recordDate]
+    INSERT INTO seed_costs_new
+      (vegetable, cultivar, total_cost, year, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$5)
+    ON CONFLICT (vegetable, year)
+    DO UPDATE SET
+      total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
+      updated_at = EXCLUDED.updated_at
+    `,
+          [
+            vegetable || "AUCUNE",
+            cultivar ?? null, // 👈 passed through trigger (trim + upper)
+            amount,
+            year,
+            recordDate,
+          ]
         );
         break;
 
