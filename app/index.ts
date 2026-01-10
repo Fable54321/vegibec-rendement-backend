@@ -390,13 +390,23 @@ app.get(
         const result = await pool.query(query, values);
         return res.json(result.rows);
       } else {
-        let query = `SELECT vegetable, total_cost FROM seed_costs_new WHERE year = $1`;
         const values: any[] = [year];
+
+        let query = `
+  SELECT 
+    vegetable,
+    cultivar,
+    SUM(total_cost) AS total_cost
+  FROM seed_costs_new
+  WHERE year = $1
+`;
 
         if (seed) {
           query += ` AND vegetable = $${values.length + 1}`;
           values.push(seed);
         }
+
+        query += ` GROUP BY vegetable, cultivar ORDER BY vegetable, cultivar`;
 
         const result = await pool.query(query, values);
 
