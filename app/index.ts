@@ -434,6 +434,7 @@ app.get(
           vegetable: row.vegetable,
           total_cost:
             (Number(row.total_cost) / TOTAL_PERIOD_DAYS) * daysInRange,
+          cultivar: row.cultivar,
         }));
 
         return res.json(computed);
