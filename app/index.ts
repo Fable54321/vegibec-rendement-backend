@@ -440,7 +440,7 @@ app.get(
   requireRole(["admin", "guest"]),
   async (req, res) => {
     try {
-      const { start, end } = req.query;
+      const { start, end, seed } = req.query; // <-- include seed here
 
       const startDate = start ? new Date(start as string) : null;
       const endDate = end ? new Date(end as string) : null;
@@ -476,9 +476,23 @@ app.get(
       /* ---------------------------
          2025+ LOGIC (SEASONAL: Mar 1 → Nov 15, 260 days)
       --------------------------- */
-
       const values: any[] = [year];
-      let query = `SELECT vegetable, total_cost FROM packaging_costs_new WHERE year = $1`;
+      let query = `
+        SELECT 
+          vegetable,
+          cultivar,
+          SUM(total_cost) AS total_cost
+        FROM seed_costs_new
+        WHERE year = $1
+      `;
+
+      if (seed) {
+        query += ` AND vegetable = $${values.length + 1}`;
+        values.push(seed);
+      }
+
+      query += ` GROUP BY vegetable, cultivar ORDER BY vegetable, cultivar`;
+
       const result = await pool.query(query, values);
 
       // FIXED SEASON WINDOW
@@ -486,16 +500,13 @@ app.get(
       const PERIOD_END = new Date(year, 10, 15); // Nov 15
       const TOTAL_PERIOD_DAYS = 260;
 
-      // User date range, default to full seasonal window
       const userStart = startDate || PERIOD_START;
       const userEnd = endDate || PERIOD_END;
 
-      // Intersection: [userStart, userEnd] ∩ [PERIOD_START, PERIOD_END]
       const rangeStart = userStart > PERIOD_START ? userStart : PERIOD_START;
       const rangeEnd = userEnd < PERIOD_END ? userEnd : PERIOD_END;
 
       let daysInRange = 0;
-
       if (rangeEnd >= rangeStart) {
         daysInRange =
           Math.floor(
@@ -503,23 +514,34 @@ app.get(
           ) + 1;
       }
 
-      // Compute response
-      const computed = result.rows.map((row: any) => {
+      // Compute per-cultivar seasonal totals
+      const perCultivar = result.rows.map((row: any) => {
         const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
-
         return {
           vegetable: row.vegetable,
+          cultivar: row.cultivar,
           total_cost: dailyRate * daysInRange,
         };
       });
 
-      return res.json(computed);
+      // Global totals per vegetable
+      const globalTotals = perCultivar.reduce(
+        (acc: Record<string, number>, row) => {
+          if (!acc[row.vegetable]) acc[row.vegetable] = 0;
+          acc[row.vegetable] += row.total_cost;
+          return acc;
+        },
+        {}
+      );
+
+      // Return both
+      return res.json({ perCultivar, global: globalTotals });
     } catch (err) {
       console.error("Error fetching packaging costs per vegetable:", err);
       res.status(500).json({ error: "Database error" });
     }
   }
-);
+); // <-- closes the route
 
 // Route for soil products grouped by vegetable
 // GET totals per vegetable

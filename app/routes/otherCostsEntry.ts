@@ -78,7 +78,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     INSERT INTO seed_costs_new
       (vegetable, cultivar, total_cost, year, created_at, updated_at)
     VALUES ($1,$2,$3,$4,$5,$5)
-    ON CONFLICT (vegetable, year)
+    ON CONFLICT (vegetable, cultivar, year)
     DO UPDATE SET
       total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
       updated_at = EXCLUDED.updated_at
