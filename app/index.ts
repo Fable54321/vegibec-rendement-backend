@@ -282,36 +282,67 @@ app.get(
   }
 );
 
+//////// TASK COSTS ENTRIES JOURNAL //////////////////////////////
+
 app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
     const limit = Math.min(Number(req.query.limit) || 10, 50);
     const offset = (page - 1) * limit;
 
-    // 1️⃣ Get total count
-    const countResult = await pool.query(`SELECT COUNT(*) FROM task_costs`);
+    const { from, to } = req.query;
+
+    const whereClauses: string[] = [];
+    const values: any[] = [];
+
+    // ✅ Timezone-safe date filtering
+    if (from) {
+      values.push(from);
+      whereClauses.push(`created_at >= $${values.length}::date`);
+    }
+
+    if (to) {
+      values.push(to);
+      whereClauses.push(
+        `created_at < ($${values.length}::date + INTERVAL '1 day')`
+      );
+    }
+
+    const whereSQL = whereClauses.length
+      ? `WHERE ${whereClauses.join(" AND ")}`
+      : "";
+
+    // 1️⃣ Total count (WITH filters)
+    const countQuery = `
+      SELECT COUNT(*)
+      FROM task_costs
+      ${whereSQL}
+    `;
+
+    const countResult = await pool.query(countQuery, values);
     const totalCount = Number(countResult.rows[0].count);
     const totalPages = Math.max(Math.ceil(totalCount / limit), 1);
 
-    // 2️⃣ Get paginated data
-    const result = await pool.query(
-      `
-    SELECT
-      id,
-      vegetable,
-      category,
-      sub_category,
-      total_hours,
-      supervisor,
-      total_cost,
-      created_at,
-      field
-    FROM task_costs
-    ORDER BY id DESC
-    LIMIT $1 OFFSET $2
-  `,
-      [limit, offset]
-    );
+    // 2️⃣ Paginated data (WITH filters)
+    const dataQuery = `
+      SELECT
+        id,
+        vegetable,
+        category,
+        sub_category,
+        total_hours,
+        supervisor,
+        total_cost,
+        created_at,
+        field
+      FROM task_costs
+      ${whereSQL}
+      ORDER BY id DESC
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}
+    `;
+
+    const result = await pool.query(dataQuery, [...values, limit, offset]);
 
     res.json({
       entries: result.rows,
@@ -337,6 +368,8 @@ app.delete("/data/costs/:id", requireRole(["admin"]), async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 });
+
+////////////////////////////////////////////////////////////////////////////////
 
 app.get(
   "/data/costs/seed_costs",
