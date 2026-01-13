@@ -21,6 +21,7 @@ import rateConverterRoute from "./routes/rateConverter";
 import getFieldsRoute from "./routes/getFields";
 import addFieldsRoute from "./routes/addFields";
 import supervisorRoute from "./routes/supervisors";
+import vegetablesRoute from "./routes/vegetables";
 
 const app = express();
 app.use(express.json());
@@ -737,6 +738,8 @@ app.use("/units-sold-entries", unitsSoldEntries);
 app.use("/getFields", getFieldsRoute);
 
 app.use("/supervisors", supervisorRoute);
+
+app.use("/vegetables", vegetablesRoute);
 
 const PORT = process.env.PORT || 3000;
 
