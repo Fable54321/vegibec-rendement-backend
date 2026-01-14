@@ -22,6 +22,7 @@ import getFieldsRoute from "./routes/getFields";
 import addFieldsRoute from "./routes/addFields";
 import supervisorRoute from "./routes/supervisors";
 import vegetablesRoute from "./routes/vegetables";
+import projectedRevenuesRoute from "./routes/projectedRevenues.routes";
 
 const app = express();
 app.use(express.json());
@@ -773,6 +774,8 @@ app.use("/getFields", getFieldsRoute);
 app.use("/supervisors", supervisorRoute);
 
 app.use("/vegetables", vegetablesRoute);
+
+app.use("/projected-revenues", projectedRevenuesRoute);
 
 const PORT = process.env.PORT || 3000;
 
