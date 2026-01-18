@@ -71,7 +71,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       DO UPDATE SET projected_revenue = EXCLUDED.projected_revenue
       RETURNING vegetable, year, projected_revenue
       `,
-      [normalizedVegetable, year, projectedRevenue]
+      [normalizedVegetable, year, projectedRevenue],
     );
 
     res.status(201).json(result.rows[0]);
@@ -86,6 +86,50 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     }
 
     res.status(500).json({ error: "Failed to save projected revenue" });
+  }
+});
+
+/**
+ * DELETE /projected-revenues/:vegetable/:year
+ * Deletes a projected revenue for a specific vegetable and year
+ */
+router.delete("/:vegetable/:year", requireRole(["admin"]), async (req, res) => {
+  try {
+    const { vegetable, year } = req.params;
+
+    if (!vegetable || !year) {
+      return res.status(400).json({ error: "Vegetable and year are required" });
+    }
+
+    const normalizedVegetable = vegetable.trim().toUpperCase();
+    const numericYear = Number(year);
+
+    if (isNaN(numericYear) || numericYear < 2000 || numericYear > 2100) {
+      return res.status(400).json({ error: "Invalid year" });
+    }
+
+    const result = await pool.query(
+      `
+        DELETE FROM projected_revenues
+        WHERE vegetable = $1 AND year = $2
+        RETURNING vegetable, year, projected_revenue
+        `,
+      [normalizedVegetable, numericYear],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        error: `No projected revenue found for ${normalizedVegetable} in ${numericYear}`,
+      });
+    }
+
+    res.status(200).json({
+      message: "Projected revenue deleted successfully",
+      deleted: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error deleting projected revenue:", error);
+    res.status(500).json({ error: "Failed to delete projected revenue" });
   }
 });
 
