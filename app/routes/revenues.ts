@@ -46,7 +46,7 @@ router.get(
       console.error("Error calculating lettuce redistribution:", error);
       return res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 router.get(
@@ -79,7 +79,99 @@ router.get(
       console.error("Error fetching revenues by year:", error);
       return res.status(500).json({ error: "Database error" });
     }
-  }
+  },
+);
+
+router.post(
+  "/",
+  requireRole(["admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { year_from, revenues } = req.body;
+      // revenues: array of { vegetable: string, total_revenue: number }
+
+      if (
+        !year_from ||
+        !revenues ||
+        !Array.isArray(revenues) ||
+        revenues.length === 0
+      ) {
+        return res.status(400).json({ error: "Année et revenus requis" });
+      }
+
+      // Check if revenues for this year already exist
+      const existing = await pool.query(
+        "SELECT 1 FROM revenues WHERE year_from = $1 LIMIT 1",
+        [year_from],
+      );
+
+      if (existing.rowCount && existing.rowCount > 0) {
+        return res
+          .status(409)
+          .json({
+            error: `Les revenus pour l'année ${year_from} existent déjà.`,
+          });
+      }
+
+      // Insert each vegetable's revenue
+      const insertPromises = revenues.map(
+        (r: { vegetable: string; total_revenue: number }) =>
+          pool.query(
+            "INSERT INTO revenues (vegetable, total_revenue, year_from) VALUES ($1, $2, $3)",
+            [r.vegetable.trim().toUpperCase(), r.total_revenue, year_from],
+          ),
+      );
+
+      await Promise.all(insertPromises);
+
+      return res.status(201).json({ message: "Revenus ajoutés avec succès" });
+    } catch (error) {
+      console.error("Error adding revenues:", error);
+      return res.status(500).json({ error: "Échec de l'ajout des revenus" });
+    }
+  },
+);
+
+router.patch(
+  "/",
+  requireRole(["admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { year_from, vegetable, total_revenue } = req.body;
+
+      if (!year_from || !vegetable || total_revenue == null) {
+        return res
+          .status(400)
+          .json({ error: "Année, légume et montant requis" });
+      }
+
+      const result = await pool.query(
+        `UPDATE revenues
+         SET total_revenue = $1
+         WHERE year_from = $2 AND vegetable = $3
+         RETURNING *`,
+        [total_revenue, year_from, vegetable.trim().toUpperCase()],
+      );
+
+      if (result.rowCount === 0) {
+        return res
+          .status(404)
+          .json({
+            error: `Aucun revenu trouvé pour ${vegetable} en ${year_from}`,
+          });
+      }
+
+      return res.json({
+        message: "Revenu mis à jour avec succès",
+        updated: result.rows[0],
+      });
+    } catch (error) {
+      console.error("Error updating revenue:", error);
+      return res
+        .status(500)
+        .json({ error: "Échec de la mise à jour du revenu" });
+    }
+  },
 );
 
 export default router;
