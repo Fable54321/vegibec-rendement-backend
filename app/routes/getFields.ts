@@ -38,13 +38,15 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
-    // Handle unique constraint cleanly
+    // UNIQUE constraint violation
     if (error.code === "23505") {
-      return res.status(409).json({ error: "Field already exists" });
+      return res
+        .status(409)
+        .json({ error: `Le champ "${normalizedField}" existe déjà.` });
     }
 
     console.error("Error adding field:", error);
-    res.status(500).json({ error: "Failed to add field" });
+    res.status(500).json({ error: "Échec de l'ajout du champ." });
   }
 });
 
