@@ -37,6 +37,24 @@ router.get(
   },
 );
 
+router.get(
+  "/available-years",
+  requireRole(["admin", "guest"]),
+  async (req, res) => {
+    try {
+      const result = await pool.query(`
+      SELECT DISTINCT year_from
+      FROM revenues
+      ORDER BY year_from DESC;
+    `);
+      return res.json(result.rows.map((r) => r.year_from));
+    } catch (err) {
+      console.error("Error fetching available years:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+  },
+);
+
 router.post(
   "/",
   requireRole(["admin"]),
