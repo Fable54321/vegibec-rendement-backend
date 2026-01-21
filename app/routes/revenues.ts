@@ -108,37 +108,44 @@ router.patch(
   requireRole(["admin"]),
   async (req: Request, res: Response) => {
     try {
-      const { year_from, vegetable, total_revenue } = req.body;
+      const { year_from, revenues } = req.body;
 
-      if (!year_from || !vegetable || total_revenue == null) {
-        return res
-          .status(400)
-          .json({ error: "Année, légume et montant requis" });
+      if (!year_from || !revenues?.length) {
+        return res.status(400).json({ error: "Année et revenus requis" });
       }
 
-      const result = await pool.query(
-        `UPDATE revenues
-         SET total_revenue = $1
-         WHERE year_from = $2 AND vegetable = $3
-         RETURNING *`,
-        [total_revenue, year_from, vegetable.trim().toUpperCase()],
-      );
+      const updatedRows: any[] = [];
 
-      if (result.rowCount === 0) {
+      // Update each vegetable for that year
+      for (const r of revenues) {
+        if (!r.vegetable || r.total_revenue == null) continue;
+
+        const result = await pool.query(
+          `UPDATE revenues
+           SET total_revenue = $1
+           WHERE year_from = $2 AND vegetable = $3
+           RETURNING *`,
+          [r.total_revenue, year_from, r.vegetable.trim().toUpperCase()],
+        );
+        const count = result.rowCount ?? 0; // nullish coalescing
+        if (count > 0) updatedRows.push(result.rows[0]);
+      }
+
+      if (!updatedRows.length) {
         return res.status(404).json({
-          error: `Aucun revenu trouvé pour ${vegetable} en ${year_from}`,
+          error: `Aucun revenu trouvé pour la liste donnée en ${year_from}`,
         });
       }
 
       return res.json({
-        message: "Revenu mis à jour avec succès",
-        updated: result.rows[0],
+        message: "Revenus mis à jour avec succès",
+        updated: updatedRows,
       });
     } catch (error) {
-      console.error("Error updating revenue:", error);
+      console.error("Error updating revenues:", error);
       return res
         .status(500)
-        .json({ error: "Échec de la mise à jour du revenu" });
+        .json({ error: "Échec de la mise à jour des revenus" });
     }
   },
 );
