@@ -67,7 +67,7 @@ router.get(
         vegetable,
         SUM(REPLACE(total_revenue::text, ',', '')::numeric) AS total_revenue
       FROM revenues
-      WHERE year_from >= $1
+      WHERE year_from = $1
       GROUP BY vegetable
       ORDER BY total_revenue DESC;
     `;
@@ -106,11 +106,9 @@ router.post(
       );
 
       if (existing.rowCount && existing.rowCount > 0) {
-        return res
-          .status(409)
-          .json({
-            error: `Les revenus pour l'année ${year_from} existent déjà.`,
-          });
+        return res.status(409).json({
+          error: `Les revenus pour l'année ${year_from} existent déjà.`,
+        });
       }
 
       // Insert each vegetable's revenue
@@ -154,11 +152,9 @@ router.patch(
       );
 
       if (result.rowCount === 0) {
-        return res
-          .status(404)
-          .json({
-            error: `Aucun revenu trouvé pour ${vegetable} en ${year_from}`,
-          });
+        return res.status(404).json({
+          error: `Aucun revenu trouvé pour ${vegetable} en ${year_from}`,
+        });
       }
 
       return res.json({
