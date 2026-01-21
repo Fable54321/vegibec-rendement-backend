@@ -150,4 +150,85 @@ router.patch(
   },
 );
 
+// --- Add a single vegetable revenue ---
+router.post(
+  "/single",
+  requireRole(["admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { year_from, vegetable, total_revenue } = req.body;
+
+      if (!year_from || !vegetable || total_revenue == null) {
+        return res
+          .status(400)
+          .json({ error: "Année, légume et montant requis" });
+      }
+
+      // Check if this vegetable already exists for the year
+      const existing = await pool.query(
+        "SELECT 1 FROM revenues WHERE year_from = $1 AND vegetable = $2",
+        [year_from, vegetable.trim().toUpperCase()],
+      );
+
+      if (existing.rowCount && existing.rowCount > 0) {
+        return res.status(409).json({
+          error: `Le revenu pour "${vegetable}" existe déjà en ${year_from}.`,
+        });
+      }
+
+      const result = await pool.query(
+        "INSERT INTO revenues (vegetable, total_revenue, year_from) VALUES ($1, $2, $3) RETURNING *",
+        [vegetable.trim().toUpperCase(), total_revenue, year_from],
+      );
+
+      return res.status(201).json({
+        message: "Revenu ajouté avec succès",
+        added: result.rows[0],
+      });
+    } catch (error) {
+      console.error("Error adding single revenue:", error);
+      return res.status(500).json({ error: "Échec de l'ajout du revenu" });
+    }
+  },
+);
+
+// --- Delete a single vegetable revenue ---
+router.delete(
+  "/single",
+  requireRole(["admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { year_from, vegetable } = req.body;
+
+      if (!year_from || !vegetable) {
+        return res
+          .status(400)
+          .json({ error: "Année et légume requis pour la suppression" });
+      }
+
+      const result = await pool.query(
+        "DELETE FROM revenues WHERE year_from = $1 AND vegetable = $2 RETURNING *",
+        [year_from, vegetable.trim().toUpperCase()],
+      );
+
+      const count = result.rowCount ?? 0;
+      if (count === 0) {
+        return res.status(404).json({
+          error: `Aucun revenu trouvé pour "${vegetable}" en ${year_from}.`,
+        });
+      }
+
+      return res.json({
+        message: "Revenu supprimé avec succès",
+        deleted: result.rows[0],
+      });
+    } catch (error) {
+      console.error("Error deleting single revenue:", error);
+      return res
+        .status(500)
+        .json({ error: "Échec de la suppression du revenu" });
+    }
+  },
+);
+
 export default router;
