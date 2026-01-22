@@ -556,16 +556,6 @@ app.get(
         values.push(seed);
       }
 
-      // Optional start/end filtering based on created_at if needed
-      if (startDate) {
-        query += ` AND created_at >= $${values.length + 1}`;
-        values.push(rangeStart);
-      }
-      if (endDate) {
-        query += ` AND created_at <= $${values.length + 1}`;
-        values.push(rangeEnd);
-      }
-
       query += ` GROUP BY vegetable ORDER BY vegetable`;
 
       const result = await pool.query(query, values);
