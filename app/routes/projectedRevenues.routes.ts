@@ -14,7 +14,8 @@ router.get("/", requireRole(["admin", "guest"]), async (_req, res) => {
       SELECT
         vegetable,
         year,
-        projected_revenue
+        projected_revenue,
+        generic_group
       FROM projected_revenues
       ORDER BY year DESC, vegetable ASC
     `);
@@ -32,7 +33,7 @@ router.get("/", requireRole(["admin", "guest"]), async (_req, res) => {
  */
 router.post("/", requireRole(["admin"]), async (req, res) => {
   try {
-    const { vegetable, year, projectedRevenue } = req.body;
+    const { vegetable, year, projectedRevenue, generic_group } = req.body;
 
     // 🛑 Validation
     if (
@@ -62,16 +63,38 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       return res.status(400).json({ error: "Projected revenue must be >= 0" });
     }
 
+    // Optional generic group (no normalization here — DB trigger handles it)
+    if (
+      generic_group !== undefined &&
+      generic_group !== null &&
+      typeof generic_group !== "string"
+    ) {
+      return res.status(400).json({
+        error: "generic_group must be a string or null",
+      });
+    }
+
     // 🚀 Insert or update
     const result = await pool.query(
       `
-      INSERT INTO projected_revenues (vegetable, year, projected_revenue)
-      VALUES ($1, $2, $3)
+      INSERT INTO projected_revenues (
+        vegetable,
+        year,
+        projected_revenue,
+        generic_group
+      )
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (vegetable, year)
-      DO UPDATE SET projected_revenue = EXCLUDED.projected_revenue
-      RETURNING vegetable, year, projected_revenue
+      DO UPDATE SET
+        projected_revenue = EXCLUDED.projected_revenue,
+        generic_group = EXCLUDED.generic_group
+      RETURNING
+        vegetable,
+        year,
+        projected_revenue,
+        generic_group
       `,
-      [normalizedVegetable, year, projectedRevenue],
+      [normalizedVegetable, year, projectedRevenue, generic_group ?? null],
     );
 
     res.status(201).json(result.rows[0]);
