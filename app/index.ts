@@ -47,7 +47,7 @@ app.use(
       }
     },
     credentials: true, // allow cookies
-  })
+  }),
 );
 
 app.use("/api/rate-converter", rateConverterRoute);
@@ -94,7 +94,7 @@ app.post("/data/costs", requireRole(["admin"]), async (req, res) => {
         total_cost,
         dateValue,
         field, // <-- add this
-      ]
+      ],
     );
 
     res.status(201).json(result.rows[0]);
@@ -161,7 +161,7 @@ app.get(
       console.error("Error fetching summary:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 // GET /data/costs/other_costs?start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -280,7 +280,7 @@ app.get(
       console.error("Error fetching other costs summary:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 //////// TASK COSTS ENTRIES JOURNAL //////////////////////////////
@@ -305,7 +305,7 @@ app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
     if (to) {
       values.push(to);
       whereClauses.push(
-        `created_at < ($${values.length}::date + INTERVAL '1 day')`
+        `created_at < ($${values.length}::date + INTERVAL '1 day')`,
       );
     }
 
@@ -400,7 +400,7 @@ app.get(
 
         if (startDate && endDate) {
           conditions.push(
-            `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+            `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`,
           );
           values.push(startDate, endDate);
         } else if (startDate) {
@@ -461,7 +461,7 @@ app.get(
           daysInRange =
             Math.floor(
               (rangeEnd.getTime() - rangeStart.getTime()) /
-                (1000 * 60 * 60 * 24)
+                (1000 * 60 * 60 * 24),
             ) + 1;
         }
 
@@ -478,7 +478,7 @@ app.get(
       console.error("Error fetching seed costs summary:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 app.get(
@@ -556,7 +556,7 @@ app.get(
       if (rangeEnd >= rangeStart) {
         daysInRange =
           Math.floor(
-            (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+            (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24),
           ) + 1;
       }
 
@@ -577,7 +577,7 @@ app.get(
           acc[row.vegetable] += row.total_cost;
           return acc;
         },
-        {}
+        {},
       );
 
       // Return both
@@ -586,98 +586,126 @@ app.get(
       console.error("Error fetching packaging costs per vegetable:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 ); // <-- closes the route
 
 // Route for soil products grouped by vegetable
 // GET totals per vegetable
 app.get(
-  "/data/costs/soil_products/vegetable",
+  "/data/packaging_costs/per_vegetable",
   requireRole(["admin", "guest"]),
   async (req, res) => {
     try {
-      const { start, end } = req.query;
+      const { start, end, seed } = req.query; // <-- include seed here
 
       const startDate = start ? new Date(start as string) : null;
       const endDate = end ? new Date(end as string) : null;
       const today = new Date();
+
+      // Determine year from start or fallback to current
       const year = startDate ? startDate.getFullYear() : today.getFullYear();
 
-      /* --------------------------
-         2024 OLD TABLE LOGIC
+      /* ---------------------------
+         2024 LOGIC (unchanged)
       --------------------------- */
       if (year === 2024) {
         const values: any[] = [];
-        const conditions: string[] = [];
-
-        let query = `SELECT vegetable, SUM(cost) AS total_cost FROM soil_products`;
+        let query = `SELECT vegetable, SUM(cost) AS total_cost FROM packaging_costs`;
 
         if (start && end) {
-          conditions.push(
-            `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
-          );
+          query += ` WHERE created_at BETWEEN $1 AND $2`;
           values.push(start, end);
         } else if (start) {
-          conditions.push(`created_at >= $${values.length + 1}`);
+          query += ` WHERE created_at >= $1`;
           values.push(start);
         } else if (end) {
-          conditions.push(`created_at <= $${values.length + 1}`);
+          query += ` WHERE created_at <= $1`;
           values.push(end);
         }
 
-        if (conditions.length) query += " WHERE " + conditions.join(" AND ");
-        query += " GROUP BY vegetable ORDER BY vegetable";
+        query += ` GROUP BY vegetable ORDER BY vegetable`;
 
         const result = await pool.query(query, values);
         return res.json(result.rows);
       }
 
-      /* --------------------------
-         2025+ NEW TABLE LOGIC
-         Seasonal: March 1 → Nov 15 (260 days)
-      --------------------------- */
-
-      const result = await pool.query(
-        `SELECT vegetable, total_cost FROM soil_products_costs_new WHERE year = $1`,
-        [year]
-      );
-
-      // Fixed seasonal period
+      /* ---------------------------
+         2025+ LOGIC (SEASONAL: Mar 1 → Nov 15)
+/* ---------------------------
+   2025+ LOGIC (SEASONAL: Mar 1 → Nov 15)
+--------------------------- */
       const PERIOD_START = new Date(year, 2, 1); // March 1
       const PERIOD_END = new Date(year, 10, 15); // Nov 15
-      const TOTAL_PERIOD_DAYS = 260;
+      const TOTAL_PERIOD_DAYS =
+        Math.floor(
+          (PERIOD_END.getTime() - PERIOD_START.getTime()) /
+            (1000 * 60 * 60 * 24),
+        ) + 1;
 
-      // User-specified or fallback range
-      const userStart = startDate || PERIOD_START;
-      const userEnd = endDate || PERIOD_END;
-
-      // Intersection with seasonal window
-      const rangeStart = userStart > PERIOD_START ? userStart : PERIOD_START;
-      const rangeEnd = userEnd < PERIOD_END ? userEnd : PERIOD_END;
+      const rangeStart =
+        startDate && startDate > PERIOD_START ? startDate : PERIOD_START;
+      const rangeEnd = endDate && endDate < PERIOD_END ? endDate : PERIOD_END;
 
       let daysInRange = 0;
       if (rangeEnd >= rangeStart) {
         daysInRange =
           Math.floor(
-            (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+            (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24),
           ) + 1;
       }
 
-      const computed = result.rows.map((row: any) => {
-        const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
+      // ------------------------
+      // Query packaging_costs_new for 2025+
+      const values: any[] = [year];
+      let query = `
+  SELECT vegetable, SUM(cost) AS total_cost
+  FROM packaging_costs_new
+  WHERE year = $1
+`;
 
+      if (seed) {
+        query += ` AND vegetable = $${values.length + 1}`;
+        values.push(seed);
+      }
+
+      // Optional start/end filtering based on created_at if needed
+      if (startDate) {
+        query += ` AND created_at >= $${values.length + 1}`;
+        values.push(rangeStart);
+      }
+      if (endDate) {
+        query += ` AND created_at <= $${values.length + 1}`;
+        values.push(rangeEnd);
+      }
+
+      query += ` GROUP BY vegetable ORDER BY vegetable`;
+
+      const result = await pool.query(query, values);
+
+      // Apply seasonal proportionality
+      const perVegetable = result.rows.map((row: any) => {
+        const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
         return {
           vegetable: row.vegetable,
           total_cost: dailyRate * daysInRange,
         };
       });
 
-      return res.json(computed);
+      // Global totals
+      const globalTotals = perVegetable.reduce(
+        (acc: Record<string, number>, row) => {
+          acc[row.vegetable] = row.total_cost;
+          return acc;
+        },
+        {},
+      );
+
+      return res.json({ perVegetable, global: globalTotals });
     } catch (err) {
-      console.error("Error fetching soil products by vegetable:", err);
+      console.error("Error fetching packaging costs per vegetable:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 // GET totals per category
@@ -701,7 +729,7 @@ app.get(
 
         if (start && end) {
           conditions.push(
-            `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`
+            `created_at BETWEEN $${values.length + 1} AND $${values.length + 2}`,
           );
           values.push(start, end);
         } else if (start) {
@@ -721,7 +749,7 @@ app.get(
         // 2025+ table logic (category totals)
         const result = await pool.query(
           `SELECT category, total_cost FROM soil_products_category_totals_new WHERE year = $1`,
-          [year]
+          [year],
         );
 
         const startOfYear = new Date(year, 0, 1);
@@ -729,14 +757,14 @@ app.get(
         const daysInYear =
           Math.floor(
             (endOfYear.getTime() - startOfYear.getTime()) /
-              (1000 * 60 * 60 * 24)
+              (1000 * 60 * 60 * 24),
           ) + 1;
 
         const rangeStart = startDate || startOfYear;
         const rangeEnd = endDate || today;
         const daysInRange =
           Math.floor(
-            (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+            (rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24),
           ) + 1;
 
         const computed = result.rows.map((row: any) => ({
@@ -750,7 +778,7 @@ app.get(
       console.error("Error fetching soil products by category:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 app.use("/revenues", revenuesRoute);
@@ -780,5 +808,5 @@ app.use("/projected-revenues", projectedRevenuesRoute);
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () =>
-  console.log("✅ Server running on http://localhost:3000")
+  console.log("✅ Server running on http://localhost:3000"),
 );
