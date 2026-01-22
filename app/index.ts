@@ -520,37 +520,19 @@ app.get(
       }
 
       /* ---------------------------
-         2025+ LOGIC (SEASONAL: Mar 1 → Nov 15, 260 days)
-      --------------------------- */
-      const values: any[] = [year];
-      let query = `
-        SELECT 
-          vegetable,
-          cultivar,
-          SUM(total_cost) AS total_cost
-        FROM seed_costs_new
-        WHERE year = $1
-      `;
-
-      if (seed) {
-        query += ` AND vegetable = $${values.length + 1}`;
-        values.push(seed);
-      }
-
-      query += ` GROUP BY vegetable, cultivar ORDER BY vegetable, cultivar`;
-
-      const result = await pool.query(query, values);
-
-      // FIXED SEASON WINDOW
+   2025+ LOGIC (SEASONAL: Mar 1 → Nov 15)
+--------------------------- */
       const PERIOD_START = new Date(year, 2, 1); // March 1
       const PERIOD_END = new Date(year, 10, 15); // Nov 15
-      const TOTAL_PERIOD_DAYS = 260;
+      const TOTAL_PERIOD_DAYS =
+        Math.floor(
+          (PERIOD_END.getTime() - PERIOD_START.getTime()) /
+            (1000 * 60 * 60 * 24),
+        ) + 1;
 
-      const userStart = startDate || PERIOD_START;
-      const userEnd = endDate || PERIOD_END;
-
-      const rangeStart = userStart > PERIOD_START ? userStart : PERIOD_START;
-      const rangeEnd = userEnd < PERIOD_END ? userEnd : PERIOD_END;
+      const rangeStart =
+        startDate && startDate > PERIOD_START ? startDate : PERIOD_START;
+      const rangeEnd = endDate && endDate < PERIOD_END ? endDate : PERIOD_END;
 
       let daysInRange = 0;
       if (rangeEnd >= rangeStart) {
@@ -560,34 +542,59 @@ app.get(
           ) + 1;
       }
 
-      // Compute per-cultivar seasonal totals
-      const perCultivar = result.rows.map((row: any) => {
+      // ------------------------
+      // Query packaging_costs_new for 2025+
+      const values: any[] = [year];
+      let query = `
+  SELECT vegetable, SUM(cost) AS total_cost
+  FROM packaging_costs_new
+  WHERE year = $1
+`;
+
+      if (seed) {
+        query += ` AND vegetable = $${values.length + 1}`;
+        values.push(seed);
+      }
+
+      // Optional start/end filtering based on created_at if needed
+      if (startDate) {
+        query += ` AND created_at >= $${values.length + 1}`;
+        values.push(rangeStart);
+      }
+      if (endDate) {
+        query += ` AND created_at <= $${values.length + 1}`;
+        values.push(rangeEnd);
+      }
+
+      query += ` GROUP BY vegetable ORDER BY vegetable`;
+
+      const result = await pool.query(query, values);
+
+      // Apply seasonal proportionality
+      const perVegetable = result.rows.map((row: any) => {
         const dailyRate = Number(row.total_cost) / TOTAL_PERIOD_DAYS;
         return {
           vegetable: row.vegetable,
-          cultivar: row.cultivar,
           total_cost: dailyRate * daysInRange,
         };
       });
 
-      // Global totals per vegetable
-      const globalTotals = perCultivar.reduce(
+      // Global totals
+      const globalTotals = perVegetable.reduce(
         (acc: Record<string, number>, row) => {
-          if (!acc[row.vegetable]) acc[row.vegetable] = 0;
-          acc[row.vegetable] += row.total_cost;
+          acc[row.vegetable] = row.total_cost;
           return acc;
         },
         {},
       );
 
-      // Return both
-      return res.json({ perCultivar, global: globalTotals });
+      return res.json({ perVegetable, global: globalTotals });
     } catch (err) {
       console.error("Error fetching packaging costs per vegetable:", err);
       res.status(500).json({ error: "Database error" });
     }
   },
-); // <-- closes the route
+);
 
 // Route for soil products grouped by vegetable
 // SOILS SOILS SOILS SOILS SOILS SOILS //
