@@ -551,11 +551,6 @@ app.get(
   WHERE year = $1
 `;
 
-      if (seed) {
-        query += ` AND vegetable = $${values.length + 1}`;
-        values.push(seed);
-      }
-
       query += ` GROUP BY vegetable ORDER BY vegetable`;
 
       const result = await pool.query(query, values);
