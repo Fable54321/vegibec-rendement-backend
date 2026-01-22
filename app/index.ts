@@ -546,7 +546,7 @@ app.get(
       // Query packaging_costs_new for 2025+
       const values: any[] = [year];
       let query = `
-  SELECT vegetable, SUM(cost) AS total_cost
+  SELECT vegetable, total_cost
   FROM packaging_costs_new
   WHERE year = $1
 `;
