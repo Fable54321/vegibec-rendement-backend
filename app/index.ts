@@ -588,7 +588,7 @@ app.get(
         {},
       );
 
-      return res.json({ perVegetable, global: globalTotals });
+      return res.json(perVegetable);
     } catch (err) {
       console.error("Error fetching packaging costs per vegetable:", err);
       res.status(500).json({ error: "Database error" });
