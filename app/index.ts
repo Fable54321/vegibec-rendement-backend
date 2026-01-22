@@ -677,6 +677,8 @@ app.get(
   },
 );
 
+/////test////
+
 // GET totals per category
 app.get(
   "/data/costs/soil_products/category",
