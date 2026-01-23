@@ -14,7 +14,7 @@ function generateAccessToken(user: any) {
     JWT_SECRET,
     {
       expiresIn: "30s",
-    }
+    },
   );
 }
 
@@ -24,7 +24,7 @@ function generateRefreshToken(user: any) {
     REFRESH_SECRET,
     {
       expiresIn: "7d",
-    }
+    },
   );
 }
 
@@ -48,10 +48,12 @@ router.post("/login", async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
+    const isProd = process.env.NODE_ENV === "production";
+
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });
@@ -83,7 +85,7 @@ router.post("/refresh", (req, res) => {
         role: decoded.role, // ✅ ROLE IS PRESERVED
       },
       JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: "1h" },
     );
 
     res.json({ token: newAccessToken });
@@ -95,7 +97,15 @@ router.post("/refresh", (req, res) => {
 
 // LOGOUT
 router.post("/logout", (req, res) => {
-  res.clearCookie("refreshToken");
+  const isProd = process.env.NODE_ENV === "production";
+
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+  });
+
   res.json({ message: "Vous êtes maintenant déconnecté" });
 });
 
@@ -128,7 +138,7 @@ router.post("/change-password", async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT password_hash FROM users WHERE id = $1",
-      [userId]
+      [userId],
     );
     if (result.rowCount === 0)
       return res.status(404).json({ error: "User not found" });
