@@ -17,4 +17,59 @@ router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
   }
 });
 
+router.post("/", requireRole(["admin"]), async (req, res) => {
+  const { name } = req.body;
+
+  if (!name || typeof name !== "string") {
+    return res.status(400).json({ error: "Employee name is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO employees (name)
+       VALUES ($1)
+       RETURNING name`,
+      [name.trim()],
+    );
+
+    res.status(201).json(result.rows[0].name);
+  } catch (err: any) {
+    console.error("Error adding employee:", err);
+
+    // Optional: handle unique constraint
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Employee already exists" });
+    }
+
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// --- DELETE: Remove an employee ---
+router.delete("/:name", requireRole(["admin"]), async (req, res) => {
+  const { name } = req.params;
+
+  if (!name) {
+    return res.status(400).json({ error: "Employee name is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM employees
+       WHERE name = $1
+       RETURNING name`,
+      [name],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    res.json({ deleted: result.rows[0].name });
+  } catch (err) {
+    console.error("Error deleting employee:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
 export default router;
