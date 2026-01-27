@@ -23,6 +23,7 @@ import addFieldsRoute from "./routes/addFields";
 import supervisorRoute from "./routes/supervisors";
 import vegetablesRoute from "./routes/vegetables";
 import projectedRevenuesRoute from "./routes/projectedRevenues.routes";
+import taskCateogriesRoute from "./routes/taskCategories";
 
 const app = express();
 app.use(express.json());
@@ -770,6 +771,8 @@ app.use("/supervisors", supervisorRoute);
 app.use("/vegetables", vegetablesRoute);
 
 app.use("/projected-revenues", projectedRevenuesRoute);
+
+app.use("/task-categories", taskCateogriesRoute);
 
 const PORT = process.env.PORT || 3000;
 
