@@ -13,7 +13,7 @@ function generateAccessToken(user: any) {
     { id: user.id, username: user.username, role: user.role },
     JWT_SECRET,
     {
-      expiresIn: "30s",
+      expiresIn: "15m",
     },
   );
 }
