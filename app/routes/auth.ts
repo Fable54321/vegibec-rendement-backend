@@ -85,7 +85,7 @@ router.post("/refresh", (req, res) => {
         role: decoded.role, // ✅ ROLE IS PRESERVED
       },
       JWT_SECRET,
-      { expiresIn: "1h" },
+      { expiresIn: "15s" },
     );
 
     res.json({ token: newAccessToken });
