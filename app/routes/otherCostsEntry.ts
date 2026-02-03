@@ -53,7 +53,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     const costEntryQuery = `
   INSERT INTO cost_entries
-  (category, amount, vegetable, year, cost_domain, employee_name, business_description, description, is_seasonal, units)
+  (category, amount, vegetable, year, cost_domain, employee_name, business_description, description, is_seasonal)
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8, $9)
   RETURNING id
 `;
@@ -68,7 +68,6 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       businessDescription ?? null,
       description ?? null,
       is_seasonal ?? null,
-      units ?? null,
     ];
     const costEntryResult = await pool.query(costEntryQuery, costEntryValues);
 
