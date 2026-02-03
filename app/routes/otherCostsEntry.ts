@@ -24,6 +24,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       description,
       cultivar,
       is_seasonal,
+      units,
     } = req.body;
 
     const businessDescription = description;
@@ -52,7 +53,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     const costEntryQuery = `
   INSERT INTO cost_entries
-  (category, amount, vegetable, year, cost_domain, employee_name, business_description, description, is_seasonal)
+  (category, amount, vegetable, year, cost_domain, employee_name, business_description, description, is_seasonal, units)
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8, $9)
   RETURNING id
 `;
@@ -67,6 +68,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       businessDescription ?? null,
       description ?? null,
       is_seasonal ?? null,
+      units ?? null,
     ];
     const costEntryResult = await pool.query(costEntryQuery, costEntryValues);
 
@@ -76,20 +78,22 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         await pool.query(
           `
     INSERT INTO seed_costs_new
-      (vegetable, cultivar, total_cost, year, created_at, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$5)
+      (vegetable, cultivar, total_cost, year, units, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$6)
     ON CONFLICT (vegetable, cultivar, year)
     DO UPDATE SET
       total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
+      units = EXCLUDED.units,
       updated_at = EXCLUDED.updated_at
     `,
           [
             vegetable || "AUCUNE",
-            cultivar ?? null, // 👈 passed through trigger (trim + upper)
+            cultivar ?? null,
             amount,
             year,
+            units ?? null, // ← new
             recordDate,
-          ]
+          ],
         );
         break;
 
@@ -103,7 +107,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
             total_cost = packaging_costs_new.total_cost + EXCLUDED.total_cost,
             updated_at = EXCLUDED.updated_at
         `,
-          [vegetable || "AUCUNE", amount, year, recordDate]
+          [vegetable || "AUCUNE", amount, year, recordDate],
         );
         break;
 
@@ -132,7 +136,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
             costType, // $4
             recordDate, // $5
             vegetable || null, // $6
-          ]
+          ],
         );
 
         break;
@@ -159,7 +163,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
               total_cost = soil_products_costs_new.total_cost + EXCLUDED.total_cost,
               updated_at = EXCLUDED.updated_at
           `,
-            [vegetable || "AUCUNE", amount, year, recordDate]
+            [vegetable || "AUCUNE", amount, year, recordDate],
           );
 
           await pool.query(
@@ -171,7 +175,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
               total_cost = soil_products_category_totals_new.total_cost + EXCLUDED.total_cost,
               updated_at = EXCLUDED.updated_at
           `,
-            [category, amount, year, recordDate]
+            [category, amount, year, recordDate],
           );
         } else {
           // generic other costs
@@ -184,7 +188,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
               total_cost = other_costs_new.total_cost + EXCLUDED.total_cost,
               updated_at = EXCLUDED.updated_at
           `,
-            [category, amount, year, recordDate]
+            [category, amount, year, recordDate],
           );
         }
     }
