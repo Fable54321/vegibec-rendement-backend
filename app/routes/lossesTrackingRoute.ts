@@ -7,26 +7,40 @@ const router = express.Router();
 // GET seed quantities for loss tracking
 router.get("/seeds", requireRole(["admin"]), async (req, res) => {
   try {
-    const { year } = req.query;
+    const { year, vegetable } = req.query;
 
     const values: any[] = [];
-    let where = "";
+    const conditions: string[] = [];
 
     if (year) {
       values.push(year);
-      where = `WHERE year = $1`;
+      conditions.push(`year = $${values.length}`);
     }
+
+    if (vegetable) {
+      values.push(vegetable);
+      conditions.push(`vegetable = $${values.length}`);
+    }
+
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    // ─── If a vegetable is selected → split per cultivar ───
+    const groupBy = vegetable ? "year, vegetable, cultivar" : "year, vegetable";
+
+    const selectCultivar = vegetable ? "cultivar," : "NULL AS cultivar,";
 
     const result = await pool.query(
       `
       SELECT
         year,
         vegetable,
+        ${selectCultivar}
         SUM(units) AS units
       FROM seed_costs_new
       ${where}
-      GROUP BY year, vegetable
-      ORDER BY year DESC, vegetable
+      GROUP BY ${groupBy}
+      ORDER BY year DESC, vegetable, cultivar NULLS LAST
       `,
       values,
     );
