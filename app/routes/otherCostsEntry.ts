@@ -86,21 +86,21 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       case "SEMENCE":
         await pool.query(
           `
-    INSERT INTO seed_costs_new
-      (vegetable, cultivar, total_cost, year, units, created_at, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$6)
-    ON CONFLICT (vegetable, cultivar, year)
-    DO UPDATE SET
-      total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
-      units = EXCLUDED.units,
-      updated_at = EXCLUDED.updated_at
-    `,
+INSERT INTO seed_costs_new
+  (vegetable, cultivar, total_cost, year, units, created_at, updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$6)
+ON CONFLICT (vegetable, cultivar, year)
+DO UPDATE SET
+  total_cost = seed_costs_new.total_cost + EXCLUDED.total_cost,
+  units = COALESCE(seed_costs_new.units, 0) + COALESCE(EXCLUDED.units, 0),
+  updated_at = EXCLUDED.updated_at
+`,
           [
             vegetable || "AUCUNE",
             cultivar ?? null,
             amount,
             year,
-            units ?? null, // ← new
+            units ?? 0,
             recordDate,
           ],
         );
