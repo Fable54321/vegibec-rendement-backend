@@ -7,22 +7,36 @@ const router = express.Router();
 // GET seed quantities for loss tracking
 router.get("/seeds", requireRole(["admin"]), async (req, res) => {
   try {
-    const result = await pool.query(`
+    const { year } = req.query;
+
+    const values: any[] = [];
+    let where = "";
+
+    if (year) {
+      values.push(year);
+      where = `WHERE year = $1`;
+    }
+
+    const result = await pool.query(
+      `
       SELECT
         year,
         vegetable,
-        cultivar,
-        units
+        SUM(units) AS units
       FROM seed_costs_new
-      ORDER BY year DESC, vegetable, cultivar
-    `);
+      ${where}
+      GROUP BY year, vegetable
+      ORDER BY year DESC, vegetable
+      `,
+      values,
+    );
 
-    return res.json({
+    res.json({
       success: true,
       data: result.rows,
     });
   } catch (error) {
-    console.error("Erreur lossTracking seeds GET:", error);
+    console.error("Erreur losses-tracking GET seeds:", error);
     res.status(500).json({
       success: false,
       error: "Erreur serveur",
