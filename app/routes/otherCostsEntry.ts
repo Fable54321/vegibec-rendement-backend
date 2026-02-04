@@ -13,6 +13,16 @@ const router = express.Router();
  *  - Everything else -> other_costs_new
  */
 router.post("/", requireRole(["admin"]), async (req, res) => {
+  const dbInfo = await pool.query("SELECT current_database(), current_user;");
+  console.log("DB info:", dbInfo.rows[0]);
+
+  const constraints = await pool.query(`
+  SELECT conname, conrelid::regclass AS table_name
+  FROM pg_constraint
+  WHERE conrelid = 'seed_costs_new'::regclass;
+`);
+  console.log("Constraints on seed_costs_new:", constraints.rows);
+
   try {
     const {
       category,
