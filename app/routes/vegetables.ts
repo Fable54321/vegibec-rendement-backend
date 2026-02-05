@@ -11,7 +11,7 @@ const router = express.Router();
 router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT vegetable
+      SELECT vegetable, isGeneric
       FROM vegetables
       ORDER BY vegetable
     `);
@@ -25,32 +25,27 @@ router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
 
 router.post("/", requireRole(["admin"]), async (req, res) => {
   try {
-    const { vegetable } = req.body;
+    const { vegetable, isGeneric } = req.body;
 
     if (!vegetable || typeof vegetable !== "string") {
       return res.status(400).json({ error: "Vegetable is required" });
     }
 
-    // ✅ Normalize input
     const normalizedVegetable = vegetable.trim().toUpperCase();
 
-    if (!normalizedVegetable) {
-      return res.status(400).json({ error: "Vegetable cannot be empty" });
-    }
+    // Default isGeneric to false if not provided
+    const genericValue = isGeneric === true;
 
     const insertResult = await pool.query(
       `
-      INSERT INTO vegetables (vegetable)
-      VALUES ($1)
-      ON CONFLICT (vegetable) DO NOTHING
-      RETURNING vegetable
+      INSERT INTO vegetables (vegetable, isGeneric)
+      VALUES ($1, $2)
+      ON CONFLICT (vegetable) DO UPDATE
+        SET isGeneric = EXCLUDED.isGeneric
+      RETURNING vegetable, isGeneric
       `,
-      [normalizedVegetable],
+      [normalizedVegetable, genericValue],
     );
-
-    if (insertResult.rowCount === 0) {
-      return res.status(409).json({ error: "Vegetable already exists" });
-    }
 
     res.status(201).json(insertResult.rows[0]);
   } catch (error) {
