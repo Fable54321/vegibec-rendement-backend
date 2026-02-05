@@ -120,9 +120,11 @@ router.get("/packaging", requireRole(["admin"]), async (req, res) => {
     const { year, vegetable } = req.query;
 
     const values: any[] = [];
-    let where = [];
+    const where: string[] = [];
+
     let groupBy: string;
     let select: string;
+    let orderBy: string;
 
     // ----- Filters -----
     if (year) {
@@ -141,7 +143,10 @@ router.get("/packaging", requireRole(["admin"]), async (req, res) => {
         cultivar,
         SUM(units) AS units
       `;
+
       groupBy = `GROUP BY year, vegetable, cultivar`;
+
+      orderBy = `ORDER BY year DESC, vegetable, cultivar NULLS LAST`;
     } else {
       // ➜ Global mode = total per vegetable
       select = `
@@ -149,7 +154,10 @@ router.get("/packaging", requireRole(["admin"]), async (req, res) => {
         vegetable,
         SUM(units) AS units
       `;
+
       groupBy = `GROUP BY year, vegetable`;
+
+      orderBy = `ORDER BY year DESC, vegetable`;
     }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -161,7 +169,7 @@ router.get("/packaging", requireRole(["admin"]), async (req, res) => {
       FROM packaging_units
       ${whereSql}
       ${groupBy}
-      ORDER BY year DESC, vegetable, cultivar NULLS LAST
+      ${orderBy}
       `,
       values,
     );
