@@ -60,7 +60,7 @@ router.get("/seeds", requireRole(["admin"]), async (req, res) => {
 
 router.post("/packaging", requireRole(["admin"]), async (req, res) => {
   try {
-    const { vegetable, year, units } = req.body;
+    const { vegetable, cultivar, year, units } = req.body;
 
     // --- Validation ---
     if (!vegetable || !year || units === undefined) {
@@ -85,19 +85,23 @@ router.post("/packaging", requireRole(["admin"]), async (req, res) => {
       });
     }
 
-    // --- Insert with accumulation ---
+    // Normalize values
+    const veg = vegetable.trim().toUpperCase();
+    const cult = cultivar ? cultivar.trim().toUpperCase() : null;
+
+    // --- Insert with accumulation (vegetable + cultivar + year) ---
     await pool.query(
       `
       INSERT INTO packaging_units
-        (vegetable, year, units)
-      VALUES ($1, $2, $3)
+        (vegetable, cultivar, year, units, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
 
-      ON CONFLICT (vegetable, year)
+      ON CONFLICT (vegetable, cultivar, year)
       DO UPDATE SET
         units = packaging_units.units + EXCLUDED.units,
         updated_at = NOW()
       `,
-      [vegetable || "AUCUNE", year, units],
+      [veg || "AUCUNE", cult, year, units],
     );
 
     res.json({ success: true });
@@ -113,25 +117,51 @@ router.post("/packaging", requireRole(["admin"]), async (req, res) => {
 // ➤ GET: read packaging units grouped by vegetable + year
 router.get("/packaging", requireRole(["admin"]), async (req, res) => {
   try {
-    const { year } = req.query;
+    const { year, vegetable } = req.query;
 
     const values: any[] = [];
-    let where = "";
+    let where = [];
+    let groupBy: string;
+    let select: string;
 
+    // ----- Filters -----
     if (year) {
       values.push(year);
-      where = `WHERE year = $1`;
+      where.push(`year = $${values.length}`);
     }
+
+    if (vegetable) {
+      values.push(vegetable);
+      where.push(`vegetable = $${values.length}`);
+
+      // ➜ Drill down mode = show per cultivar
+      select = `
+        year,
+        vegetable,
+        cultivar,
+        SUM(units) AS units
+      `;
+      groupBy = `GROUP BY year, vegetable, cultivar`;
+    } else {
+      // ➜ Global mode = total per vegetable
+      select = `
+        year,
+        vegetable,
+        SUM(units) AS units
+      `;
+      groupBy = `GROUP BY year, vegetable`;
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
     const result = await pool.query(
       `
       SELECT
-        year,
-        vegetable,
-        units
+        ${select}
       FROM packaging_units
-      ${where}
-      ORDER BY year DESC, vegetable
+      ${whereSql}
+      ${groupBy}
+      ORDER BY year DESC, vegetable, cultivar NULLS LAST
       `,
       values,
     );
