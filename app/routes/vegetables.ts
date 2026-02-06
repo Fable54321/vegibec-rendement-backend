@@ -11,7 +11,10 @@ const router = express.Router();
 router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT vegetable, isGeneric
+      SELECT 
+        vegetable,
+        is_generic,
+        generic_group
       FROM vegetables
       ORDER BY vegetable
     `);
@@ -25,26 +28,46 @@ router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
 
 router.post("/", requireRole(["admin"]), async (req, res) => {
   try {
-    const { vegetable, isGeneric } = req.body;
+    const { vegetable, is_generic, generic_group } = req.body;
 
+    // --- Validation ---
     if (!vegetable || typeof vegetable !== "string") {
       return res.status(400).json({ error: "Vegetable is required" });
     }
 
     const normalizedVegetable = vegetable.trim().toUpperCase();
 
-    // Default isGeneric to false if not provided
-    const genericValue = isGeneric === true;
+    // Default values
+    const isGenericValue = is_generic === true;
+    const normalizedGroup =
+      typeof generic_group === "string" && generic_group.trim() !== ""
+        ? generic_group.trim().toUpperCase()
+        : null;
 
+    // --- Business rules ---
+    if (isGenericValue && normalizedGroup !== null) {
+      return res.status(400).json({
+        error: "A generic group cannot belong to another generic group",
+      });
+    }
+
+    // If it's not generic but has no group → it's a normal standalone vegetable
+    // → allowed
+
+    // --- Insert ---
     const insertResult = await pool.query(
       `
-      INSERT INTO vegetables (vegetable, isGeneric)
-      VALUES ($1, $2)
+      INSERT INTO vegetables (vegetable, is_generic, generic_group)
+      VALUES ($1, $2, $3)
+
       ON CONFLICT (vegetable) DO UPDATE
-        SET isGeneric = EXCLUDED.isGeneric
-      RETURNING vegetable, isGeneric
+        SET 
+          is_generic = EXCLUDED.is_generic,
+          generic_group = EXCLUDED.generic_group
+
+      RETURNING vegetable, is_generic, generic_group
       `,
-      [normalizedVegetable, genericValue],
+      [normalizedVegetable, isGenericValue, normalizedGroup],
     );
 
     res.status(201).json(insertResult.rows[0]);
