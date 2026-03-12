@@ -77,15 +77,16 @@ app.post("/data/costs", requireRole(["admin"]), async (req, res) => {
       supervisor,
       total_cost,
       created_at,
-      field, // <-- add this
+      field, // existing
+      total_worker, // <-- new column
     } = req.body;
 
     const dateValue = created_at ? new Date(created_at) : new Date();
 
     const result = await pool.query(
       `INSERT INTO task_costs 
-       (vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at, field)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at, field, total_worker)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
         vegetable,
@@ -95,7 +96,8 @@ app.post("/data/costs", requireRole(["admin"]), async (req, res) => {
         supervisor,
         total_cost,
         dateValue,
-        field, // <-- add this
+        field,
+        total_worker, // <-- pass the new value
       ],
     );
 
@@ -335,7 +337,8 @@ app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
         supervisor,
         total_cost,
         created_at,
-        field
+        field,
+        total_worker  -- <-- added this
       FROM task_costs
       ${whereSQL}
       ORDER BY id DESC
