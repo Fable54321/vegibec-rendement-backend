@@ -114,7 +114,8 @@ app.get(
   requireRole(["admin", "guest"]),
   async (req, res) => {
     try {
-      const groupBy = req.query.groupBy as string | undefined;
+      const groupBy = (req.query.groupBy as string | undefined)?.split(",");
+
       const start = req.query.start as string | undefined;
       const end = req.query.end as string | undefined;
 
@@ -124,22 +125,22 @@ app.get(
         "sub_category",
         "supervisor",
       ];
-      if (!groupBy || !allowedFields.includes(groupBy)) {
-        return res
-          .status(400)
-          .json({ error: "Invalid or missing groupBy field" });
+
+      if (!groupBy || groupBy.some((f) => !allowedFields.includes(f))) {
+        return res.status(400).json({ error: "Invalid groupBy field" });
       }
 
+      const groupClause = groupBy.join(", ");
+
       let query = `
-      SELECT ${groupBy === "sub_category" ? "sub_category, category" : groupBy},
-             SUM(total_hours) AS total_hours,
-             SUM(total_cost) AS total_cost
-      FROM task_costs
-    `;
+        SELECT ${groupClause},
+               SUM(total_hours) AS total_hours,
+               SUM(total_cost) AS total_cost
+        FROM task_costs
+      `;
 
       const values: any[] = [];
 
-      // Add date filtering safely
       if (start && end) {
         query += ` WHERE created_at BETWEEN $1 AND $2`;
         values.push(start, end);
@@ -151,16 +152,13 @@ app.get(
         values.push(end);
       }
 
-      if (groupBy === "sub_category") {
-        query += ` GROUP BY sub_category, category ORDER BY category, sub_category`;
-      } else {
-        query += ` GROUP BY ${groupBy} ORDER BY ${groupBy}`;
-      }
+      query += ` GROUP BY ${groupClause} ORDER BY ${groupClause}`;
 
       const result = await pool.query(query, values);
+
       res.json(result.rows);
     } catch (err) {
-      console.error("Error fetching summary:", err);
+      console.error(err);
       res.status(500).json({ error: "Database error" });
     }
   },
