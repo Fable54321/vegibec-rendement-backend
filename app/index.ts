@@ -137,7 +137,8 @@ app.get(
       let query = `
         SELECT ${groupClause},
                SUM(total_hours) AS total_hours,
-               SUM(total_cost) AS total_cost
+               SUM(total_cost) AS total_cost,
+               SUM(total_cost_with_charges) AS total_cost_with_charges
         FROM task_costs
       `;
 
@@ -336,9 +337,10 @@ app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
         total_hours,
         supervisor,
         total_cost,
+        total_cost_with_charges,  -- <-- added this
         created_at,
         field,
-        total_worker  -- <-- added this
+        total_worker
       FROM task_costs
       ${whereSQL}
       ORDER BY id DESC
