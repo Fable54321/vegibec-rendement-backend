@@ -31,15 +31,14 @@ app.use(express.json());
 app.use(cookieParser());
 
 const allowedOrigins = [
-  "http://localhost:5173", // local dev
+  "http://localhost:5173",
   "https://vegibec-rendement.netlify.app",
-  "https://vegibec-usda.netlify.app", // production
+  "https://vegibec-usda.netlify.app",
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow requests with no origin (like mobile apps or Postman)
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
@@ -48,7 +47,7 @@ app.use(
         callback(new Error("Not allowed by CORS"));
       }
     },
-    credentials: true, // allow cookies
+    credentials: true,
   }),
 );
 
@@ -60,7 +59,6 @@ app.use("/auth", authRoute);
 
 app.use(authMiddleware);
 
-// --- Simple test route ---
 app.get("/", async (req, res) => {
   const result = await pool.query("SELECT NOW()");
   res.json(result.rows);
@@ -360,6 +358,68 @@ app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching task costs:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+//Delete or modify entry from Task costs
+
+app.patch("/data/costs/:id", requireRole(["admin"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      vegetable,
+      category,
+      sub_category,
+      total_hours,
+      supervisor,
+      total_cost,
+      total_cost_with_charges,
+      field,
+      total_worker,
+    } = req.body;
+
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    const addField = (name: string, value: any) => {
+      values.push(value);
+      fields.push(`${name} = $${values.length}`);
+    };
+
+    if (vegetable !== undefined) addField("vegetable", vegetable);
+    if (category !== undefined) addField("category", category);
+    if (sub_category !== undefined) addField("sub_category", sub_category);
+    if (total_hours !== undefined) addField("total_hours", total_hours);
+    if (supervisor !== undefined) addField("supervisor", supervisor);
+    if (total_cost !== undefined) addField("total_cost", total_cost);
+    if (total_cost_with_charges !== undefined)
+      addField("total_cost_with_charges", total_cost_with_charges);
+    if (field !== undefined) addField("field", field);
+    if (total_worker !== undefined) addField("total_worker", total_worker);
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: "No fields to update" });
+    }
+
+    values.push(id);
+
+    const query = `
+      UPDATE task_costs
+      SET ${fields.join(", ")}
+      WHERE id = $${values.length}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+
+    res.json({
+      success: true,
+      entry: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Error updating entry:", err);
     res.status(500).json({ error: "Database error" });
   }
 });
