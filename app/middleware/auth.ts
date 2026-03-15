@@ -15,41 +15,45 @@ declare global {
 export const authMiddleware = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
-  // ✅ Skip auth for public routes
+  // Skip auth for public routes
   const publicPaths = ["/api/vegReports", "/auth"];
   if (publicPaths.some((path) => req.originalUrl.startsWith(path))) {
     return next();
   }
 
-  // ✅ Skip auth for OPTIONS requests (CORS preflight)
+  // Skip auth for OPTIONS requests (CORS preflight)
   if (req.method === "OPTIONS") {
     return next();
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Missing or invalid token" });
-  }
+  const token = req.cookies.accessToken;
 
-  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({ message: "Missing token" });
+  }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload & {
+      id: number;
+      username: string;
       role?: string;
     };
+
     req.user = {
       id: decoded.id,
       username: decoded.username,
       role: decoded.role,
     };
+
     next();
   } catch (err: any) {
     if (err.name === "TokenExpiredError") {
       return res.status(401).json({ message: "Token expired" });
     }
-    res.status(401).json({ message: "Invalid token" });
+
+    return res.status(401).json({ message: "Invalid token" });
   }
 };
 
