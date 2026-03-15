@@ -36,7 +36,7 @@ const allowedOrigins = [
   "https://vegibec-usda.netlify.app",
   "http://localhost:5174",
   "https://vegibec-portail.netlify.app",
-  "https://vegibec-portail.com/",
+  "https://vegibec-portail.com",
 ];
 
 app.use(
