@@ -28,39 +28,66 @@ function generateRefreshToken(user: any) {
   );
 }
 
+function getCookieOptions(isProd: boolean, maxAge: number) {
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? ("none" as const) : ("lax" as const),
+    maxAge,
+    path: "/",
+  };
+}
+
 // LOGIN
 router.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password)
+
+    if (!username || !password) {
       return res.status(400).json({ error: "Missing username or password" });
+    }
 
     const result = await pool.query("SELECT * FROM users WHERE username = $1", [
       username,
     ]);
-    if (result.rowCount === 0)
+
+    if (result.rowCount === 0) {
       return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
     const isProd = process.env.NODE_ENV === "production";
 
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: "/",
-    });
+    res.cookie(
+      "accessToken",
+      accessToken,
+      getCookieOptions(isProd, 60 * 60 * 1000), // 1 hour
+    );
 
-    res.json({ token: accessToken });
+    res.cookie(
+      "refreshToken",
+      refreshToken,
+      getCookieOptions(isProd, 7 * 24 * 60 * 60 * 1000), // 7 days
+    );
+
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      },
+    });
   } catch (err) {
-    console.error(err);
+    console.error("Login error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -68,8 +95,10 @@ router.post("/login", async (req, res) => {
 // REFRESH TOKEN
 router.post("/refresh", (req, res) => {
   const refreshToken = req.cookies.refreshToken;
-  if (!refreshToken)
+
+  if (!refreshToken) {
     return res.status(401).json({ error: "Missing refresh token" });
+  }
 
   try {
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as {
@@ -82,16 +111,24 @@ router.post("/refresh", (req, res) => {
       {
         id: decoded.id,
         username: decoded.username,
-        role: decoded.role, // ✅ ROLE IS PRESERVED
+        role: decoded.role,
       },
       JWT_SECRET,
       { expiresIn: "1h" },
     );
 
-    res.json({ token: newAccessToken });
+    const isProd = process.env.NODE_ENV === "production";
+
+    res.cookie(
+      "accessToken",
+      newAccessToken,
+      getCookieOptions(isProd, 60 * 60 * 1000),
+    );
+
+    res.json({ message: "Access token refreshed" });
   } catch (err) {
     console.error("Refresh error:", err);
-    res.status(403).json({ error: "Invalid or expired refresh token" });
+    return res.status(403).json({ error: "Invalid or expired refresh token" });
   }
 });
 
@@ -99,24 +136,27 @@ router.post("/refresh", (req, res) => {
 router.post("/logout", (req, res) => {
   const isProd = process.env.NODE_ENV === "production";
 
-  res.clearCookie("refreshToken", {
+  const clearCookieOptions = {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: isProd ? ("none" as const) : ("lax" as const),
     path: "/",
-  });
+  };
 
-  res.json({ message: "Vous êtes maintenant déconnecté" });
+  res.clearCookie("accessToken", clearCookieOptions);
+  res.clearCookie("refreshToken", clearCookieOptions);
+
+  res.json({ message: "Vous êtes maintenant déconnecté" });
 });
 
 // CHANGE PASSWORD
 router.post("/change-password", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing or invalid token" });
+  const token = req.cookies.accessToken;
+
+  if (!token) {
+    return res.status(401).json({ error: "Missing token" });
   }
 
-  const token = authHeader.split(" ")[1];
   let userId: number;
 
   try {
@@ -125,12 +165,14 @@ router.post("/change-password", async (req, res) => {
       username: string;
       role: string;
     };
+
     userId = decoded.id;
   } catch {
     return res.status(401).json({ error: "Invalid token" });
   }
 
   const { currentPassword, newPassword } = req.body;
+
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: "Missing current or new password" });
   }
@@ -140,15 +182,20 @@ router.post("/change-password", async (req, res) => {
       "SELECT password_hash FROM users WHERE id = $1",
       [userId],
     );
-    if (result.rowCount === 0)
+
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: "User not found" });
+    }
 
     const user = result.rows[0];
     const valid = await bcrypt.compare(currentPassword, user.password_hash);
-    if (!valid)
+
+    if (!valid) {
       return res.status(401).json({ error: "Current password is incorrect" });
+    }
 
     const newHash = await bcrypt.hash(newPassword, 12);
+
     await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
       newHash,
       userId,
@@ -163,13 +210,26 @@ router.post("/change-password", async (req, res) => {
 
 // AUTH CHECK
 router.get("/me", (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "Missing token" });
+  const token = req.cookies.accessToken;
 
-  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({ error: "Missing token" });
+  }
+
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    res.json({ user: decoded });
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: number;
+      username: string;
+      role: string;
+    };
+
+    res.json({
+      user: {
+        id: decoded.id,
+        username: decoded.username,
+        role: decoded.role,
+      },
+    });
   } catch {
     res.status(401).json({ error: "Invalid token" });
   }
