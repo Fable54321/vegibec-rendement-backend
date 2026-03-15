@@ -35,17 +35,22 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { username, password, legacyRole, apps } = req.body as {
-      username?: string;
-      password?: string;
-      legacyRole?: string;
-      apps?: AppAccessInput[];
-    };
+    const { username, password, legacyRole, apps, email, name, surname } =
+      req.body as {
+        username?: string;
+        password?: string;
+        legacyRole?: string;
+        email?: string;
+        name?: string;
+        surname?: string;
+        apps?: AppAccessInput[];
+      };
 
-    if (!username || !password || !legacyRole) {
+    if (!username || !password || !legacyRole || !email || !name || !surname) {
       return res.status(400).json({
         success: false,
-        message: "Username, password and legacyRole are required",
+        message:
+          "Username, password, legacyRole, email, name and surname are required",
       });
     }
 
@@ -66,6 +71,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     }
 
     const seenSlugs = new Set<string>();
+
     for (const app of apps) {
       if (!app?.slug) {
         return res.status(400).json({
@@ -83,7 +89,6 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
       seenSlugs.add(app.slug);
 
-      // rendement can omit role because it inherits from legacyRole
       if (app.slug !== "rendement" && !app.role) {
         return res.status(400).json({
           success: false,
@@ -101,6 +106,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     if (existingUser.rows.length > 0) {
       await client.query("ROLLBACK");
+
       return res.status(409).json({
         success: false,
         message: "Username already exists",
@@ -111,11 +117,12 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     const userInsert = await client.query(
       `
-      INSERT INTO users (username, password_hash, role, created_at, updated_at)
-      VALUES ($1, $2, $3, NOW(), NOW())
-      RETURNING id, username, role, created_at, updated_at
+      INSERT INTO users 
+      (username, password_hash, role, email, name, surname, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      RETURNING id, username, role, email, name, surname, created_at, updated_at
       `,
-      [normalizedUsername, passwordHash, legacyRole],
+      [normalizedUsername, passwordHash, legacyRole, email, name, surname],
     );
 
     const newUser = userInsert.rows[0];
@@ -142,6 +149,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         );
 
         await client.query("ROLLBACK");
+
         return res.status(400).json({
           success: false,
           message: "Some app slugs do not exist",
@@ -153,14 +161,6 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
       for (const app of apps) {
         const appId = slugToId.get(app.slug);
-
-        if (!appId) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            success: false,
-            message: `App not found: ${app.slug}`,
-          });
-        }
 
         const effectiveRole = app.slug === "rendement" ? legacyRole : app.role!;
 
@@ -181,15 +181,15 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
       user: {
         id: newUser.id,
         username: newUser.username,
+        email: newUser.email,
+        name: newUser.name,
+        surname: newUser.surname,
         legacyRole: newUser.role,
-        appAccess: apps.map((app) => ({
-          slug: app.slug,
-          role: app.slug === "rendement" ? legacyRole : app.role,
-        })),
       },
     });
   } catch (error) {
     await client.query("ROLLBACK");
+
     console.error("Error creating user:", error);
 
     return res.status(500).json({

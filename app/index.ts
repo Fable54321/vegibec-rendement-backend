@@ -25,6 +25,7 @@ import vegetablesRoute from "./routes/vegetables";
 import projectedRevenuesRoute from "./routes/projectedRevenues.routes";
 import taskCateogriesRoute from "./routes/taskCategories";
 import lossesTrackingRoute from "./routes/lossesTrackingRoute";
+import portalRoute from "./routes/Portal/Portal";
 
 const app = express();
 app.use(express.json());
@@ -842,6 +843,8 @@ app.use("/projected-revenues", projectedRevenuesRoute);
 app.use("/task-categories", taskCateogriesRoute);
 
 app.use("/losses-tracking", lossesTrackingRoute);
+
+app.use("/portal", portalRoute);
 
 const PORT = process.env.PORT || 3000;
 
