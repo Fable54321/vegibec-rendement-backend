@@ -209,7 +209,7 @@ router.post("/change-password", async (req, res) => {
 });
 
 // AUTH CHECK
-router.get("/me", (req, res) => {
+router.get("/me", async (req, res) => {
   const token = req.cookies.accessToken;
 
   if (!token) {
@@ -219,16 +219,25 @@ router.get("/me", (req, res) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as {
       id: number;
-      username: string;
-      role: string;
     };
 
+    const result = await pool.query(
+      `
+      SELECT id, username, role, email, name, surname
+      FROM users
+      WHERE id = $1
+      `,
+      [decoded.id],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = result.rows[0];
+
     res.json({
-      user: {
-        id: decoded.id,
-        username: decoded.username,
-        role: decoded.role,
-      },
+      user,
     });
   } catch {
     res.status(401).json({ error: "Invalid token" });
