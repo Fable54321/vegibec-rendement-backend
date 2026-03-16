@@ -9,6 +9,19 @@ router.post(
   requireRole(["admin"]),
   async (req: Request, res: Response) => {
     try {
+      console.log("=== /units/send-data ===");
+      console.log("content-type:", req.headers["content-type"]);
+      console.log("req.body:", req.body);
+      console.log("req.user:", (req as any).user);
+
+      if (!req.body || typeof req.body !== "object") {
+        return res.status(400).json({
+          error: "Invalid or missing JSON body",
+          contentType: req.headers["content-type"] || null,
+          body: req.body ?? null,
+        });
+      }
+
       const { vegetable, value, is_kg, date_of_sale } = req.body;
 
       if (!vegetable || value == null) {
@@ -27,8 +40,8 @@ router.post(
 
       const result = await pool.query(
         `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
         [vegetable, value, is_kg || false, saleDate],
       );
 
