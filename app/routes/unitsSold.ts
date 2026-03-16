@@ -29,7 +29,7 @@ router.post(
         `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-        [vegetable, value, is_kg || false, saleDate]
+        [vegetable, value, is_kg || false, saleDate],
       );
 
       res.status(201).json({
@@ -40,12 +40,12 @@ router.post(
       console.error("Error inserting units_sold:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 router.get(
   "/totals",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req: Request, res: Response) => {
     try {
       const { start, end } = req.query as { start?: string; end?: string };
@@ -79,7 +79,7 @@ router.get(
          WHERE date_of_sale BETWEEN $1 AND $2
          GROUP BY vegetable
          ORDER BY vegetable`,
-        [startDate, endDate]
+        [startDate, endDate],
       );
 
       res.json({ success: true, totals: result.rows });
@@ -87,7 +87,7 @@ router.get(
       console.error("Error fetching totals:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 export default router;

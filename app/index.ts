@@ -69,7 +69,7 @@ app.get("/", async (req, res) => {
 });
 
 // --- POST: Insert new cost entry ---
-app.post("/data/costs", requireRole(["admin"]), async (req, res) => {
+app.post("/data/costs", requireRole(["admin", "user"]), async (req, res) => {
   try {
     const {
       vegetable,
@@ -115,7 +115,7 @@ app.use("/fix-field", addFieldsRoute);
 // --- GET: Aggregated costs summary ---
 app.get(
   "/data/costs/summary",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const groupBy = (req.query.groupBy as string | undefined)?.split(",");
@@ -172,7 +172,7 @@ app.get(
 // GET /data/costs/other_costs?start=YYYY-MM-DD&end=YYYY-MM-DD
 app.get(
   "/data/costs/other_costs",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     const { start, end } = req.query as { start?: string; end?: string };
 
@@ -290,47 +290,50 @@ app.get(
 
 //////// TASK COSTS ENTRIES JOURNAL //////////////////////////////
 
-app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
-  try {
-    const page = Math.max(Number(req.query.page) || 1, 1);
-    const limit = Math.min(Number(req.query.limit) || 10, 50);
-    const offset = (page - 1) * limit;
+app.get(
+  "/data/costs",
+  requireRole(["admin", "user", "guest"]),
+  async (req, res) => {
+    try {
+      const page = Math.max(Number(req.query.page) || 1, 1);
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+      const offset = (page - 1) * limit;
 
-    const { from, to } = req.query;
+      const { from, to } = req.query;
 
-    const whereClauses: string[] = [];
-    const values: any[] = [];
+      const whereClauses: string[] = [];
+      const values: any[] = [];
 
-    // ✅ Timezone-safe date filtering
-    if (from) {
-      values.push(from);
-      whereClauses.push(`created_at >= $${values.length}::date`);
-    }
+      // ✅ Timezone-safe date filtering
+      if (from) {
+        values.push(from);
+        whereClauses.push(`created_at >= $${values.length}::date`);
+      }
 
-    if (to) {
-      values.push(to);
-      whereClauses.push(
-        `created_at < ($${values.length}::date + INTERVAL '1 day')`,
-      );
-    }
+      if (to) {
+        values.push(to);
+        whereClauses.push(
+          `created_at < ($${values.length}::date + INTERVAL '1 day')`,
+        );
+      }
 
-    const whereSQL = whereClauses.length
-      ? `WHERE ${whereClauses.join(" AND ")}`
-      : "";
+      const whereSQL = whereClauses.length
+        ? `WHERE ${whereClauses.join(" AND ")}`
+        : "";
 
-    // 1️⃣ Total count (WITH filters)
-    const countQuery = `
+      // 1️⃣ Total count (WITH filters)
+      const countQuery = `
       SELECT COUNT(*)
       FROM task_costs
       ${whereSQL}
     `;
 
-    const countResult = await pool.query(countQuery, values);
-    const totalCount = Number(countResult.rows[0].count);
-    const totalPages = Math.max(Math.ceil(totalCount / limit), 1);
+      const countResult = await pool.query(countQuery, values);
+      const totalCount = Number(countResult.rows[0].count);
+      const totalPages = Math.max(Math.ceil(totalCount / limit), 1);
 
-    // 2️⃣ Paginated data (WITH filters)
-    const dataQuery = `
+      // 2️⃣ Paginated data (WITH filters)
+      const dataQuery = `
       SELECT
         id,
         vegetable,
@@ -350,100 +353,109 @@ app.get("/data/costs", requireRole(["admin", "guest"]), async (req, res) => {
       OFFSET $${values.length + 2}
     `;
 
-    const result = await pool.query(dataQuery, [...values, limit, offset]);
+      const result = await pool.query(dataQuery, [...values, limit, offset]);
 
-    res.json({
-      entries: result.rows,
-      pagination: {
-        page,
-        totalPages,
-        totalCount,
-      },
-    });
-  } catch (err) {
-    console.error("Error fetching task costs:", err);
-    res.status(500).json({ error: "Database error" });
-  }
-});
+      res.json({
+        entries: result.rows,
+        pagination: {
+          page,
+          totalPages,
+          totalCount,
+        },
+      });
+    } catch (err) {
+      console.error("Error fetching task costs:", err);
+      res.status(500).json({ error: "Database error" });
+    }
+  },
+);
 
 //Delete or modify entry from Task costs
 
-app.patch("/data/costs/:id", requireRole(["admin"]), async (req, res) => {
-  try {
-    const { id } = req.params;
+app.patch(
+  "/data/costs/:id",
+  requireRole(["admin", "user"]),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const {
-      vegetable,
-      category,
-      sub_category,
-      total_hours,
-      supervisor,
-      total_cost,
-      total_cost_with_charges,
-      field,
-      total_worker,
-    } = req.body;
+      const {
+        vegetable,
+        category,
+        sub_category,
+        total_hours,
+        supervisor,
+        total_cost,
+        total_cost_with_charges,
+        field,
+        total_worker,
+      } = req.body;
 
-    const fields: string[] = [];
-    const values: any[] = [];
+      const fields: string[] = [];
+      const values: any[] = [];
 
-    const addField = (name: string, value: any) => {
-      values.push(value);
-      fields.push(`${name} = $${values.length}`);
-    };
+      const addField = (name: string, value: any) => {
+        values.push(value);
+        fields.push(`${name} = $${values.length}`);
+      };
 
-    if (vegetable !== undefined) addField("vegetable", vegetable);
-    if (category !== undefined) addField("category", category);
-    if (sub_category !== undefined) addField("sub_category", sub_category);
-    if (total_hours !== undefined) addField("total_hours", total_hours);
-    if (supervisor !== undefined) addField("supervisor", supervisor);
-    if (total_cost !== undefined) addField("total_cost", total_cost);
-    if (total_cost_with_charges !== undefined)
-      addField("total_cost_with_charges", total_cost_with_charges);
-    if (field !== undefined) addField("field", field);
-    if (total_worker !== undefined) addField("total_worker", total_worker);
+      if (vegetable !== undefined) addField("vegetable", vegetable);
+      if (category !== undefined) addField("category", category);
+      if (sub_category !== undefined) addField("sub_category", sub_category);
+      if (total_hours !== undefined) addField("total_hours", total_hours);
+      if (supervisor !== undefined) addField("supervisor", supervisor);
+      if (total_cost !== undefined) addField("total_cost", total_cost);
+      if (total_cost_with_charges !== undefined)
+        addField("total_cost_with_charges", total_cost_with_charges);
+      if (field !== undefined) addField("field", field);
+      if (total_worker !== undefined) addField("total_worker", total_worker);
 
-    if (fields.length === 0) {
-      return res.status(400).json({ error: "No fields to update" });
-    }
+      if (fields.length === 0) {
+        return res.status(400).json({ error: "No fields to update" });
+      }
 
-    values.push(id);
+      values.push(id);
 
-    const query = `
+      const query = `
       UPDATE task_costs
       SET ${fields.join(", ")}
       WHERE id = $${values.length}
       RETURNING *
     `;
 
-    const result = await pool.query(query, values);
+      const result = await pool.query(query, values);
 
-    res.json({
-      success: true,
-      entry: result.rows[0],
-    });
-  } catch (err) {
-    console.error("Error updating entry:", err);
-    res.status(500).json({ error: "Database error" });
-  }
-});
+      res.json({
+        success: true,
+        entry: result.rows[0],
+      });
+    } catch (err) {
+      console.error("Error updating entry:", err);
+      res.status(500).json({ error: "Database error" });
+    }
+  },
+);
 
-app.delete("/data/costs/:id", requireRole(["admin"]), async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.query("DELETE FROM task_costs WHERE id = $1", [id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Error deleting entry:", err);
-    res.status(500).json({ error: "Database error" });
-  }
-});
+app.delete(
+  "/data/costs/:id",
+  requireRole(["admin", "user"]),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query("DELETE FROM task_costs WHERE id = $1", [id]);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error deleting entry:", err);
+      res.status(500).json({ error: "Database error" });
+    }
+  },
+);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 app.get(
   "/data/costs/seed_costs",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     const { start, end, seed } = req.query;
 
@@ -552,7 +564,7 @@ app.get(
 
 app.get(
   "/data/packaging_costs/per_vegetable",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end, seed } = req.query; // <-- include seed here
@@ -654,7 +666,7 @@ app.get(
 // SOILS SOILS SOILS SOILS SOILS SOILS //
 app.get(
   "/data/costs/soil_products/vegetable",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end } = req.query;
@@ -746,7 +758,7 @@ app.get(
 // GET totals per category
 app.get(
   "/data/costs/soil_products/category",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end } = req.query;

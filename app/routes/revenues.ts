@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.get(
   "/by-year",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req: Request, res: Response) => {
     try {
       const { year_from } = req.query;
@@ -39,7 +39,7 @@ router.get(
 
 router.get(
   "/available-years",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const result = await pool.query(`

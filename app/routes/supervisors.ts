@@ -8,18 +8,22 @@ const router = express.Router();
  * GET /getSupervisors
  * Returns all supervisors
  */
-router.get("/get", requireRole(["admin", "guest"]), async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT supervisor FROM supervisors ORDER BY supervisor`,
-    );
+router.get(
+  "/get",
+  requireRole(["admin", "user", "guest"]),
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT supervisor FROM supervisors ORDER BY supervisor`,
+      );
 
-    res.status(200).json(result.rows);
-  } catch (error) {
-    console.error("Error fetching supervisors:", error);
-    res.status(500).json({ error: "Failed to fetch supervisors" });
-  }
-});
+      res.status(200).json(result.rows);
+    } catch (error) {
+      console.error("Error fetching supervisors:", error);
+      res.status(500).json({ error: "Failed to fetch supervisors" });
+    }
+  },
+);
 
 router.post("/", requireRole(["admin"]), async (req, res) => {
   const { supervisor } = req.body;

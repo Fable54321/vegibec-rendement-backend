@@ -11,7 +11,7 @@ const router = Router();
  *   ?start=YYYY-MM-DD
  *   ?end=YYYY-MM-DD
  */
-router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
+router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
   try {
     const { start, end } = req.query as {
       start?: string;
@@ -33,7 +33,7 @@ router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
 
     if (start && end) {
       conditions.push(
-        `date_of_sale BETWEEN $${values.length + 1} AND $${values.length + 2}`
+        `date_of_sale BETWEEN $${values.length + 1} AND $${values.length + 2}`,
       );
       values.push(start, end);
     } else if (start) {
@@ -69,7 +69,7 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
     // Find the original entry
     const original = await pool.query(
       "SELECT vegetable, units_sold, is_kg, date_of_sale FROM units_sold WHERE id = $1",
-      [id]
+      [id],
     );
 
     if (original.rowCount === 0) {
@@ -82,7 +82,7 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
     await pool.query(
       `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
        VALUES ($1, $2, $3, $4)`,
-      [entry.vegetable, -entry.units_sold, entry.is_kg, new Date()]
+      [entry.vegetable, -entry.units_sold, entry.is_kg, new Date()],
     );
 
     res.json({ success: true });
@@ -109,7 +109,7 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
     // Find the original entry
     const original = await pool.query(
       "SELECT vegetable, units_sold, is_kg, date_of_sale FROM units_sold WHERE id = $1",
-      [id]
+      [id],
     );
 
     if (original.rowCount === 0) {
@@ -122,7 +122,7 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
     await pool.query(
       `INSERT INTO units_sold (vegetable, units_sold, is_kg, date_of_sale)
        VALUES ($1, $2, $3, $4)`,
-      [entry.vegetable, -entry.units_sold, entry.is_kg, new Date()]
+      [entry.vegetable, -entry.units_sold, entry.is_kg, new Date()],
     );
 
     // Step 2: insert corrected entry
@@ -134,7 +134,7 @@ router.post("/:id/correct", requireRole(["admin"]), async (req, res) => {
         units_sold,
         is_kg ?? entry.is_kg,
         date_of_sale ?? new Date(),
-      ]
+      ],
     );
 
     res.json({ success: true });

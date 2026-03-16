@@ -8,7 +8,7 @@ const router = express.Router();
  * GET /projected-revenues
  * Returns all projected revenues
  */
-router.get("/", requireRole(["admin", "guest"]), async (_req, res) => {
+router.get("/", requireRole(["admin", "user", "guest"]), async (_req, res) => {
   try {
     const result = await pool.query(`
       SELECT

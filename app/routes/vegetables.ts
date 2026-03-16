@@ -8,7 +8,7 @@ const router = express.Router();
  * GET /vegetables
  * Returns all available vegetable values
  */
-router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
+router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 

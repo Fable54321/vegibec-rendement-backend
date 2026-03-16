@@ -8,7 +8,7 @@ const router = express.Router();
  * GET /getFields
  * Returns all available field values
  */
-router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
+router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
   try {
     const result = await pool.query(`SELECT field FROM fields ORDER BY field`);
 

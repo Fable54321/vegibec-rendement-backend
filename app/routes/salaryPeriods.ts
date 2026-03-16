@@ -37,7 +37,7 @@ router.post(
       console.error("Error inserting salary period:", err);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 router.get("/check", requireRole(["admin"]), async (req, res) => {
@@ -51,7 +51,7 @@ router.get("/check", requireRole(["admin"]), async (req, res) => {
     const startDate = `${year}-01-01`;
     const result = await pool.query(
       `SELECT * FROM salary_periods WHERE employee_name = $1 AND start_date = $2`,
-      [employee_name, startDate]
+      [employee_name, startDate],
     );
 
     if (result.rows.length > 0) {
@@ -78,7 +78,7 @@ router.put("/", requireRole(["admin"]), async (req: Request, res: Response) => {
     // 1️⃣ Find existing entry for the employee & year
     const existingResult = await pool.query(
       `SELECT * FROM salary_periods WHERE employee_name = $1 AND start_date::text LIKE $2`,
-      [employee_name, `${year}-%`] // Matches any start_date in the given year
+      [employee_name, `${year}-%`], // Matches any start_date in the given year
     );
 
     if (existingResult.rows.length > 0) {
@@ -89,7 +89,7 @@ router.put("/", requireRole(["admin"]), async (req: Request, res: Response) => {
       newEndDate.setDate(newEndDate.getDate() - 1); // day before
       await pool.query(
         `UPDATE salary_periods SET end_date = $1 WHERE id = $2`,
-        [newEndDate.toISOString().split("T")[0], existingEntry.id]
+        [newEndDate.toISOString().split("T")[0], existingEntry.id],
       );
     }
 
@@ -99,7 +99,7 @@ router.put("/", requireRole(["admin"]), async (req: Request, res: Response) => {
     const insertResult = await pool.query(
       `INSERT INTO salary_periods (employee_name, yearly_amount, start_date, days_in_year)
              VALUES ($1, $2, $3, $4) RETURNING *`,
-      [employee_name, yearly_amount, start_date, days_in_year]
+      [employee_name, yearly_amount, start_date, days_in_year],
     );
 
     res.json(insertResult.rows[0]);
@@ -111,7 +111,7 @@ router.put("/", requireRole(["admin"]), async (req: Request, res: Response) => {
 
 router.get(
   "/salary-periods/total-until",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { date } = req.query;
@@ -148,7 +148,7 @@ router.get(
         ) AS total_paid
       FROM ordered_periods;
       `,
-        [date]
+        [date],
       );
 
       res.json({
@@ -159,12 +159,12 @@ router.get(
       console.error(err);
       res.status(500).json({ error: "Erreur de calcul." });
     }
-  }
+  },
 );
 
 router.get(
   "/by-year/:year",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req: Request, res: Response) => {
     try {
       const { year } = req.params;
@@ -179,7 +179,7 @@ router.get(
       WHERE EXTRACT(YEAR FROM start_date) = $1
       ORDER BY employee_name, start_date DESC;
       `,
-        [year]
+        [year],
       );
 
       res.json(result.rows);
@@ -187,7 +187,7 @@ router.get(
       console.error("Error fetching latest salaries:", err);
       res.status(500).json({ error: "Erreur serveur." });
     }
-  }
+  },
 );
 
 export default router;

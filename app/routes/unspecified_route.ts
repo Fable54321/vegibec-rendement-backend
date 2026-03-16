@@ -94,7 +94,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     const unspecifiedResult = await pool.query(
       unspecifiedQuery,
-      unspecifiedValues
+      unspecifiedValues,
     );
 
     res.status(201).json({
@@ -110,7 +110,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
 router.get(
   "/data/costs/unspecified",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end } = req.query;
@@ -125,7 +125,7 @@ router.get(
         `SELECT vegetable, cost_type, cost_year, amount 
          FROM unspecified_costs 
          WHERE cost_year = $1`,
-        [year]
+        [year],
       );
 
       const startOfYear = new Date(year, 0, 1);
@@ -187,7 +187,7 @@ router.get(
       console.error("Error fetching unspecified costs:", err);
       res.status(500).json({ error: "Database error" });
     }
-  }
+  },
 );
 
 export default router;

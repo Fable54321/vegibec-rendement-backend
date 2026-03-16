@@ -8,7 +8,7 @@ const router = express.Router();
  * GET /task-categories
  * Returns all task categories
  */
-router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
+router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT id, name
@@ -76,7 +76,7 @@ router.delete("/:id", requireRole(["admin"]), async (req, res) => {
  */
 router.get(
   "/:categoryId/subcategories",
-  requireRole(["admin", "guest"]),
+  requireRole(["admin", "user", "guest"]),
   async (req, res) => {
     const { categoryId } = req.params;
 

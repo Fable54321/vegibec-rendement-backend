@@ -5,7 +5,7 @@ import { requireRole } from "../middleware/auth";
 const router = Router();
 
 // --- GET: List all employees ---
-router.get("/", requireRole(["admin", "guest"]), async (req, res) => {
+router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
   try {
     const result = await pool.query("SELECT name FROM employees ORDER BY name");
 
