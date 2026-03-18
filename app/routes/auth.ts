@@ -52,14 +52,18 @@ router.post("/login", async (req, res) => {
     ]);
 
     if (result.rowCount === 0) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return res
+        .status(401)
+        .json({ error: "Nom d'utilisateur ou mot de passe incorrect" });
     }
 
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
 
     if (!valid) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return res
+        .status(401)
+        .json({ error: "Nom d'utilisateur ou mot de passe incorrect" });
     }
 
     const accessToken = generateAccessToken(user);
