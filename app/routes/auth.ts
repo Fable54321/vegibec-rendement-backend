@@ -221,26 +221,40 @@ router.get("/me", async (req, res) => {
       id: number;
     };
 
-    const result = await pool.query(
+    const userResult = await pool.query(
       `
-      SELECT id, username, role, email, name, surname
+      SELECT id, username, email, name, surname
       FROM users
       WHERE id = $1
       `,
       [decoded.id],
     );
 
-    if (result.rows.length === 0) {
+    if (userResult.rows.length === 0) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const user = result.rows[0];
+    const appAccessResult = await pool.query(
+      `
+      SELECT a.slug, uar.role
+      FROM user_app_roles uar
+      JOIN apps a ON a.id = uar.app_id
+      WHERE uar.user_id = $1
+      ORDER BY a.slug
+      `,
+      [decoded.id],
+    );
 
-    res.json({
-      user,
+    const user = userResult.rows[0];
+
+    return res.json({
+      user: {
+        ...user,
+        appAccess: appAccessResult.rows,
+      },
     });
   } catch {
-    res.status(401).json({ error: "Invalid token" });
+    return res.status(401).json({ error: "Invalid token" });
   }
 });
 
