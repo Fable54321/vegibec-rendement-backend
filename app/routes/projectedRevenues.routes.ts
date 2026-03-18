@@ -1,6 +1,6 @@
 import express from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -8,9 +8,12 @@ const router = express.Router();
  * GET /projected-revenues
  * Returns all projected revenues
  */
-router.get("/", requireRole(["admin", "user", "guest"]), async (_req, res) => {
-  try {
-    const result = await pool.query(`
+router.get(
+  "/",
+  requireAppRole("rendement", ["admin", "user", "guest"]),
+  async (_req, res) => {
+    try {
+      const result = await pool.query(`
       SELECT
         vegetable,
         year,
@@ -20,18 +23,19 @@ router.get("/", requireRole(["admin", "user", "guest"]), async (_req, res) => {
       ORDER BY year DESC, vegetable ASC
     `);
 
-    res.status(200).json(result.rows);
-  } catch (error) {
-    console.error("Error fetching projected revenues:", error);
-    res.status(500).json({ error: "Failed to fetch projected revenues" });
-  }
-});
+      res.status(200).json(result.rows);
+    } catch (error) {
+      console.error("Error fetching projected revenues:", error);
+      res.status(500).json({ error: "Failed to fetch projected revenues" });
+    }
+  },
+);
 
 /**
  * POST /projected-revenues
  * Adds or updates a projected revenue
  */
-router.post("/", requireRole(["admin"]), async (req, res) => {
+router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   try {
     const { vegetable, year, projectedRevenue, generic_group } = req.body;
 
@@ -116,44 +120,50 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
  * DELETE /projected-revenues/:vegetable/:year
  * Deletes a projected revenue for a specific vegetable and year
  */
-router.delete("/:vegetable/:year", requireRole(["admin"]), async (req, res) => {
-  try {
-    const { vegetable, year } = req.params;
+router.delete(
+  "/:vegetable/:year",
+  requireAppRole("rendement", ["admin"]),
+  async (req, res) => {
+    try {
+      const { vegetable, year } = req.params;
 
-    if (!vegetable || !year) {
-      return res.status(400).json({ error: "Vegetable and year are required" });
-    }
+      if (!vegetable || !year) {
+        return res
+          .status(400)
+          .json({ error: "Vegetable and year are required" });
+      }
 
-    const normalizedVegetable = vegetable.trim().toUpperCase();
-    const numericYear = Number(year);
+      const normalizedVegetable = vegetable.trim().toUpperCase();
+      const numericYear = Number(year);
 
-    if (isNaN(numericYear) || numericYear < 2000 || numericYear > 2100) {
-      return res.status(400).json({ error: "Invalid year" });
-    }
+      if (isNaN(numericYear) || numericYear < 2000 || numericYear > 2100) {
+        return res.status(400).json({ error: "Invalid year" });
+      }
 
-    const result = await pool.query(
-      `
+      const result = await pool.query(
+        `
         DELETE FROM projected_revenues
         WHERE vegetable = $1 AND year = $2
         RETURNING vegetable, year, projected_revenue
         `,
-      [normalizedVegetable, numericYear],
-    );
+        [normalizedVegetable, numericYear],
+      );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        error: `No projected revenue found for ${normalizedVegetable} in ${numericYear}`,
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          error: `No projected revenue found for ${normalizedVegetable} in ${numericYear}`,
+        });
+      }
+
+      res.status(200).json({
+        message: "Projected revenue deleted successfully",
+        deleted: result.rows[0],
       });
+    } catch (error) {
+      console.error("Error deleting projected revenue:", error);
+      res.status(500).json({ error: "Failed to delete projected revenue" });
     }
-
-    res.status(200).json({
-      message: "Projected revenue deleted successfully",
-      deleted: result.rows[0],
-    });
-  } catch (error) {
-    console.error("Error deleting projected revenue:", error);
-    res.status(500).json({ error: "Failed to delete projected revenue" });
-  }
-});
+  },
+);
 
 export default router;

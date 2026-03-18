@@ -1,7 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import { pool } from "../../db";
-import { requireRole } from "../../middleware/auth";
+import { requireAppRole } from "../../middleware/auth";
 
 const router = express.Router();
 
@@ -20,11 +20,7 @@ const isValidEmail = (email: string): boolean => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 };
 
-/**
- * GET /admin-users
- * Return all apps for the create-account form
- */
-router.get("/", requireRole(["admin"]), async (_req, res) => {
+router.get("/", requireAppRole("main", ["admin"]), async (_req, res) => {
   try {
     const result = await pool.query(`
       SELECT id, name, slug
@@ -45,11 +41,7 @@ router.get("/", requireRole(["admin"]), async (_req, res) => {
   }
 });
 
-/**
- * GET /admin-users/list
- * Optional: list users for admin page
- */
-router.get("/list", requireRole(["admin"]), async (_req, res) => {
+router.get("/list", requireAppRole("main", ["admin"]), async (_req, res) => {
   try {
     const result = await pool.query(`
       SELECT id, username, email, name, surname, role, created_at, updated_at
@@ -70,11 +62,7 @@ router.get("/list", requireRole(["admin"]), async (_req, res) => {
   }
 });
 
-/**
- * GET /admin-users/:id
- * Optional: get one user and their app access
- */
-router.get("/:id", requireRole(["admin"]), async (req, res) => {
+router.get("/:id", requireAppRole("main", ["admin"]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
 
@@ -130,7 +118,7 @@ router.get("/:id", requireRole(["admin"]), async (req, res) => {
  * POST /admin-users
  * Create a user and assign app access
  */
-router.post("/", requireRole(["admin"]), async (req, res) => {
+router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -165,11 +153,27 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     const normalizedName = name.trim();
     const normalizedSurname = surname.trim();
     const normalizedLegacyRole = legacyRole.trim();
+    const normalizedApps = apps.map((app) => ({
+      ...app,
+      slug: app.slug?.trim().toLowerCase(),
+      role: app.role?.trim(),
+    }));
 
     if (normalizedUsername.length < 3) {
       return res.status(400).json({
         success: false,
         message: "Username too short",
+      });
+    }
+
+    const hasMain = normalizedApps.some(
+      (app) => app?.slug?.trim().toLowerCase() === "main",
+    );
+
+    if (!hasMain) {
+      return res.status(400).json({
+        success: false,
+        message: "L'application principale ne peut pas être désactivée",
       });
     }
 
@@ -196,7 +200,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
     const seenSlugs = new Set<string>();
 
-    for (const app of apps) {
+    for (const app of normalizedApps) {
       if (!app?.slug) {
         return res.status(400).json({
           success: false,
@@ -204,7 +208,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         });
       }
 
-      const normalizedSlug = app.slug.trim();
+      const normalizedSlug = app.slug;
 
       if (seenSlugs.has(normalizedSlug)) {
         return res.status(400).json({
@@ -282,8 +286,8 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
     const newUser = userInsert.rows[0];
     const userId = newUser.id;
 
-    if (apps.length > 0) {
-      const requestedSlugs = apps.map((a) => a.slug.trim());
+    if (normalizedApps.length > 0) {
+      const requestedSlugs = normalizedApps.map((a) => a.slug);
 
       const appsResult = await client.query(
         `
@@ -314,8 +318,8 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         dbApps.map((a) => [a.slug, a.id]),
       );
 
-      for (const app of apps) {
-        const slug = app.slug.trim();
+      for (const app of normalizedApps) {
+        const slug = app.slug;
         const appId = slugToId.get(slug);
 
         if (!appId) {
@@ -350,12 +354,10 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
         name: newUser.name,
         surname: newUser.surname,
         legacyRole: newUser.role,
-        appAccess: apps.map((app) => ({
-          slug: app.slug.trim(),
+        appAccess: normalizedApps.map((app) => ({
+          slug: app.slug,
           role:
-            app.slug.trim() === "rendement"
-              ? normalizedLegacyRole
-              : app.role?.trim(),
+            app.slug === "rendement" ? normalizedLegacyRole : app.role?.trim(),
         })),
       },
     });

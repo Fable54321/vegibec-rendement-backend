@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { authMiddleware, requireRole } from "./middleware/auth";
+import { authMiddleware, requireAppRole } from "./middleware/auth";
 
 dotenv.config();
 
@@ -69,53 +69,57 @@ app.get("/", async (req, res) => {
 });
 
 // --- POST: Insert new cost entry ---
-app.post("/data/costs", requireRole(["admin", "user"]), async (req, res) => {
-  try {
-    const {
-      vegetable,
-      category,
-      sub_category,
-      total_hours,
-      supervisor,
-      total_cost,
-      created_at,
-      field, // existing
-      total_worker, // <-- new column
-    } = req.body;
-
-    const dateValue = created_at ? new Date(created_at) : new Date();
-
-    const result = await pool.query(
-      `INSERT INTO task_costs 
-       (vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at, field, total_worker)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [
+app.post(
+  "/data/costs",
+  requireAppRole("rendement", ["admin", "user"]),
+  async (req, res) => {
+    try {
+      const {
         vegetable,
         category,
         sub_category,
         total_hours,
         supervisor,
         total_cost,
-        dateValue,
-        field,
-        total_worker, // <-- pass the new value
-      ],
-    );
+        created_at,
+        field, // existing
+        total_worker, // <-- new column
+      } = req.body;
 
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error("Error inserting data:", err);
-    res.status(500).json({ error: "Database error" });
-  }
-});
+      const dateValue = created_at ? new Date(created_at) : new Date();
+
+      const result = await pool.query(
+        `INSERT INTO task_costs 
+       (vegetable, category, sub_category, total_hours, supervisor, total_cost, created_at, field, total_worker)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+        [
+          vegetable,
+          category,
+          sub_category,
+          total_hours,
+          supervisor,
+          total_cost,
+          dateValue,
+          field,
+          total_worker, // <-- pass the new value
+        ],
+      );
+
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      console.error("Error inserting data:", err);
+      res.status(500).json({ error: "Database error" });
+    }
+  },
+);
 
 app.use("/fix-field", addFieldsRoute);
 
 // --- GET: Aggregated costs summary ---
 app.get(
   "/data/costs/summary",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const groupBy = (req.query.groupBy as string | undefined)?.split(",");
@@ -172,7 +176,7 @@ app.get(
 // GET /data/costs/other_costs?start=YYYY-MM-DD&end=YYYY-MM-DD
 app.get(
   "/data/costs/other_costs",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     const { start, end } = req.query as { start?: string; end?: string };
 
@@ -292,7 +296,7 @@ app.get(
 
 app.get(
   "/data/costs",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const page = Math.max(Number(req.query.page) || 1, 1);
@@ -374,7 +378,7 @@ app.get(
 
 app.patch(
   "/data/costs/:id",
-  requireRole(["admin", "user"]),
+  requireAppRole("rendement", ["admin", "user"]),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -438,7 +442,7 @@ app.patch(
 
 app.delete(
   "/data/costs/:id",
-  requireRole(["admin", "user"]),
+  requireAppRole("rendement", ["admin", "user"]),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -455,7 +459,7 @@ app.delete(
 
 app.get(
   "/data/costs/seed_costs",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     const { start, end, seed } = req.query;
 
@@ -564,7 +568,7 @@ app.get(
 
 app.get(
   "/data/packaging_costs/per_vegetable",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end, seed } = req.query; // <-- include seed here
@@ -666,7 +670,7 @@ app.get(
 // SOILS SOILS SOILS SOILS SOILS SOILS //
 app.get(
   "/data/costs/soil_products/vegetable",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end } = req.query;
@@ -758,7 +762,7 @@ app.get(
 // GET totals per category
 app.get(
   "/data/costs/soil_products/category",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end } = req.query;

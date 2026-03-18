@@ -1,23 +1,29 @@
 import { Router } from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = Router();
 
 // --- GET: List all employees ---
-router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
-  try {
-    const result = await pool.query("SELECT name FROM employees ORDER BY name");
+router.get(
+  "/",
+  requireAppRole("rendement", ["admin", "user", "guest"]),
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        "SELECT name FROM employees ORDER BY name",
+      );
 
-    // return simple array of names
-    res.json(result.rows.map((row) => row.name));
-  } catch (err) {
-    console.error("Error fetching employees:", err);
-    res.status(500).json({ error: "Database error" });
-  }
-});
+      // return simple array of names
+      res.json(result.rows.map((row) => row.name));
+    } catch (err) {
+      console.error("Error fetching employees:", err);
+      res.status(500).json({ error: "Database error" });
+    }
+  },
+);
 
-router.post("/", requireRole(["admin"]), async (req, res) => {
+router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   const { name } = req.body;
 
   if (!name || typeof name !== "string") {
@@ -46,30 +52,34 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 });
 
 // --- DELETE: Remove an employee ---
-router.delete("/:name", requireRole(["admin"]), async (req, res) => {
-  const { name } = req.params;
+router.delete(
+  "/:name",
+  requireAppRole("rendement", ["admin"]),
+  async (req, res) => {
+    const { name } = req.params;
 
-  if (!name) {
-    return res.status(400).json({ error: "Employee name is required" });
-  }
-
-  try {
-    const result = await pool.query(
-      `DELETE FROM employees
-       WHERE name = $1
-       RETURNING name`,
-      [name],
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Employee not found" });
+    if (!name) {
+      return res.status(400).json({ error: "Employee name is required" });
     }
 
-    res.json({ deleted: result.rows[0].name });
-  } catch (err) {
-    console.error("Error deleting employee:", err);
-    res.status(500).json({ error: "Database error" });
-  }
-});
+    try {
+      const result = await pool.query(
+        `DELETE FROM employees
+       WHERE name = $1
+       RETURNING name`,
+        [name],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+
+      res.json({ deleted: result.rows[0].name });
+    } catch (err) {
+      console.error("Error deleting employee:", err);
+      res.status(500).json({ error: "Database error" });
+    }
+  },
+);
 
 export default router;

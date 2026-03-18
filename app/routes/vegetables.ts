@@ -1,6 +1,6 @@
 import express from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -8,9 +8,12 @@ const router = express.Router();
  * GET /vegetables
  * Returns all available vegetable values
  */
-router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
-  try {
-    const result = await pool.query(`
+router.get(
+  "/",
+  requireAppRole("rendement", ["admin", "user", "guest"]),
+  async (req, res) => {
+    try {
+      const result = await pool.query(`
       SELECT 
         vegetable,
         is_generic,
@@ -19,14 +22,15 @@ router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
       ORDER BY vegetable
     `);
 
-    res.status(200).json(result.rows);
-  } catch (error) {
-    console.error("Error fetching vegetables:", error);
-    res.status(500).json({ error: "Failed to fetch vegetables" });
-  }
-});
+      res.status(200).json(result.rows);
+    } catch (error) {
+      console.error("Error fetching vegetables:", error);
+      res.status(500).json({ error: "Failed to fetch vegetables" });
+    }
+  },
+);
 
-router.post("/", requireRole(["admin"]), async (req, res) => {
+router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   try {
     const { vegetable, is_generic, generic_group } = req.body;
 
@@ -81,37 +85,41 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
  * DELETE /vegetables/:vegetable
  * Removes a vegetable from the list
  */
-router.delete("/:vegetable", requireRole(["admin"]), async (req, res) => {
-  try {
-    const { vegetable } = req.params;
+router.delete(
+  "/:vegetable",
+  requireAppRole("rendement", ["admin"]),
+  async (req, res) => {
+    try {
+      const { vegetable } = req.params;
 
-    if (!vegetable) {
-      return res.status(400).json({ error: "Vegetable is required" });
-    }
+      if (!vegetable) {
+        return res.status(400).json({ error: "Vegetable is required" });
+      }
 
-    // Normalize to match insert logic
-    const normalizedVegetable = vegetable.trim().toUpperCase();
+      // Normalize to match insert logic
+      const normalizedVegetable = vegetable.trim().toUpperCase();
 
-    const result = await pool.query(
-      `
+      const result = await pool.query(
+        `
         DELETE FROM vegetables
         WHERE vegetable = $1
         RETURNING vegetable
         `,
-      [normalizedVegetable],
-    );
+        [normalizedVegetable],
+      );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Vegetable not found" });
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Vegetable not found" });
+      }
+
+      res.status(200).json({
+        deleted: result.rows[0].vegetable,
+      });
+    } catch (error) {
+      console.error("Error deleting vegetable:", error);
+      res.status(500).json({ error: "Failed to delete vegetable" });
     }
-
-    res.status(200).json({
-      deleted: result.rows[0].vegetable,
-    });
-  } catch (error) {
-    console.error("Error deleting vegetable:", error);
-    res.status(500).json({ error: "Failed to delete vegetable" });
-  }
-});
+  },
+);
 
 export default router;

@@ -1,6 +1,6 @@
 import express from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -8,18 +8,24 @@ const router = express.Router();
  * GET /getFields
  * Returns all available field values
  */
-router.get("/", requireRole(["admin", "user", "guest"]), async (req, res) => {
-  try {
-    const result = await pool.query(`SELECT field FROM fields ORDER BY field`);
+router.get(
+  "/",
+  requireAppRole("rendement", ["admin", "user", "guest"]),
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT field FROM fields ORDER BY field`,
+      );
 
-    res.status(200).json(result.rows);
-  } catch (error) {
-    console.error("Error fetching fields:", error);
-    res.status(500).json({ error: "Failed to fetch fields" });
-  }
-});
+      res.status(200).json(result.rows);
+    } catch (error) {
+      console.error("Error fetching fields:", error);
+      res.status(500).json({ error: "Failed to fetch fields" });
+    }
+  },
+);
 
-router.post("/", requireRole(["admin"]), async (req, res) => {
+router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   const { field } = req.body;
 
   if (!field || typeof field !== "string") {
@@ -50,7 +56,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
   }
 });
 
-router.delete("/", requireRole(["admin"]), async (req, res) => {
+router.delete("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   const { field } = req.body;
 
   if (!field || typeof field !== "string") {

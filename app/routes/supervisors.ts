@@ -1,6 +1,6 @@
 import express from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ const router = express.Router();
  */
 router.get(
   "/get",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const result = await pool.query(
@@ -25,7 +25,7 @@ router.get(
   },
 );
 
-router.post("/", requireRole(["admin"]), async (req, res) => {
+router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   const { supervisor } = req.body;
 
   if (!supervisor || typeof supervisor !== "string") {
@@ -57,30 +57,34 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
  * DELETE /:supervisor
  * Delete a supervisor
  */
-router.delete("/:supervisor", requireRole(["admin"]), async (req, res) => {
-  const { supervisor } = req.params;
+router.delete(
+  "/:supervisor",
+  requireAppRole("rendement", ["admin"]),
+  async (req, res) => {
+    const { supervisor } = req.params;
 
-  if (!supervisor) {
-    return res.status(400).json({ error: "Supervisor name is required" });
-  }
-
-  try {
-    const result = await pool.query(
-      `DELETE FROM supervisors
-       WHERE supervisor = $1
-       RETURNING supervisor`,
-      [supervisor],
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Supervisor not found" });
+    if (!supervisor) {
+      return res.status(400).json({ error: "Supervisor name is required" });
     }
 
-    res.status(200).json({ deleted: result.rows[0].supervisor });
-  } catch (error) {
-    console.error("Error deleting supervisor:", error);
-    res.status(500).json({ error: "Failed to delete supervisor" });
-  }
-});
+    try {
+      const result = await pool.query(
+        `DELETE FROM supervisors
+       WHERE supervisor = $1
+       RETURNING supervisor`,
+        [supervisor],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Supervisor not found" });
+      }
+
+      res.status(200).json({ deleted: result.rows[0].supervisor });
+    } catch (error) {
+      console.error("Error deleting supervisor:", error);
+      res.status(500).json({ error: "Failed to delete supervisor" });
+    }
+  },
+);
 
 export default router;

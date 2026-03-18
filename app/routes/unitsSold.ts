@@ -1,12 +1,12 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = Router();
 
 router.post(
   "/send-data",
-  requireRole(["admin"]),
+  requireAppRole("rendement", ["admin"]),
   async (req: Request, res: Response) => {
     try {
       console.log("=== /units/send-data ===");
@@ -58,7 +58,7 @@ router.post(
 
 router.get(
   "/totals",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req: Request, res: Response) => {
     try {
       const { start, end } = req.query as { start?: string; end?: string };

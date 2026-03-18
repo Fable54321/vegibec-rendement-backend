@@ -1,6 +1,6 @@
 import express from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -15,7 +15,7 @@ const router = express.Router();
  *   entry_date?: string (YYYY-MM-DD)
  * }
  */
-router.post("/", requireRole(["admin"]), async (req, res) => {
+router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   try {
     const {
       description,
@@ -110,7 +110,7 @@ router.post("/", requireRole(["admin"]), async (req, res) => {
 
 router.get(
   "/data/costs/unspecified",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const { start, end } = req.query;

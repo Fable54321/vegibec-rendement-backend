@@ -1,12 +1,12 @@
 import express, { Request, Response } from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = express.Router();
 
 router.get(
   "/by-year",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req: Request, res: Response) => {
     try {
       const { year_from } = req.query;
@@ -39,7 +39,7 @@ router.get(
 
 router.get(
   "/available-years",
-  requireRole(["admin", "user", "guest"]),
+  requireAppRole("rendement", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const result = await pool.query(`
@@ -57,7 +57,7 @@ router.get(
 
 router.post(
   "/",
-  requireRole(["admin"]),
+  requireAppRole("rendement", ["admin"]),
   async (req: Request, res: Response) => {
     try {
       const { year_from, revenues } = req.body;
@@ -105,7 +105,7 @@ router.post(
 
 router.patch(
   "/",
-  requireRole(["admin"]),
+  requireAppRole("rendement", ["admin"]),
   async (req: Request, res: Response) => {
     try {
       const { year_from, revenues } = req.body;
@@ -153,7 +153,7 @@ router.patch(
 // --- Add a single vegetable revenue ---
 router.post(
   "/single",
-  requireRole(["admin"]),
+  requireAppRole("rendement", ["admin"]),
   async (req: Request, res: Response) => {
     try {
       const { year_from, vegetable, total_revenue } = req.body;
@@ -195,7 +195,7 @@ router.post(
 // --- Delete a single vegetable revenue ---
 router.delete(
   "/single",
-  requireRole(["admin"]),
+  requireAppRole("rendement", ["admin"]),
   async (req: Request, res: Response) => {
     try {
       const { year_from, vegetable } = req.body;

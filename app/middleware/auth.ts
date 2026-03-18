@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
+import { pool } from "../db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret";
 
-// Extend Express Request type
 declare global {
   namespace Express {
     interface Request {
       user?: { id: number; username: string; role?: string };
+      appRole?: string;
     }
   }
 }
@@ -17,13 +18,11 @@ export const authMiddleware = (
   res: Response,
   next: NextFunction,
 ) => {
-  // Skip auth for public routes
   const publicPaths = ["/api/vegReports", "/auth"];
   if (publicPaths.some((path) => req.originalUrl.startsWith(path))) {
     return next();
   }
 
-  // Skip auth for OPTIONS requests (CORS preflight)
   if (req.method === "OPTIONS") {
     return next();
   }
@@ -44,7 +43,7 @@ export const authMiddleware = (
     req.user = {
       id: decoded.id,
       username: decoded.username,
-      role: decoded.role,
+      role: decoded.role, // optional legacy field
     };
 
     next();
@@ -57,16 +56,40 @@ export const authMiddleware = (
   }
 };
 
-export const requireRole = (allowedRoles: string[]) => {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user || !req.user.role) {
-      return res.status(403).json({ message: "Role not found" });
-    }
+export const requireAppRole = (appSlug: string, allowedRoles: string[]) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
 
-    if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
+      const result = await pool.query(
+        `
+        SELECT uar.role
+        FROM user_app_roles uar
+        JOIN apps a ON a.id = uar.app_id
+        WHERE uar.user_id = $1
+          AND a.slug = $2
+        LIMIT 1
+        `,
+        [req.user.id, appSlug],
+      );
 
-    next();
+      if (result.rows.length === 0) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const appRole = result.rows[0].role;
+
+      if (!allowedRoles.includes(appRole)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      req.appRole = appRole;
+      next();
+    } catch (error) {
+      console.error("requireAppRole error:", error);
+      return res.status(500).json({ message: "Server error" });
+    }
   };
 };

@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { pool } from "../db";
-import { requireRole } from "../middleware/auth";
+import { requireAppRole } from "../middleware/auth";
 
 const router = Router();
 
 // Only admin can fix fields
-router.patch("/", requireRole(["admin"]), async (req, res) => {
+router.patch("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   try {
     const { ids, field } = req.body;
 
@@ -21,7 +21,7 @@ router.patch("/", requireRole(["admin"]), async (req, res) => {
        SET field = $1
        WHERE id = ANY($2::int[])
        RETURNING *`,
-      [field, ids]
+      [field, ids],
     );
 
     res.status(200).json({
