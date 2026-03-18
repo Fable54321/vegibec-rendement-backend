@@ -122,22 +122,19 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { username, password, legacyRole, apps, email, name, surname } =
-      req.body as {
-        username?: string;
-        password?: string;
-        legacyRole?: string;
-        email?: string;
-        name?: string;
-        surname?: string;
-        apps?: AppAccessInput[];
-      };
+    const { username, password, apps, email, name, surname } = req.body as {
+      username?: string;
+      password?: string;
+      email?: string;
+      name?: string;
+      surname?: string;
+      apps?: AppAccessInput[];
+    };
 
-    if (!username || !password || !legacyRole || !email || !name || !surname) {
+    if (!username || !password || !email || !name || !surname) {
       return res.status(400).json({
         success: false,
-        message:
-          "Username, password, legacyRole, email, name and surname are required",
+        message: "Username, password, email, name and surname are required",
       });
     }
 
@@ -152,7 +149,6 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedName = name.trim();
     const normalizedSurname = surname.trim();
-    const normalizedLegacyRole = legacyRole.trim();
     const normalizedApps = apps.map((app) => ({
       ...app,
       slug: app.slug?.trim().toLowerCase(),
@@ -166,9 +162,7 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
       });
     }
 
-    const hasMain = normalizedApps.some(
-      (app) => app?.slug?.trim().toLowerCase() === "main",
-    );
+    const hasMain = normalizedApps.some((app) => app.slug === "main");
 
     if (!hasMain) {
       return res.status(400).json({
@@ -188,13 +182,6 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid email",
-      });
-    }
-
-    if (!isValidRole(normalizedLegacyRole)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid legacyRole",
       });
     }
 
@@ -219,20 +206,18 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
 
       seenSlugs.add(normalizedSlug);
 
-      if (normalizedSlug !== "rendement") {
-        if (!app.role) {
-          return res.status(400).json({
-            success: false,
-            message: `Role is required for app: ${normalizedSlug}`,
-          });
-        }
+      if (!app.role) {
+        return res.status(400).json({
+          success: false,
+          message: `Role is required for app: ${normalizedSlug}`,
+        });
+      }
 
-        if (!isValidRole(app.role.trim())) {
-          return res.status(400).json({
-            success: false,
-            message: `Invalid role for app: ${normalizedSlug}`,
-          });
-        }
+      if (!isValidRole(app.role)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid role for app: ${normalizedSlug}`,
+        });
       }
     }
 
@@ -268,15 +253,14 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
 
     const userInsert = await client.query(
       `
-      INSERT INTO users
-      (username, password_hash, role, email, name, surname, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-      RETURNING id, username, role, email, name, surname, created_at, updated_at
-      `,
+  INSERT INTO users
+  (username, password_hash, email, name, surname, created_at, updated_at)
+  VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+  RETURNING id, username, role, email, name, surname, created_at, updated_at
+  `,
       [
         normalizedUsername,
         passwordHash,
-        normalizedLegacyRole,
         normalizedEmail,
         normalizedName,
         normalizedSurname,
@@ -330,8 +314,7 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
           });
         }
 
-        const effectiveRole =
-          slug === "rendement" ? normalizedLegacyRole : app.role!.trim();
+        const effectiveRole = app.role!;
 
         await client.query(
           `
@@ -353,11 +336,9 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
         email: newUser.email,
         name: newUser.name,
         surname: newUser.surname,
-        legacyRole: newUser.role,
         appAccess: normalizedApps.map((app) => ({
           slug: app.slug,
-          role:
-            app.slug === "rendement" ? normalizedLegacyRole : app.role?.trim(),
+          role: app.role,
         })),
       },
     });
