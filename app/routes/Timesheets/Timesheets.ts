@@ -126,3 +126,5 @@ router.post("/stop", async (req, res) => {
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
+
+export default router;
