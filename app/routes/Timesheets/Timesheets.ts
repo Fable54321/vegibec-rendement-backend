@@ -133,16 +133,19 @@ router.post("/stop", async (req, res) => {
     }
 
     const userId = req.user.id;
+    const { description } = req.body;
 
     const result = await pool.query(
       `
             UPDATE timesheets.work_sessions
             SET end_time = NOW()
+              description = $2
+              updated_at = NOW()
             WHERE user_id = $1
               AND end_time IS NULL
             RETURNING *
             `,
-      [userId],
+      [userId, description ?? ""],
     );
 
     if (result.rows.length === 0) {
