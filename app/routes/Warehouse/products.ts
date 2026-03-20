@@ -34,15 +34,15 @@ router.post("/products", async (req, res) => {
     const qrActions = [
       {
         type: "info",
-        value: `${baseUrl}/warehouse/products/${product.product_code}`,
+        value: `${baseUrl}/produits/${product.product_code}`,
       },
       {
         type: "add",
-        value: `${baseUrl}/warehouse/products/${product.product_code}/add`,
+        value: `${baseUrl}/ajouter-produit/${product.product_code}/add`,
       },
       {
         type: "remove",
-        value: `${baseUrl}/warehouse/products/${product.product_code}/remove`,
+        value: `${baseUrl}/retirer-produit/${product.product_code}/remove`,
       },
     ];
 
