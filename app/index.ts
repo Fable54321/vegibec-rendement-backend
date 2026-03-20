@@ -26,6 +26,7 @@ import projectedRevenuesRoute from "./routes/projectedRevenues.routes";
 import taskCateogriesRoute from "./routes/taskCategories";
 import lossesTrackingRoute from "./routes/lossesTrackingRoute";
 import portalRoute from "./routes/Portal/Portal";
+import warehouseProductsRoute from "./routes/Warehouse/products";
 
 const app = express();
 app.use(express.json());
@@ -861,6 +862,8 @@ app.use("/task-categories", taskCateogriesRoute);
 app.use("/losses-tracking", lossesTrackingRoute);
 
 app.use("/portal", portalRoute);
+
+app.use("/warehouse/products", warehouseProductsRoute);
 
 const PORT = process.env.PORT || 3000;
 
