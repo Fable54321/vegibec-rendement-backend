@@ -27,6 +27,7 @@ import taskCateogriesRoute from "./routes/taskCategories";
 import lossesTrackingRoute from "./routes/lossesTrackingRoute";
 import portalRoute from "./routes/Portal/Portal";
 import warehouseProductsRoute from "./routes/Warehouse/products";
+import timesheetsRoute from "./routes/Timesheets/Timesheets";
 
 const app = express();
 app.use(express.json());
@@ -61,6 +62,8 @@ app.use("/api/rate-converter", rateConverterRoute);
 app.use("/api/vegReports", vegReportsRouter);
 
 app.use("/auth", authRoute);
+
+app.use("/timesheets", timesheetsRoute);
 
 app.use(authMiddleware);
 
