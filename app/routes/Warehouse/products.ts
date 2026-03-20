@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { pool } from "../../db";
+import { requireAppRole } from "../../middleware/auth";
 
 const router = Router();
 
-router.post("/products", async (req, res) => {
+router.post("/products", requireAppRole("QR", ["admin"]), async (req, res) => {
   const { productName, productCode } = req.body;
 
   if (!productName || !productCode) {

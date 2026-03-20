@@ -863,7 +863,7 @@ app.use("/losses-tracking", lossesTrackingRoute);
 
 app.use("/portal", portalRoute);
 
-app.use("/warehouse/products", warehouseProductsRoute);
+app.use("/warehouse", warehouseProductsRoute);
 
 const PORT = process.env.PORT || 3000;
 
