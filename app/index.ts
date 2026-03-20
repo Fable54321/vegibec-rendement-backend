@@ -63,8 +63,6 @@ app.use("/api/vegReports", vegReportsRouter);
 
 app.use("/auth", authRoute);
 
-app.use("/timesheets", timesheetsRoute);
-
 app.use(authMiddleware);
 
 app.get("/", async (req, res) => {
@@ -867,6 +865,8 @@ app.use("/losses-tracking", lossesTrackingRoute);
 app.use("/portal", portalRoute);
 
 app.use("/warehouse", warehouseProductsRoute);
+
+app.use("/timesheets", timesheetsRoute);
 
 const PORT = process.env.PORT || 3000;
 
