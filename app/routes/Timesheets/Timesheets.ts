@@ -3,6 +3,49 @@ import { pool } from "../../db";
 
 const router = Router();
 
+router.get("/blocks", async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+    const userId = req.user.id;
+    const date = typeof req.query.date === "string" ? req.query.date : null;
+
+    if (!date) {
+      return res.status(400).json({ error: "La date est requise" });
+    }
+
+    const result = await pool.query(
+      `
+            SELECT
+                id,
+                user_id,
+                description,
+                start_time,
+                end_time,
+                created_at,
+                updated_at,
+                ROUND(EXTRACT(EPOCH FROM (end_time - start_time)) / 60) AS total_minutes
+            FROM timesheets.work_sessions
+            WHERE user_id = $1
+              AND end_time IS NOT NULL
+              AND (start_time AT TIME ZONE 'America/Toronto')::date = $2::date
+            ORDER BY start_time DESC
+            `,
+      [userId, date],
+    );
+
+    res.json({
+      date,
+      blocks: result.rows,
+    });
+  } catch (err) {
+    console.error("Error fetching work blocks:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
 router.get("/active", async (req, res) => {
   try {
     if (!req.user) {
