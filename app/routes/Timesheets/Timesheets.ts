@@ -138,8 +138,8 @@ router.post("/stop", async (req, res) => {
     const result = await pool.query(
       `
             UPDATE timesheets.work_sessions
-            SET end_time = NOW()
-              description = $2
+            SET end_time = NOW(),
+              description = $2,
               updated_at = NOW()
             WHERE user_id = $1
               AND end_time IS NULL
