@@ -137,14 +137,14 @@ router.post("/stop", async (req, res) => {
 
     const result = await pool.query(
       `
-            UPDATE timesheets.work_sessions
-            SET end_time = NOW(),
-              description = $2,
-              updated_at = NOW()
-            WHERE user_id = $1
-              AND end_time IS NULL
-            RETURNING *
-            `,
+      UPDATE timesheets.work_sessions
+      SET end_time = NOW(),
+          description = $2,
+          updated_at = NOW()
+      WHERE user_id = $1
+        AND end_time IS NULL
+      RETURNING *
+      `,
       [userId, description ?? ""],
     );
 
@@ -172,5 +172,4 @@ router.post("/stop", async (req, res) => {
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
-
 export default router;
