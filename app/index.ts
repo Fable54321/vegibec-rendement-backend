@@ -40,6 +40,7 @@ const allowedOrigins = [
   "http://localhost:5174",
   "https://vegibec-portail.netlify.app",
   "https://vegibec-portail.com",
+  "https://gestion-entreposage.netlify.app",
 ];
 
 app.use(
