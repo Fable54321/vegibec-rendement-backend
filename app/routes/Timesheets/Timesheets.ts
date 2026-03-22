@@ -46,9 +46,6 @@ router.get("/blocks", async (req, res) => {
 
     const sessionIds = sessions.map((s) => Number(s.id));
 
-    console.log("sessions", sessions);
-    console.log("sessionIds", sessionIds);
-
     const notesResult = await pool.query(
       `
       SELECT
