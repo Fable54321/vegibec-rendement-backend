@@ -44,7 +44,7 @@ router.get("/blocks", async (req, res) => {
       });
     }
 
-    const sessionIds = sessions.map((s) => s.id);
+    const sessionIds = sessions.map((s) => Number(s.id));
 
     console.log("sessions", sessions);
     console.log("sessionIds", sessionIds);
