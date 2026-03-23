@@ -464,4 +464,159 @@ router.delete("/notes/:noteId", async (req, res) => {
   }
 });
 
+router.patch("/blocks/:blockId", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+    const userId = req.user.id;
+    const blockId = Number(req.params.blockId);
+    const { start_time, end_time } = req.body;
+
+    if (!Number.isInteger(blockId) || blockId <= 0) {
+      return res.status(400).json({ error: "ID de bloc invalide" });
+    }
+
+    await client.query("BEGIN");
+
+    // Check ownership
+    const ownershipResult = await client.query(
+      `
+      SELECT id, start_time, end_time
+      FROM timesheets.work_sessions
+      WHERE id = $1 AND user_id = $2
+      `,
+      [blockId, userId],
+    );
+
+    if (ownershipResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Bloc introuvable" });
+    }
+
+    const existingSession = ownershipResult.rows[0];
+
+    // Validate times
+    let newStartTime = existingSession.start_time;
+    let newEndTime = existingSession.end_time;
+
+    if (start_time) {
+      newStartTime = new Date(start_time);
+      if (isNaN(newStartTime.getTime())) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Heure de début invalide" });
+      }
+    }
+
+    if (end_time) {
+      newEndTime = end_time ? new Date(end_time) : null;
+      if (end_time && isNaN(newEndTime.getTime())) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Heure de fin invalide" });
+      }
+    }
+
+    if (newEndTime && newStartTime >= newEndTime) {
+      await client.query("ROLLBACK");
+      return res
+        .status(400)
+        .json({ error: "L'heure de fin doit être après l'heure de début" });
+    }
+
+    // Update session
+    const updateResult = await client.query(
+      `
+      UPDATE timesheets.work_sessions
+      SET start_time = $1,
+          end_time = $2,
+          updated_at = NOW(),
+          is_modified = true,
+          modified_at = NOW()
+      WHERE id = $3
+      RETURNING *
+      `,
+      [newStartTime, newEndTime, blockId],
+    );
+
+    await client.query("COMMIT");
+
+    res.json(updateResult.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error updating block:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  } finally {
+    client.release();
+  }
+});
+
+router.delete("/blocks/:blockId", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+    const userId = req.user.id;
+    const blockId = Number(req.params.blockId);
+
+    if (!Number.isInteger(blockId) || blockId <= 0) {
+      return res.status(400).json({ error: "ID de bloc invalide" });
+    }
+
+    await client.query("BEGIN");
+
+    // Check ownership
+    const ownershipResult = await client.query(
+      `
+      SELECT id
+      FROM timesheets.work_sessions
+      WHERE id = $1 AND user_id = $2
+      `,
+      [blockId, userId],
+    );
+
+    if (ownershipResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Bloc introuvable" });
+    }
+
+    // Delete notes first (if cascade not set)
+    await client.query(
+      `
+      DELETE FROM timesheets.work_session_notes
+      WHERE work_session_id = $1
+      `,
+      [blockId],
+    );
+
+    // Delete session
+    const deleteResult = await client.query(
+      `
+      DELETE FROM timesheets.work_sessions
+      WHERE id = $1
+      RETURNING *
+      `,
+      [blockId],
+    );
+
+    await client.query("COMMIT");
+
+    res.json({
+      message: "Bloc supprimé",
+      deletedBlock: deleteResult.rows[0],
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error deleting block:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;
