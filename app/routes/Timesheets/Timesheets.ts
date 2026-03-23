@@ -25,6 +25,8 @@ router.get("/blocks", async (req, res) => {
         ws.end_time,
         ws.created_at,
         ws.updated_at,
+        ws.is_modified,
+        ws.modified_at,
         ROUND(EXTRACT(EPOCH FROM (ws.end_time - ws.start_time)) / 60) AS total_minutes
       FROM timesheets.work_sessions ws
       WHERE ws.user_id = $1
@@ -64,7 +66,7 @@ router.get("/blocks", async (req, res) => {
 
     for (const note of notesResult.rows) {
       const workSessionId = Number(note.work_session_id);
-      const arr = notesBySession.get(note.workSessionId) || [];
+      const arr = notesBySession.get(workSessionId) || [];
       arr.push(note);
       notesBySession.set(workSessionId, arr);
     }
