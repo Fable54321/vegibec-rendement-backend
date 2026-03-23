@@ -63,14 +63,15 @@ router.get("/blocks", async (req, res) => {
     const notesBySession = new Map<number, typeof notesResult.rows>();
 
     for (const note of notesResult.rows) {
-      const arr = notesBySession.get(note.work_session_id) || [];
+      const workSessionId = Number(note.work_session_id);
+      const arr = notesBySession.get(note.workSessionId) || [];
       arr.push(note);
-      notesBySession.set(note.work_session_id, arr);
+      notesBySession.set(workSessionId, arr);
     }
 
     const blocks = sessions.map((session) => ({
       ...session,
-      notes: notesBySession.get(session.id) || [],
+      notes: notesBySession.get(Number(session.id)) || [],
     }));
 
     res.json({
