@@ -373,4 +373,93 @@ router.post("/stop", async (req, res) => {
   }
 });
 
+router.patch("/notes/:noteId", async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+    const userId = req.user.id;
+    const noteId = Number(req.params.noteId);
+    const { note } = req.body;
+
+    if (!Number.isInteger(noteId) || noteId <= 0) {
+      return res.status(400).json({ error: "ID de tâche invalide" });
+    }
+
+    if (!note || !note.trim()) {
+      return res.status(400).json({ error: "La tâche est requise" });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE timesheets.work_session_notes n
+      SET note = $2
+      FROM timesheets.work_sessions ws
+      WHERE n.id = $1
+        AND n.work_session_id = ws.id
+        AND ws.user_id = $3
+      RETURNING
+        n.id,
+        n.work_session_id,
+        n.note,
+        n.created_at
+      `,
+      [noteId, note.trim(), userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Note introuvable" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Erreur dans la modification de la tâche", err);
+    res.status(500).json({ error: "Erreur Serveur" });
+  }
+});
+
+router.delete("/notes/:noteId", async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+    const userId = req.user.id;
+    const noteId = Number(req.params.noteId);
+
+    if (!Number.isInteger(noteId) || noteId <= 0) {
+      return res.status(400).json({ error: "ID de note invalide" });
+    }
+
+    const result = await pool.query(
+      `
+      DELETE FROM timesheets.work_session_notes n
+      USING timesheets.work_sessions ws
+      WHERE n.id = $1
+        AND n.work_session_id = ws.id
+        AND ws.user_id = $2
+      RETURNING
+        n.id,
+        n.work_session_id,
+        n.note,
+        n.created_at
+      `,
+      [noteId, userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Note introuvable" });
+    }
+
+    res.json({
+      message: "Note supprimée",
+      deletedNote: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Error deleting note:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
 export default router;
