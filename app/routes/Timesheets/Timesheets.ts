@@ -464,6 +464,8 @@ router.delete("/notes/:noteId", async (req, res) => {
   }
 });
 
+// Modify block and save the old version to history
+
 router.patch("/blocks/:blockId", async (req, res) => {
   const client = await pool.connect();
 
@@ -474,7 +476,7 @@ router.patch("/blocks/:blockId", async (req, res) => {
 
     const userId = req.user.id;
     const blockId = Number(req.params.blockId);
-    const { start_time, end_time } = req.body;
+    const { start_time, end_time, reason } = req.body;
 
     if (!Number.isInteger(blockId) || blockId <= 0) {
       return res.status(400).json({ error: "ID de bloc invalide" });
@@ -482,12 +484,12 @@ router.patch("/blocks/:blockId", async (req, res) => {
 
     await client.query("BEGIN");
 
-    // Check ownership
     const ownershipResult = await client.query(
       `
       SELECT id, start_time, end_time
       FROM timesheets.work_sessions
-      WHERE id = $1 AND user_id = $2
+      WHERE id = $1
+        AND user_id = $2
       `,
       [blockId, userId],
     );
@@ -499,7 +501,6 @@ router.patch("/blocks/:blockId", async (req, res) => {
 
     const existingSession = ownershipResult.rows[0];
 
-    // Validate times
     let newStartTime = existingSession.start_time;
     let newEndTime = existingSession.end_time;
 
@@ -511,9 +512,10 @@ router.patch("/blocks/:blockId", async (req, res) => {
       }
     }
 
-    if (end_time) {
+    if (end_time !== undefined) {
       newEndTime = end_time ? new Date(end_time) : null;
-      if (end_time && isNaN(newEndTime.getTime())) {
+
+      if (end_time && newEndTime && isNaN(newEndTime.getTime())) {
         await client.query("ROLLBACK");
         return res.status(400).json({ error: "Heure de fin invalide" });
       }
@@ -526,7 +528,43 @@ router.patch("/blocks/:blockId", async (req, res) => {
         .json({ error: "L'heure de fin doit être après l'heure de début" });
     }
 
-    // Update session
+    const hasTimeChanged =
+      new Date(existingSession.start_time).getTime() !==
+        new Date(newStartTime).getTime() ||
+      (existingSession.end_time === null
+        ? null
+        : new Date(existingSession.end_time).getTime()) !==
+        (newEndTime === null ? null : new Date(newEndTime).getTime());
+
+    if (!hasTimeChanged) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Aucune modification détectée" });
+    }
+
+    await client.query(
+      `
+      INSERT INTO timesheets.work_session_edits (
+        work_session_id,
+        previous_start_time,
+        previous_end_time,
+        new_start_time,
+        new_end_time,
+        reason,
+        edited_by_user_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        blockId,
+        existingSession.start_time,
+        existingSession.end_time,
+        newStartTime,
+        newEndTime,
+        reason?.trim() || null,
+        userId,
+      ],
+    );
+
     const updateResult = await client.query(
       `
       UPDATE timesheets.work_sessions
@@ -550,6 +588,64 @@ router.patch("/blocks/:blockId", async (req, res) => {
     res.status(500).json({ error: "Erreur serveur" });
   } finally {
     client.release();
+  }
+});
+
+//See edits mades to a block
+
+router.get("/blocks/:blockId/edits", async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+    const userId = req.user.id;
+    const blockId = Number(req.params.blockId);
+
+    if (!Number.isInteger(blockId) || blockId <= 0) {
+      return res.status(400).json({ error: "ID de bloc invalide" });
+    }
+
+    const ownershipResult = await pool.query(
+      `
+      SELECT id
+      FROM timesheets.work_sessions
+      WHERE id = $1
+        AND user_id = $2
+      `,
+      [blockId, userId],
+    );
+
+    if (ownershipResult.rows.length === 0) {
+      return res.status(404).json({ error: "Bloc introuvable" });
+    }
+
+    const editsResult = await pool.query(
+      `
+      SELECT
+        id,
+        work_session_id,
+        previous_start_time,
+        previous_end_time,
+        new_start_time,
+        new_end_time,
+        reason,
+        edited_by_user_id,
+        created_at
+      FROM timesheets.work_session_edits
+      WHERE work_session_id = $1
+      ORDER BY created_at DESC
+      `,
+      [blockId],
+    );
+
+    res.json({
+      blockId,
+      edits: editsResult.rows,
+    });
+  } catch (err) {
+    console.error("Error fetching block edits:", err);
+    res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
