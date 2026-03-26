@@ -629,6 +629,8 @@ router.get("/blocks/:blockId/edits", async (req, res) => {
         previous_end_time,
         new_start_time,
         new_end_time,
+        previous_duration_minutes,
+        new_duration_minutes,
         reason,
         edited_by_user_id,
         created_at
