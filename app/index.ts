@@ -870,7 +870,7 @@ app.use("/warehouse", warehouseProductsRoute);
 
 app.use("/timesheets/session", timesheetsSessionRoute);
 
-app.use("timesheets/tasks", timesheetsTasksRoute);
+app.use("/timesheets/tasks", timesheetsTasksRoute);
 
 const PORT = process.env.PORT || 3000;
 
