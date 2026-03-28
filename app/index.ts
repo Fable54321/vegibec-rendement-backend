@@ -27,7 +27,8 @@ import taskCateogriesRoute from "./routes/taskCategories";
 import lossesTrackingRoute from "./routes/lossesTrackingRoute";
 import portalRoute from "./routes/Portal/Portal";
 import warehouseProductsRoute from "./routes/Warehouse/products";
-import timesheetsRoute from "./routes/Timesheets/Timesheets";
+import timesheetsSessionRoute from "./routes/Timesheets/session";
+import timesheetsTasksRoute from "./routes/Timesheets/tasks";
 
 const app = express();
 app.use(express.json());
@@ -867,7 +868,9 @@ app.use("/portal", portalRoute);
 
 app.use("/warehouse", warehouseProductsRoute);
 
-app.use("/timesheets", timesheetsRoute);
+app.use("/timesheets/session", timesheetsSessionRoute);
+
+app.use("timesheets/tasks", timesheetsTasksRoute);
 
 const PORT = process.env.PORT || 3000;
 
