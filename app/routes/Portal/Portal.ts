@@ -187,6 +187,8 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
 
     const seenSlugs = new Set<string>();
 
+    
+
     for (const app of normalizedApps) {
       if (!app?.slug) {
         return res.status(400).json({
@@ -302,6 +304,8 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
         dbApps.map((a) => [a.slug, a.id]),
       );
 
+      let shouldUseWorksheet = false;
+
       for (const app of normalizedApps) {
         const slug = app.slug;
         const appId = slugToId.get(slug);
@@ -316,6 +320,10 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
 
         const effectiveRole = app.role!;
 
+          if (slug === "time" && (effectiveRole === "guest" || effectiveRole === "user")) {
+    shouldUseWorksheet = true;
+  }
+
         await client.query(
           `
           INSERT INTO user_app_roles (user_id, app_id, role, created_at)
@@ -324,7 +332,21 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
           [userId, appId, effectiveRole],
         );
       }
+
+
+          if (shouldUseWorksheet) {
+  await client.query(
+    `
+    UPDATE users
+    SET uses_worksheet = TRUE
+    WHERE id = $1
+    `,
+    [userId]
+  );
+}
     }
+
+
 
     await client.query("COMMIT");
 
