@@ -3,11 +3,20 @@ dotenv.config();
 import bcrypt from "bcrypt";
 import { pool } from "../db";
 
-async function createGuest() {
+
+const names = ["tim", "fab", "mo"];
+const surnames = ["biss", "lec", "lec"]
+
+const userNames =  ["tim", "fab", "mo"];
+
+
+
+async function createGuest(name:string, surname:string, username:string, plainPassword:string) {
   try {
-    const username = process.env.INIT_ADMIN_USERNAME || "";
-    const plainPassword = process.env.INIT_ADMIN_PASSWORD || "";
+    
+    
     const saltRounds = 12;
+
 
     console.log(`🔐 Creating guest user "${username}"...`);
 
@@ -15,12 +24,12 @@ async function createGuest() {
 
     const result = await pool.query(
       `
-        INSERT INTO users (username, password_hash, role)
-        VALUES ($1, $2, $3)
+        INSERT INTO users (username, password_hash, role, surname, name)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (username) DO NOTHING
         RETURNING id, username, role, created_at;
       `,
-      [username, hash, "guest"]
+      [username, hash, "guest", surname, name]
     );
 
     if (result.rows.length > 0) {
@@ -37,4 +46,7 @@ async function createGuest() {
   }
 }
 
-createGuest();
+
+for(let i =0; i < names.length; i++){
+  createGuest(names[i], surnames[i], userNames[i], "000" + i.toString())
+}
