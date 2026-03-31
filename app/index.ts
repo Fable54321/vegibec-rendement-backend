@@ -30,6 +30,7 @@ import warehouseProductsRoute from "./routes/Warehouse/products";
 import timesheetsSessionRoute from "./routes/Timesheets/session";
 import timesheetsTasksRoute from "./routes/Timesheets/tasks";
 import timeSheetsCalculationsRoute from "./routes/Timesheets/calculations";
+import adminRoute from "./routes/Timesheets/admin"
 
 const app = express();
 app.use(express.json());
@@ -875,6 +876,8 @@ app.use("/timesheets/session", timesheetsSessionRoute);
 app.use("/timesheets/tasks", timesheetsTasksRoute);
 
 app.use("/timesheets/calculations", timeSheetsCalculationsRoute);
+
+app.use("/timesheets/admin", adminRoute);
 
 const PORT = process.env.PORT || 3000;
 
