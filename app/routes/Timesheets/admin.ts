@@ -56,10 +56,7 @@ router.get("/blocks/by-user", requireAppRole("time", ["admin"]) ,async (req, res
       return res.status(401).json({ error: "Non autorisé" });
     }
 
-    // 🔒 Optional: check role
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ error: "Accès refusé" });
-    }
+   
 
     const userId = Number(req.query.user_id);
     const date = typeof req.query.date === "string" ? req.query.date : null;
