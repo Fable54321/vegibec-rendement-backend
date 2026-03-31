@@ -20,7 +20,7 @@ const isValidEmail = (email: string): boolean => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 };
 
-router.get("/", requireAppRole("main", ["admin"]), async (_req, res) => {
+router.get("/", requireAppRole("main", ["admin", "user", "guest"]), async (_req, res) => {
   try {
     const result = await pool.query(`
       SELECT id, name, slug

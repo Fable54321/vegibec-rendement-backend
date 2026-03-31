@@ -4,7 +4,7 @@ import { requireAppRole } from "../../middleware/auth";
 
 const router = Router();
 
-router.get("/daily-duration/:userId", requireAppRole("rendement", ["admin"]), async (req, res) => {
+router.get("/daily-duration/:userId", requireAppRole("time", ["admin"]), async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
     if (isNaN(userId)) {
