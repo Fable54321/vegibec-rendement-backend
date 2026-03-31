@@ -82,7 +82,7 @@ export const requireAppRole = (appSlug: string, allowedRoles: string[]) => {
       const appRole = result.rows[0].role;
 
       if (!allowedRoles.includes(appRole)) {
-        return res.status(403).json({ message: "Access denied" });
+        return res.status(403).json({ message: "Access denied test" });
       }
 
       req.appRole = appRole;
