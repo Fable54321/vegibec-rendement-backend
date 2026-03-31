@@ -30,6 +30,7 @@ import warehouseProductsRoute from "./routes/Warehouse/products";
 import timesheetsSessionRoute from "./routes/Timesheets/session";
 import timesheetsTasksRoute from "./routes/Timesheets/tasks";
 import timeSheetsCalculationsRoute from "./routes/Timesheets/calculations";
+import userDailyDurationRoute from "./routes/Timesheets/userDailyDuration";
 import adminRoute from "./routes/Timesheets/admin"
 
 const app = express();
@@ -876,6 +877,8 @@ app.use("/timesheets/session", timesheetsSessionRoute);
 app.use("/timesheets/tasks", timesheetsTasksRoute);
 
 app.use("/timesheets/calculations", timeSheetsCalculationsRoute);
+
+app.use("/timesheets/user", userDailyDurationRoute);
 
 app.use("/timesheets/admin", adminRoute);
 
