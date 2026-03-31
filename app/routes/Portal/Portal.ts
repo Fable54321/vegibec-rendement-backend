@@ -62,7 +62,7 @@ router.get("/list", requireAppRole("main", ["admin"]), async (_req, res) => {
   }
 });
 
-router.get("/:id", requireAppRole("main", ["admin"]), async (req, res) => {
+router.get("/:id", requireAppRole("main", ["admin", "user", "guest" ]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
 
