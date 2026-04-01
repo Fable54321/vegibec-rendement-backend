@@ -259,7 +259,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       process.cwd(),
       "public",
       "templates",
-      "Annexe de contrat de travail PTAS - Version remplissable 2026.pdf"
+      "contract-ptas.pdf"
     );
 
     const existingPdfBytes = await fs.readFile(templatePath);
