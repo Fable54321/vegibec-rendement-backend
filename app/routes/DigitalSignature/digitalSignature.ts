@@ -99,7 +99,7 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
         u.username,
         u.name,
         u.surname,
-        u.emaill,
+        u.email,
         fwi.birth_date,
         fwi.residence_country,
         fwi.phone_number,
