@@ -203,7 +203,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         u.name,
         u.surname,
         u.username,
-        u.emaill,
+        u.email,
         fwi.birth_date,
         fwi.residence_country,
         fwi.phone_number,
