@@ -13,6 +13,7 @@ const drawField = (
   text: string,
   x: number,
   y: number,
+  font: any,
   size = 11
 ) => {
   page.drawText(text || "", {
