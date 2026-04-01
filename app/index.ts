@@ -32,6 +32,7 @@ import timesheetsTasksRoute from "./routes/Timesheets/tasks";
 import timeSheetsCalculationsRoute from "./routes/Timesheets/calculations";
 import userDailyDurationRoute from "./routes/Timesheets/userDailyDuration";
 import adminRoute from "./routes/Timesheets/admin"
+import signatureRoute from "./routes/DigitalSignature/digitalSignature";
 
 const app = express();
 app.use(express.json());
@@ -63,9 +64,11 @@ app.use(
   }),
 );
 
-app.use("/api/rate-converter", rateConverterRoute);
+app.use("/signature", signatureRoute);
 
-app.use("/api/vegReports", vegReportsRouter);
+app.use("/api/rate-converter", rateConverterRoute);   /// same thing here
+
+app.use("/api/vegReports", vegReportsRouter); //// Eventually check for these they can be uinside the auth
 
 app.use("/auth", authRoute);
 
