@@ -1,10 +1,28 @@
 import { Router } from "express";
 import { pool } from "../../db";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import fs from "fs/promises";
+import path from "path";
+
 
 
 const router = Router();
 
-
+const drawField = (
+  page: any,
+  text: string,
+  x: number,
+  y: number,
+  size = 11
+) => {
+  page.drawText(text || "", {
+    x,
+    y,
+    size,
+    font,
+    color: rgb(0, 0, 0),
+  });
+};
 
 
 
@@ -159,6 +177,168 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
     console.error("Error fetching foreign worker info by PIN:", err);
     return res.status(500).json({
       error: "Erreur serveur lors de la récupération des informations",
+    });
+  }
+});
+
+router.post("/foreign-worker-contract/by-pin", async (req, res) => {
+  try {
+    const { pin } = req.body;
+
+    if (pin === undefined || pin === null || pin === "") {
+      return res.status(400).json({ error: "Le PIN est requis" });
+    }
+
+    const normalizedPin = Number(pin);
+
+    if (!Number.isInteger(normalizedPin) || normalizedPin < 0 || normalizedPin > 99999) {
+      return res.status(400).json({ error: "PIN invalide" });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        u.id AS user_id,
+        u.name,
+        u.surname,
+        u.username,
+        u.emaill,
+        fwi.birth_date,
+        fwi.residence_country,
+        fwi.phone_number,
+        fwi.job_title,
+        fwi.job_description,
+        fwi.hourly_wage,
+        fwi.overtime_hourly_wage,
+        fwi.daily_hours_for_overtime,
+        fwi.weekly_hours_for_overtime,
+        fwi.contingent_applicable,
+        fwi.contingent_details,
+        fwi.debut_date,
+        fwi.job_duration,
+        fwi.approximative_daily_hours,
+        fwi.approximative_weekly_hours,
+        fwi.is_full_time,
+        fwi.no_full_time_details,
+        fwi.holidays,
+        fwi.no_holidays_compensation,
+        fwi.invalid_insurance,
+        fwi.dentist_insurance,
+        fwi.pension_scheme,
+        fwi.healthcare,
+        fwi.other,
+        fwi.other_details,
+        fwi.accommodation_type,
+        fwi.on_site_accommodation,
+        fwi.off_site_accommodation_under_30,
+        fwi.off_site_accommodation_custom,
+        fwi.weekly_amount_deducted,
+        fwi.monthly_amount_deducted,
+        fwi.low_wage,
+        fwi.accommodation_provided,
+        fwi.high_wage,
+        fwi.more_info_ptet,
+        fwi.pin
+      FROM foreign_workers_info fwi
+      INNER JOIN users u
+        ON u.id = fwi.user_id
+      WHERE fwi.pin = $1
+      LIMIT 1
+      `,
+      [normalizedPin]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Aucun travailleur trouvé avec ce PIN" });
+    }
+
+    const worker = result.rows[0];
+
+    const templatePath = path.join(
+      process.cwd(),
+      "public",
+      "templates",
+      "Annexe de contrat de travail PTAS - Version remplissable 2026.pdf"
+    );
+
+    const existingPdfBytes = await fs.readFile(templatePath);
+
+    const pdfDoc = await PDFDocument.load(existingPdfBytes);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    const pages = pdfDoc.getPages();
+    const firstPage = pages[0];
+
+    firstPage.drawText(`${worker.surname} ${worker.name}`, {
+      x: 120,
+      y: 680,
+      size: 12,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    });
+
+    firstPage.drawText(worker.birth_date ? new Date(worker.birth_date).toLocaleDateString("fr-CA") : "", {
+      x: 120,
+      y: 650,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    firstPage.drawText(worker.residence_country ?? "", {
+      x: 120,
+      y: 620,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    firstPage.drawText(worker.job_title ?? "", {
+      x: 120,
+      y: 590,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    firstPage.drawText(
+      worker.hourly_wage !== null && worker.hourly_wage !== undefined
+        ? `${worker.hourly_wage} $`
+        : "",
+      {
+        x: 120,
+        y: 560,
+        size: 11,
+        font,
+        color: rgb(0, 0, 0),
+      }
+    );
+
+    firstPage.drawText(
+      worker.debut_date ? new Date(worker.debut_date).toLocaleDateString("fr-CA") : "",
+      {
+        x: 120,
+        y: 530,
+        size: 11,
+        font,
+        color: rgb(0, 0, 0),
+      }
+    );
+
+    const pdfBytes = await pdfDoc.save();
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="contrat-${worker.surname}-${worker.name}.pdf"`
+    );
+
+    return res.send(existingPdfBytes);
+  } catch (err) {
+    console.error("Error generating foreign worker contract PDF:", err);
+    return res.status(500).json({
+      error: "Erreur serveur lors de la génération du PDF",
     });
   }
 });
