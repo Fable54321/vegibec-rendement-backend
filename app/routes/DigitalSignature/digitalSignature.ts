@@ -110,6 +110,8 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
       return res.status(400).json({ error: "PIN invalide" });
     }
 
+   
+
     const result = await pool.query(
       `
       SELECT
@@ -196,6 +198,8 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       return res.status(400).json({ error: "PIN invalide" });
     }
 
+
+
     const result = await pool.query(
       `
       SELECT
@@ -272,67 +276,72 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
 
     const pages = pdfDoc.getPages();
     const firstPage = pages[0];
+    const secondPage = pages[1];
+    const thirdPage = pages[2];
+    const fourthPage = pages[3];
     
 
 
-firstPage.drawText("TEST PDF", {
-  x: 100,
-  y: 700,
-  size: 20,
-  font: boldFont,
-  color: rgb(1, 0, 0),
-});
 
-    firstPage.drawText(`${worker.surname} ${worker.name}`, {
-      x: 120,
-      y: 680,
+
+    firstPage.drawText(`${worker.surname}`, {
+      x: 222,
+      y: 391,
+      size: 12,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    });
+
+        firstPage.drawText(`${worker.name}`, {
+      x: 254,
+      y: 368,
       size: 12,
       font: boldFont,
       color: rgb(0, 0, 0),
     });
 
     firstPage.drawText(worker.birth_date ? new Date(worker.birth_date).toLocaleDateString("fr-CA") : "", {
-      x: 120,
-      y: 650,
+      x: 194,
+      y: 346,
       size: 11,
       font,
       color: rgb(0, 0, 0),
     });
 
     firstPage.drawText(worker.residence_country ?? "", {
-      x: 120,
-      y: 620,
+      x: 126,
+      y: 324,
       size: 11,
       font,
       color: rgb(0, 0, 0),
     });
 
-    firstPage.drawText(worker.job_title ?? "", {
-      x: 120,
-      y: 590,
+    secondPage.drawText(worker.job_title ?? "", {
+      x: 107,
+      y: 707,
       size: 11,
       font,
       color: rgb(0, 0, 0),
     });
 
-    firstPage.drawText(
+    secondPage.drawText(
       worker.hourly_wage !== null && worker.hourly_wage !== undefined
         ? `${worker.hourly_wage} $`
         : "",
       {
-        x: 120,
-        y: 560,
+        x: 472,
+        y: 527,
         size: 11,
         font,
         color: rgb(0, 0, 0),
       }
     );
 
-    firstPage.drawText(
+    secondPage.drawText(
       worker.debut_date ? new Date(worker.debut_date).toLocaleDateString("fr-CA") : "",
       {
-        x: 120,
-        y: 530,
+        x: 272,
+        y: 225,
         size: 11,
         font,
         color: rgb(0, 0, 0),

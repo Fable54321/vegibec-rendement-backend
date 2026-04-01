@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import { authMiddleware, requireAppRole } from "./middleware/auth";
 
-dotenv.config();
+
 
 import express from "express";
 import { pool } from "./db";
@@ -33,6 +33,9 @@ import timeSheetsCalculationsRoute from "./routes/Timesheets/calculations";
 import userDailyDurationRoute from "./routes/Timesheets/userDailyDuration";
 import adminRoute from "./routes/Timesheets/admin"
 import signatureRoute from "./routes/DigitalSignature/digitalSignature";
+
+
+dotenv.config();
 
 const app = express();
 app.use(express.json());

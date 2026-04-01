@@ -1,10 +1,21 @@
 import { Pool } from "pg";
 
+
+
+
+// export const pool = new Pool({
+//   connectionString:
+//     "connection string here",
+//   ssl: {
+//     rejectUnauthorized: false,
+//   },
+// });
+
 export const pool = new Pool({
   host: process.env.DB_HOST,
   port: Number(process.env.DB_PORT),
   user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
+  password: process.env.DB_PASSWORD ,
   database: process.env.DB_NAME,
   // --- START OF REQUIRED FIX FOR NEON ---
   ssl:
