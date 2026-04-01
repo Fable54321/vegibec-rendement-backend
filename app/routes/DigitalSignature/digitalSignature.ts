@@ -264,12 +264,24 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
 
     const existingPdfBytes = await fs.readFile(templatePath);
 
-    const pdfDoc = await PDFDocument.load(existingPdfBytes);
+    const pdfDoc = await PDFDocument.load(existingPdfBytes, {
+  ignoreEncryption: true,
+});
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
     const pages = pdfDoc.getPages();
     const firstPage = pages[0];
+    
+
+
+firstPage.drawText("TEST PDF", {
+  x: 100,
+  y: 700,
+  size: 20,
+  font: boldFont,
+  color: rgb(1, 0, 0),
+});
 
     firstPage.drawText(`${worker.surname} ${worker.name}`, {
       x: 120,
