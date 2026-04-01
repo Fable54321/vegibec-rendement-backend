@@ -259,7 +259,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       process.cwd(),
       "public",
       "templates",
-      "contract-ptas.pdf"
+      "contrat-PTAS-clean-version.pdf",
     );
 
     const existingPdfBytes = await fs.readFile(templatePath);
