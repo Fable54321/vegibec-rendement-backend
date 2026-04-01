@@ -347,7 +347,7 @@ firstPage.drawText("TEST PDF", {
       `inline; filename="contrat-${worker.surname}-${worker.name}.pdf"`
     );
 
-    return res.send(existingPdfBytes);
+    return res.send(Buffer.from(pdfBytes));
   } catch (err) {
     console.error("Error generating foreign worker contract PDF:", err);
     return res.status(500).json({
