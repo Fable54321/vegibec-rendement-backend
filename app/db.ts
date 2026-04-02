@@ -5,6 +5,15 @@ import { Pool } from "pg";
 // for local testing ///
 
 
+// export const pool = new Pool({
+//   connectionString:
+//     "insert your connection string here",
+//   ssl: {
+//     rejectUnauthorized: false,
+//   },
+// });
+
+
 export const pool = new Pool({
   connectionString:
     "postgresql://neondb_owner:npg_Ubo6aclf9SMh@ep-plain-pond-ad5b018w-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
