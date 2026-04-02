@@ -67,6 +67,11 @@ app.use(
   }),
 );
 
+app.get("/", async (req, res) => {
+  const result = await pool.query("SELECT NOW()");
+  res.json(result.rows);
+});
+
 app.use("/signature", signatureRoute);
 
 app.use("/api/rate-converter", rateConverterRoute);   /// same thing here
@@ -77,10 +82,7 @@ app.use("/auth", authRoute);
 
 app.use(authMiddleware);
 
-app.get("/", async (req, res) => {
-  const result = await pool.query("SELECT NOW()");
-  res.json(result.rows);
-});
+
 
 // --- POST: Insert new cost entry ---
 app.post(

@@ -3,7 +3,7 @@ import { pool } from "../../db";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import fs from "fs/promises";
 import path from "path";
-
+import { employer, getJobDescription } from "../../Utils/DocumentInfo";
 
 
 const router = Router();
@@ -14,6 +14,7 @@ const drawField = (
   x: number,
   y: number,
   font: any,
+  lineHeight: number,
   size = 11
 ) => {
   page.drawText(text || "", {
@@ -22,6 +23,7 @@ const drawField = (
     size,
     font,
     color: rgb(0, 0, 0),
+    lineHeight: lineHeight,
   });
 };
 
@@ -106,12 +108,82 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
 
     const normalizedPin = Number(pin);
 
-    if (!Number.isInteger(normalizedPin) || normalizedPin < 0 || normalizedPin > 99999) {
+    if (
+      !Number.isInteger(normalizedPin) ||
+      normalizedPin < 0 ||
+      normalizedPin > 99999
+    ) {
       return res.status(400).json({ error: "PIN invalide" });
     }
 
-   
+    const result = await pool.query(
+      `
+      SELECT COUNT(*) as count
+      FROM foreign_workers_info
+      WHERE pin = $1
+      `,
+      [normalizedPin]
+    );
 
+    if (parseInt(result.rows[0].count) === 0) {
+      return res.status(404).json({
+        error: "Aucun travailleur trouvé avec ce PIN",
+      });
+    }
+
+    // ✅ MARK AS CONNECTED
+    await pool.query(
+      `
+      UPDATE foreign_workers_info
+      SET is_connected = true
+      WHERE pin = $1
+      `,
+      [normalizedPin]
+    );
+
+    return res.status(200).json({
+      message: "Travailleur connecté avec succès",
+    });
+  } catch (err) {
+    console.error("Error connecting foreign worker by PIN:", err);
+    return res.status(500).json({
+      error: "Erreur serveur lors de la connexion du travailleur",
+    });
+  }
+});
+
+router.post("/foreign-worker-info/disconnect", async (req, res) => {
+  try {
+    const { pin } = req.body;
+
+    if (!pin) {
+      return res.status(400).json({ error: "Le PIN est requis" });
+    }
+
+    const normalizedPin = Number(pin);
+
+    await pool.query(
+      `
+      UPDATE foreign_workers_info
+      SET is_connected = false
+      WHERE pin = $1
+      `,
+      [normalizedPin]
+    );
+
+    return res.status(200).json({
+      message: "Travailleur déconnecté",
+    });
+  } catch (err) {
+    console.error("Error disconnecting worker:", err);
+    return res.status(500).json({
+      error: "Erreur serveur lors de la déconnexion",
+    });
+  }
+});
+
+router.get("/foreign-worker-info/current", async (req, res) => {
+  try {
     const result = await pool.query(
       `
       SELECT
@@ -156,30 +228,25 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
         fwi.accommodation_provided,
         fwi.high_wage,
         fwi.more_info_ptet,
+        fwi.is_connected,
         fwi.pin
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
-      WHERE fwi.pin = $1
+      WHERE fwi.is_connected = true
       LIMIT 1
-      `,
-      [normalizedPin]
+      `
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: "Aucun travailleur trouvé avec ce PIN",
-      });
+      return res.status(404).json({ error: "Aucun travailleur connecté trouvé" });
     }
 
-    return res.status(200).json({
-      message: "Travailleur trouvé",
-      worker: result.rows[0],
-    });
+    return res.status(200).json({ worker: result.rows[0] });
   } catch (err) {
-    console.error("Error fetching foreign worker info by PIN:", err);
+    console.error("Error fetching current connected worker:", err);
     return res.status(500).json({
-      error: "Erreur serveur lors de la récupération des informations",
+      error: "Erreur serveur lors de la récupération du travailleur connecté",
     });
   }
 });
@@ -197,7 +264,9 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
     if (!Number.isInteger(normalizedPin) || normalizedPin < 0 || normalizedPin > 99999) {
       return res.status(400).json({ error: "PIN invalide" });
     }
+    
 
+ 
 
 
     const result = await pool.query(
@@ -316,11 +385,97 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       color: rgb(0, 0, 0),
     });
 
+    firstPage.drawText(worker.phone_number ?? "", {
+      x: 354,
+      y: 302,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    });
+    
+    firstPage.drawText(worker.email ?? "", {
+      x: 310,
+      y: 280,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    })
+
+    /////EMPLOYER
+
+     firstPage.drawText(employer.surname ?? "", {
+      x: 145,
+      y: 238,
+      size: 11,
+      font : boldFont,
+      color: rgb(0, 0, 0),
+    })
+
+      firstPage.drawText(employer.name ?? "", {
+      x: 176.5,
+      y: 193,
+      size: 11,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    })
+
+      firstPage.drawText(employer.phone_number ?? "", {
+      x: 205,
+      y: 170.5,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    })
+
+      firstPage.drawText(employer.company ?? "", {
+      x: 253,
+      y: 140,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    })
+
+      firstPage.drawText(employer.address ?? "", {
+      x: 133,
+      y: 118,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    })
+
+      firstPage.drawText(employer.email ?? "", {
+      x: 206,
+      y: 73,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    })
+
+    firstPage.drawText(employer.website, {
+      x: 154.5,
+      y: 49,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    });
+    
+
     secondPage.drawText(worker.job_title ?? "", {
       x: 107,
       y: 707,
       size: 11,
       font,
+      color: rgb(0, 0, 0),
+    });
+
+    const jobDescription = getJobDescription(worker.job_title ?? "") || worker.job_description || "";
+
+    secondPage.drawText(jobDescription, {
+      x: 29,
+      y: 670,
+      size: 11,
+      font,
+      lineHeight: 14,
       color: rgb(0, 0, 0),
     });
 
