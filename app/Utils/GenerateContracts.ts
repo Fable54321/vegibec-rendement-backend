@@ -1,0 +1,392 @@
+import fs from "fs/promises";
+import path from "path";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+
+type Worker = {
+  user_id: number;
+  name: string | null;
+  surname: string | null;
+  username: string | null;
+  email: string | null;
+  birth_date: string | null;
+  residence_country: string | null;
+  phone_number: string | null;
+  job_title: string | null;
+  job_description: string | null;
+  hourly_wage: number | null;
+  overtime_hourly_wage: number | null;
+  daily_hours_for_overtime: number | null;
+  weekly_hours_for_overtime: number | null;
+  contingent_applicable: boolean | null;
+  contingent_details: string | null;
+  debut_date: string | null;
+  job_duration: string | null;
+  approximative_daily_hours: number | null;
+  approximative_weekly_hours: number | null;
+  is_full_time: boolean | null;
+  no_full_time_details: string | null;
+  holidays: string | null;
+  no_holidays_compensation: string | null;
+  invalid_insurance: string | null;
+  dentist_insurance: string | null;
+  pension_scheme: string | null;
+  healthcare: string | null;
+  other: string | null;
+  other_details: string | null;
+  accommodation_type: string | null;
+  on_site_accommodation: string | null;
+  off_site_accommodation_under_30: string | null;
+  off_site_accommodation_custom: string | null;
+  weekly_amount_deducted: number | null;
+  monthly_amount_deducted: number | null;
+  low_wage: boolean | null;
+  accommodation_provided: boolean | null;
+  high_wage: boolean | null;
+  more_info_ptet: string | null;
+  pin: number | null;
+  holiday_duration: number | null;
+};
+
+type Employer = {
+  surname: string | null;
+  name: string | null;
+  phone_number: string | null;
+  company: string | null;
+  address: string | null;
+  email: string | null;
+  website: string | null;
+};
+
+type GeneratePTASContractParams = {
+  worker: Worker;
+  employer: Employer;
+  getJobDescription: (jobTitle: string) => string | undefined;
+};
+
+export const generatePTASContract = async ({
+  worker,
+  employer,
+  getJobDescription,
+}: GeneratePTASContractParams): Promise<Buffer> => {
+  const templatePath = path.join(
+    process.cwd(),
+    "public",
+    "templates",
+    "contrat-PTAS-clean-version.pdf",
+  );
+
+  const existingPdfBytes = await fs.readFile(templatePath);
+
+  const pdfDoc = await PDFDocument.load(existingPdfBytes, {
+    ignoreEncryption: true,
+  });
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  const firstPage = pages[0];
+  const secondPage = pages[1];
+  const thirdPage = pages[2];
+  const fourthPage = pages[3];
+
+  firstPage.drawText(`${worker.surname ?? ""}`, {
+    x: 222,
+    y: 391,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(`${worker.name ?? ""}`, {
+    x: 254,
+    y: 368,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(
+    worker.birth_date
+      ? new Date(worker.birth_date).toLocaleDateString("fr-CA")
+      : "",
+    {
+      x: 194,
+      y: 346,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  firstPage.drawText(worker.residence_country ?? "", {
+    x: 126,
+    y: 324,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(worker.phone_number ?? "", {
+    x: 354,
+    y: 302,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(worker.email ?? "", {
+    x: 310,
+    y: 280,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  // EMPLOYER
+  firstPage.drawText(employer.surname ?? "", {
+    x: 145,
+    y: 238,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.name ?? "", {
+    x: 176.5,
+    y: 193,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.phone_number ?? "", {
+    x: 205,
+    y: 170.5,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.company ?? "", {
+    x: 253,
+    y: 140,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.address ?? "", {
+    x: 133,
+    y: 118,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.email ?? "", {
+    x: 206,
+    y: 73,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.website ?? "", {
+    x: 154.5,
+    y: 49,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(worker.job_title ?? "", {
+    x: 107,
+    y: 707,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  const jobDescription =
+    getJobDescription(worker.job_title ?? "") || worker.job_description || "";
+
+  secondPage.drawText(jobDescription, {
+    x: 29,
+    y: 670,
+    size: 11,
+    font,
+    lineHeight: 14,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(
+    worker.hourly_wage !== null && worker.hourly_wage !== undefined
+      ? `${worker.hourly_wage} $`
+      : "",
+    {
+      x: 472,
+      y: 527,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.overtime_hourly_wage !== null &&
+      worker.overtime_hourly_wage !== undefined
+      ? `${worker.overtime_hourly_wage} $`
+      : "",
+    {
+      x: 300,
+      y: 503,
+      size: 13,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.daily_hours_for_overtime !== null &&
+      worker.daily_hours_for_overtime !== undefined
+      ? `${worker.daily_hours_for_overtime}`
+      : "",
+    {
+      x: 460,
+      y: 507,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.weekly_hours_for_overtime ? `${worker.weekly_hours_for_overtime}` : "",
+    {
+      x: 460,
+      y: 489,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  // no contingent
+  secondPage.drawText("X", {
+    x: 350.5,
+    y: 454.5,
+    size: 15,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText("8", {
+    x: 180,
+    y: 203.5,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText("X", {
+    x: 418.5,
+    y: 203.5,
+    size: 15,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(
+    worker.approximative_daily_hours
+      ? `${worker.approximative_daily_hours} h`
+      : "",
+    {
+      x: 338.5,
+      y: 180.5,
+      size: 11,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.approximative_weekly_hours
+      ? `${worker.approximative_weekly_hours} h`
+      : "",
+    {
+      x: 363,
+      y: 156,
+      size: 11,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText("X", {
+    x: 413,
+    y: 131,
+    size: 15,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(
+    worker.debut_date
+      ? new Date(worker.debut_date).toLocaleDateString("fr-CA")
+      : "",
+    {
+      x: 272,
+      y: 225,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  thirdPage.drawText("X", {
+    x: 54,
+    y: 698,
+    size: 15,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  thirdPage.drawText(
+    worker.holiday_duration ? `${worker.holiday_duration}` : "",
+    {
+      x: 196,
+      y: 698,
+      size: 11,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  thirdPage.drawText("Maison mobile", {
+    x: 50,
+    y: 161,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  fourthPage.drawText("171, rang ste-Sophie, Oka, QC J0N 1E0", {
+    x: 37,
+    y: 300,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  fourthPage.drawText("Les jardins vegibec inc.", {
+    x: 31,
+    y: 262,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+};

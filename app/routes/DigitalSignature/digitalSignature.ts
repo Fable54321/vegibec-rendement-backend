@@ -1,31 +1,12 @@
 import { Router } from "express";
 import { pool } from "../../db";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import fs from "fs/promises";
-import path from "path";
+
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
+import { generatePTASContract } from "../../Utils/GenerateContracts";
 
 
 const router = Router();
-
-const drawField = (
-  page: any,
-  text: string,
-  x: number,
-  y: number,
-  font: any,
-  lineHeight: number,
-  size = 11
-) => {
-  page.drawText(text || "", {
-    x,
-    y,
-    size,
-    font,
-    color: rgb(0, 0, 0),
-    lineHeight: lineHeight,
-  });
-};
 
 
 
@@ -229,7 +210,8 @@ router.get("/foreign-worker-info/current", async (req, res) => {
         fwi.high_wage,
         fwi.more_info_ptet,
         fwi.is_connected,
-        fwi.pin
+        fwi.pin,
+        fwi.holiday_duration
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
@@ -261,13 +243,13 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
 
     const normalizedPin = Number(pin);
 
-    if (!Number.isInteger(normalizedPin) || normalizedPin < 0 || normalizedPin > 99999) {
+    if (
+      !Number.isInteger(normalizedPin) ||
+      normalizedPin < 0 ||
+      normalizedPin > 99999
+    ) {
       return res.status(400).json({ error: "PIN invalide" });
     }
-    
-
- 
-
 
     const result = await pool.query(
       `
@@ -312,206 +294,38 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         fwi.accommodation_provided,
         fwi.high_wage,
         fwi.more_info_ptet,
-        fwi.pin
+        fwi.pin,
+        fwi.holiday_duration
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
       WHERE fwi.pin = $1
       LIMIT 1
       `,
-      [normalizedPin]
+      [normalizedPin],
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Aucun travailleur trouvé avec ce PIN" });
+      return res.status(404).json({
+        error: "Aucun travailleur trouvé avec ce PIN",
+      });
     }
 
     const worker = result.rows[0];
 
-    const templatePath = path.join(
-      process.cwd(),
-      "public",
-      "templates",
-      "contrat-PTAS-clean-version.pdf",
-    );
-
-    const existingPdfBytes = await fs.readFile(templatePath);
-
-    const pdfDoc = await PDFDocument.load(existingPdfBytes, {
-  ignoreEncryption: true,
-});
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-    const pages = pdfDoc.getPages();
-    const firstPage = pages[0];
-    const secondPage = pages[1];
-    const thirdPage = pages[2];
-    const fourthPage = pages[3];
-    
-
-
-
-
-    firstPage.drawText(`${worker.surname}`, {
-      x: 222,
-      y: 391,
-      size: 12,
-      font: boldFont,
-      color: rgb(0, 0, 0),
+    const pdfBuffer = await generatePTASContract({
+      worker,
+      employer,
+      getJobDescription,
     });
-
-        firstPage.drawText(`${worker.name}`, {
-      x: 254,
-      y: 368,
-      size: 12,
-      font: boldFont,
-      color: rgb(0, 0, 0),
-    });
-
-    firstPage.drawText(worker.birth_date ? new Date(worker.birth_date).toLocaleDateString("fr-CA") : "", {
-      x: 194,
-      y: 346,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    });
-
-    firstPage.drawText(worker.residence_country ?? "", {
-      x: 126,
-      y: 324,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    });
-
-    firstPage.drawText(worker.phone_number ?? "", {
-      x: 354,
-      y: 302,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    });
-    
-    firstPage.drawText(worker.email ?? "", {
-      x: 310,
-      y: 280,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    })
-
-    /////EMPLOYER
-
-     firstPage.drawText(employer.surname ?? "", {
-      x: 145,
-      y: 238,
-      size: 11,
-      font : boldFont,
-      color: rgb(0, 0, 0),
-    })
-
-      firstPage.drawText(employer.name ?? "", {
-      x: 176.5,
-      y: 193,
-      size: 11,
-      font: boldFont,
-      color: rgb(0, 0, 0),
-    })
-
-      firstPage.drawText(employer.phone_number ?? "", {
-      x: 205,
-      y: 170.5,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    })
-
-      firstPage.drawText(employer.company ?? "", {
-      x: 253,
-      y: 140,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    })
-
-      firstPage.drawText(employer.address ?? "", {
-      x: 133,
-      y: 118,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    })
-
-      firstPage.drawText(employer.email ?? "", {
-      x: 206,
-      y: 73,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    })
-
-    firstPage.drawText(employer.website, {
-      x: 154.5,
-      y: 49,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    });
-    
-
-    secondPage.drawText(worker.job_title ?? "", {
-      x: 107,
-      y: 707,
-      size: 11,
-      font,
-      color: rgb(0, 0, 0),
-    });
-
-    const jobDescription = getJobDescription(worker.job_title ?? "") || worker.job_description || "";
-
-    secondPage.drawText(jobDescription, {
-      x: 29,
-      y: 670,
-      size: 11,
-      font,
-      lineHeight: 14,
-      color: rgb(0, 0, 0),
-    });
-
-    secondPage.drawText(
-      worker.hourly_wage !== null && worker.hourly_wage !== undefined
-        ? `${worker.hourly_wage} $`
-        : "",
-      {
-        x: 472,
-        y: 527,
-        size: 11,
-        font,
-        color: rgb(0, 0, 0),
-      }
-    );
-
-    secondPage.drawText(
-      worker.debut_date ? new Date(worker.debut_date).toLocaleDateString("fr-CA") : "",
-      {
-        x: 272,
-        y: 225,
-        size: 11,
-        font,
-        color: rgb(0, 0, 0),
-      }
-    );
-
-    const pdfBytes = await pdfDoc.save();
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="contrat-${worker.surname}-${worker.name}.pdf"`
+      `inline; filename="contrat-${worker.surname}-${worker.name}.pdf"`,
     );
 
-    return res.send(Buffer.from(pdfBytes));
+    return res.send(pdfBuffer);
   } catch (err) {
     console.error("Error generating foreign worker contract PDF:", err);
     return res.status(500).json({
