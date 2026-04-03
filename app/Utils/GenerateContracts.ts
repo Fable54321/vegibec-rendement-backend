@@ -63,6 +63,355 @@ type GeneratePTASContractParams = {
   getJobDescription: (jobTitle: string) => string | undefined;
 };
 
+
+type GeneratePTETContractParams = {
+  worker: Worker;
+  employer: Employer;
+  getJobDescription: (jobTitle: string) => string | undefined;
+};
+
+export const generatePTETContract = async ({
+  worker,
+  employer,
+  getJobDescription,
+}: GeneratePTETContractParams): Promise<Buffer> => {
+  const templatePath = path.join(
+    process.cwd(),
+    "public",
+    "templates",
+    "contrat_PTET_clean_version.pdf",
+  );
+
+  const existingPdfBytes = await fs.readFile(templatePath);
+
+  const pdfDoc = await PDFDocument.load(existingPdfBytes, {
+    ignoreEncryption: true,
+  });
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  const firstPage = pages[0];
+  const secondPage = pages[1];
+  const thirdPage = pages[2];
+  const fourthPage = pages[3];
+
+  firstPage.drawText(`${worker.surname ?? ""}`, {
+    x: 247,
+    y: 397,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(`${worker.name ?? ""}`, {
+    x: 246,
+    y: 375,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(
+    worker.birth_date
+      ? new Date(worker.birth_date).toLocaleDateString("fr-CA")
+      : "",
+    {
+      x: 244,
+      y: 357,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  firstPage.drawText(worker.residence_country ?? "", {
+    x: 244,
+    y: 341,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(worker.phone_number ?? "", {
+    x: 244,
+    y: 318,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(worker.email ?? "", {
+    x: 244,
+    y: 293,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  // EMPLOYER
+  firstPage.drawText(employer.surname ?? "", {
+    x: 244,
+    y: 250,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.name ?? "", {
+    x: 244,
+    y: 214,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.phone_number ?? "", {
+    x: 244,
+    y: 195,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.company ?? "", {
+    x: 244,
+    y: 174,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.address ?? "", {
+    x: 244,
+    y: 148,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.email ?? "", {
+    x: 244,
+    y: 69,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  firstPage.drawText(employer.website ?? "", {
+    x: 244,
+    y: 47,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(worker.job_title ?? "", {
+    x: 123,
+    y: 656,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  const jobDescription =
+    getJobDescription(worker.job_title ?? "") || worker.job_description || "";
+
+  secondPage.drawText(jobDescription, {
+    x: 43,
+    y: 619,
+    size: 9,
+    font,
+    lineHeight: 12,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(
+    worker.hourly_wage !== null && worker.hourly_wage !== undefined
+      ? `${worker.hourly_wage} $`
+      : "",
+    {
+      x: 142,
+      y: 525.5,
+      size: 10,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.overtime_hourly_wage !== null &&
+      worker.overtime_hourly_wage !== undefined
+      ? `${worker.overtime_hourly_wage} `
+      : "",
+    {
+      x: 270,
+      y: 499,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.daily_hours_for_overtime !== null &&
+      worker.daily_hours_for_overtime !== undefined
+      ? `${worker.daily_hours_for_overtime}`
+      : "",
+    {
+      x: 390,
+      y: 507,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.weekly_hours_for_overtime ? `${worker.weekly_hours_for_overtime}` : "",
+    {
+      x: 390,
+      y: 489,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  // no contingent
+  secondPage.drawText("X", {
+    x: 490.5,
+    y: 468.5,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+    secondPage.drawText(
+    worker.debut_date
+      ? new Date(worker.debut_date).toLocaleDateString("fr-CA")
+      : "",
+    {
+      x: 388.5,
+      y: 233,
+      size: 11,
+      font,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText("8", {
+    x: 286.5,
+    y: 214.5,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText("X", {
+    x: 452.5,
+    y: 215,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(
+    worker.approximative_daily_hours
+      ? `${worker.approximative_daily_hours} h`
+      : "",
+    {
+      x: 450.5,
+      y: 199,
+      size: 11,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText(
+    worker.approximative_weekly_hours
+      ? `${worker.approximative_weekly_hours} h`
+      : "",
+    {
+      x: 470,
+      y: 184,
+      size: 11,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+  secondPage.drawText("X", {
+    x: 315,
+    y: 165,
+    size: 13,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+
+
+  secondPage.drawText("X", {
+    x: 41,
+    y: 53,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  secondPage.drawText(
+    worker.holiday_duration ? `${worker.holiday_duration}%` : "",
+    {
+      x: 263,
+      y: 53,
+      size: 11,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    },
+  );
+
+//VOLET AGRICOLE
+
+
+  thirdPage.drawText("X", {
+    x: 300,
+    y: 53,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  })
+
+  fourthPage.drawText("Maison mobile", {
+    x: 100,
+    y: 600,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  fourthPage.drawText("171, rang ste-Sophie, Oka, QC J0N 1E0", {
+    x: 37,
+    y: 300,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  fourthPage.drawText("Les jardins vegibec inc.", {
+    x: 31,
+    y: 262,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+};
+
+
 export const generatePTASContract = async ({
   worker,
   employer,
@@ -353,7 +702,7 @@ export const generatePTASContract = async ({
   });
 
   thirdPage.drawText(
-    worker.holiday_duration ? `${worker.holiday_duration}` : "",
+    worker.holiday_duration ? `${worker.holiday_duration}%` : "",
     {
       x: 196,
       y: 698,

@@ -3,7 +3,7 @@ import { pool } from "../../db";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
-import { generatePTASContract } from "../../Utils/GenerateContracts";
+import { generatePTASContract, generatePTETContract } from "../../Utils/GenerateContracts";
 
 
 const router = Router();
@@ -235,7 +235,7 @@ router.get("/foreign-worker-info/current", async (req, res) => {
 
 router.post("/foreign-worker-contract/by-pin", async (req, res) => {
   try {
-    const { pin } = req.body;
+    const { pin, contractSlug } = req.body;
 
     if (pin === undefined || pin === null || pin === "") {
       return res.status(400).json({ error: "Le PIN est requis" });
@@ -313,11 +313,27 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
 
     const worker = result.rows[0];
 
-    const pdfBuffer = await generatePTASContract({
-      worker,
-      employer,
-      getJobDescription,
-    });
+       let pdfBuffer: Buffer;
+
+    if (contractSlug === "PTAS") {
+      pdfBuffer = await generatePTASContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+     else if (contractSlug === "PTET") {
+      pdfBuffer = await generatePTETContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+     else {
+      return res.status(400).json({
+        error: "Slug de contrat invalide",
+      });
+    }
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
