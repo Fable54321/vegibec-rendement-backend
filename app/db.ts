@@ -2,12 +2,11 @@ import { Pool } from "pg";
 
 
 
-// for local testing
 
 
 // export const pool = new Pool({
 //   connectionString:
-//     "insert your connection string here",
+//     "",
 //   ssl: {
 //     rejectUnauthorized: false,
 //   },

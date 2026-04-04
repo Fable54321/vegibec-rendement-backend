@@ -96,6 +96,7 @@ export const generatePTETContract = async ({
   const secondPage = pages[1];
   const thirdPage = pages[2];
   const fourthPage = pages[3];
+  const fifthPage = pages[4];
 
   firstPage.drawText(`${worker.surname ?? ""}`, {
     x: 247,
@@ -376,8 +377,16 @@ export const generatePTETContract = async ({
 
 
   thirdPage.drawText("X", {
-    x: 300,
-    y: 53,
+    x: 235,
+    y: 453,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  })
+
+    thirdPage.drawText("X", {
+    x: 41,
+    y: 150,
     size: 12,
     font: boldFont,
     color: rgb(0, 0, 0),
@@ -391,17 +400,26 @@ export const generatePTETContract = async ({
     color: rgb(0, 0, 0),
   });
 
-  fourthPage.drawText("171, rang ste-Sophie, Oka, QC J0N 1E0", {
-    x: 37,
-    y: 300,
+  fifthPage.drawText("171, rang ste-Sophie, Oka, QC J0N 1E0", {
+    x: 48,
+    y: 332,
     size: 11,
     font,
     color: rgb(0, 0, 0),
   });
 
-  fourthPage.drawText("Les jardins vegibec inc.", {
-    x: 31,
-    y: 262,
+
+    fifthPage.drawText("171, rang ste-Sophie, Oka, QC J0N 1E0", {
+    x: 320,
+    y: 332,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  fifthPage.drawText("Les jardins vegibec inc.", {
+    x: 48,
+    y: 296,
     size: 11,
     font: boldFont,
     color: rgb(0, 0, 0),
