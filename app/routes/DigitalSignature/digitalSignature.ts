@@ -357,30 +357,16 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
 
     console.log("PDF buffer generated");
     console.log("PDF buffer size:", pdfBuffer.length);
-    console.log("process.cwd():", process.cwd());
 
-    console.log("Starting PDF -> WebP conversion...");
-    const { folderId, pages } = await convertPdfBufferToWebpFiles(
-      pdfBuffer,
-      1.5
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="contrat-${worker.surname}-${worker.name}.pdf"`,
     );
-    console.log("PDF -> WebP conversion finished");
-    console.log("Generated folderId:", folderId);
-    console.log("Pages count:", pages.length);
-    console.log("Pages preview:", pages);
 
-    return res.status(200).json({
-      folderId,
-      pages,
-      worker: {
-        user_id: worker.user_id,
-        name: worker.name,
-        surname: worker.surname,
-      },
-      contractSlug,
-    });
+    return res.status(200).send(pdfBuffer);
   } catch (err) {
-    console.error("Error generating foreign worker contract preview:", err);
+    console.error("Error generating foreign worker contract PDF:", err);
     return res.status(500).json({
       error: "Erreur serveur lors de la génération du contrat",
     });
