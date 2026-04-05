@@ -4,6 +4,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
 import { generatePTASContract, generatePTETContract } from "../../Utils/GenerateContracts";
+import { convertPdfBufferToJpgPages } from "../../Utils/pdfToImages";
 
 
 const router = Router();
@@ -335,13 +336,19 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       });
     }
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="contrat-${worker.surname}-${worker.name}.pdf"`,
-    );
+    const pages = await convertPdfBufferToJpgPages(pdfBuffer, 2);
 
-    return res.send(pdfBuffer);
+    return res.status(200).json({
+      pages,
+      worker: {
+        user_id: worker.user_id,
+        name: worker.name,
+        surname: worker.surname,
+      },
+      contractSlug,
+    });
+
+   
   } catch (err) {
     console.error("Error generating foreign worker contract PDF:", err);
     return res.status(500).json({
