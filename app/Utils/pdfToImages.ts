@@ -36,7 +36,7 @@ export async function convertPdfBufferToJpgPages(
   viewport,
 }).promise;
 
-const webpBuffer = await canvas.encode("webp", 100);
+const webpBuffer = await canvas.encode("webp", 80);
 
     pages.push({
       page: pageNum,

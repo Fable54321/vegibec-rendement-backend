@@ -336,7 +336,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       });
     }
 
-    const pages = await convertPdfBufferToJpgPages(pdfBuffer, 2);
+    const pages = await convertPdfBufferToJpgPages(pdfBuffer, 1.5);
 
     return res.status(200).json({
       pages,
