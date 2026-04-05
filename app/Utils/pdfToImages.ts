@@ -1,15 +1,34 @@
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas } from "@napi-rs/canvas";
+import fs from "fs/promises";
+import path from "path";
+import crypto from "crypto";
 
-type PdfPageImage = {
+type SavedPdfPage = {
   page: number;
-  imageBase64: string;
+  imageUrl: string;
 };
 
-export async function convertPdfBufferToJpgPages(
+type ConvertPdfToWebpFilesResult = {
+  folderId: string;
+  pages: SavedPdfPage[];
+};
+
+export async function convertPdfBufferToWebpFiles(
   pdfBuffer: Buffer,
-  scale = 2
-): Promise<PdfPageImage[]> {
+  scale = 1.5
+): Promise<ConvertPdfToWebpFilesResult> {
+  const folderId = crypto.randomUUID();
+
+  const outputDir = path.join(
+    process.cwd(),
+    "public",
+    "generated-contracts",
+    folderId
+  );
+
+  await fs.mkdir(outputDir, { recursive: true });
+
   const pdf = await pdfjsLib.getDocument({
     data: new Uint8Array(pdfBuffer),
     useWorkerFetch: false,
@@ -17,7 +36,7 @@ export async function convertPdfBufferToJpgPages(
     useSystemFonts: true,
   }).promise;
 
-  const pages: PdfPageImage[] = [];
+  const pages: SavedPdfPage[] = [];
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -31,18 +50,26 @@ export async function convertPdfBufferToJpgPages(
     const context = canvas.getContext("2d");
 
     await page.render({
-  canvas: canvas as any,
-  canvasContext: context as any,
-  viewport,
-}).promise;
+      canvas: canvas as any,
+      canvasContext: context as any,
+      viewport,
+    }).promise;
 
-const webpBuffer = await canvas.encode("webp", 80);
+    const webpBuffer = await canvas.encode("webp", 80);
+
+    const fileName = `page-${pageNum}.webp`;
+    const filePath = path.join(outputDir, fileName);
+
+    await fs.writeFile(filePath, webpBuffer);
 
     pages.push({
       page: pageNum,
-      imageBase64: `data:image/webp;base64,${webpBuffer.toString("base64")}`,
+      imageUrl: `/generated-contracts/${folderId}/${fileName}`,
     });
   }
 
-  return pages;
+  return {
+    folderId,
+    pages,
+  };
 }

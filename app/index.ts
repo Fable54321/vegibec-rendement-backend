@@ -33,6 +33,7 @@ import timeSheetsCalculationsRoute from "./routes/Timesheets/calculations";
 import userDailyDurationRoute from "./routes/Timesheets/userDailyDuration";
 import adminRoute from "./routes/Timesheets/admin"
 import signatureRoute from "./routes/DigitalSignature/digitalSignature";
+import path from "path";
 
 
 dotenv.config();
@@ -78,7 +79,14 @@ app.use("/api/rate-converter", rateConverterRoute);   /// same thing here
 
 app.use("/api/vegReports", vegReportsRouter); //// Eventually check for these they can be uinside the auth
 
+app.use(
+  "/generated-contracts",
+  express.static(path.join(process.cwd(), "public", "generated-contracts"))
+);
+
 app.use("/auth", authRoute);
+
+
 
 app.use(authMiddleware);
 

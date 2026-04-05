@@ -4,7 +4,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
 import { generatePTASContract, generatePTETContract } from "../../Utils/GenerateContracts";
-import { convertPdfBufferToJpgPages } from "../../Utils/pdfToImages";
+import { convertPdfBufferToWebpFiles } from "../../Utils/pdfToImages";
 
 
 const router = Router();
@@ -336,7 +336,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       });
     }
 
-    const pages = await convertPdfBufferToJpgPages(pdfBuffer, 1.5);
+    const pages = await convertPdfBufferToWebpFiles(pdfBuffer, 1.5);
 
     return res.status(200).json({
       pages,
