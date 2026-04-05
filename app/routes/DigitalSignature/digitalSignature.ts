@@ -238,19 +238,27 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
   try {
     const { pin, contractSlug } = req.body;
 
+    console.log("=== /foreign-worker-contract/by-pin called ===");
+    console.log("Request body:", { pin, contractSlug });
+
     if (pin === undefined || pin === null || pin === "") {
+      console.log("PIN missing");
       return res.status(400).json({ error: "Le PIN est requis" });
     }
 
     const normalizedPin = Number(pin);
+    console.log("Normalized PIN:", normalizedPin);
 
     if (
       !Number.isInteger(normalizedPin) ||
       normalizedPin < 0 ||
       normalizedPin > 99999
     ) {
+      console.log("Invalid PIN");
       return res.status(400).json({ error: "PIN invalide" });
     }
+
+    console.log("Querying worker by PIN...");
 
     const result = await pool.query(
       `
@@ -306,39 +314,63 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       [normalizedPin],
     );
 
+    console.log("Worker query done. Rows found:", result.rows.length);
+
     if (result.rows.length === 0) {
+      console.log("No worker found for PIN:", normalizedPin);
       return res.status(404).json({
         error: "Aucun travailleur trouvé avec ce PIN",
       });
     }
 
     const worker = result.rows[0];
+    console.log("Worker found:", {
+      user_id: worker.user_id,
+      name: worker.name,
+      surname: worker.surname,
+    });
 
-       let pdfBuffer: Buffer;
+    let pdfBuffer: Buffer;
 
     if (contractSlug === "PTAS") {
+      console.log("Generating PTAS contract...");
       pdfBuffer = await generatePTASContract({
         worker,
         employer,
         getJobDescription,
       });
-    }
-     else if (contractSlug === "PTET") {
+      console.log("PTAS contract generated");
+    } else if (contractSlug === "PTET") {
+      console.log("Generating PTET contract...");
       pdfBuffer = await generatePTETContract({
         worker,
         employer,
         getJobDescription,
       });
-    }
-     else {
+      console.log("PTET contract generated");
+    } else {
+      console.log("Invalid contract slug:", contractSlug);
       return res.status(400).json({
         error: "Slug de contrat invalide",
       });
     }
 
-    const pages = await convertPdfBufferToWebpFiles(pdfBuffer, 1.5);
+    console.log("PDF buffer generated");
+    console.log("PDF buffer size:", pdfBuffer.length);
+    console.log("process.cwd():", process.cwd());
+
+    console.log("Starting PDF -> WebP conversion...");
+    const { folderId, pages } = await convertPdfBufferToWebpFiles(
+      pdfBuffer,
+      1.5
+    );
+    console.log("PDF -> WebP conversion finished");
+    console.log("Generated folderId:", folderId);
+    console.log("Pages count:", pages.length);
+    console.log("Pages preview:", pages);
 
     return res.status(200).json({
+      folderId,
       pages,
       worker: {
         user_id: worker.user_id,
@@ -347,12 +379,10 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       },
       contractSlug,
     });
-
-   
   } catch (err) {
-    console.error("Error generating foreign worker contract PDF:", err);
+    console.error("Error generating foreign worker contract preview:", err);
     return res.status(500).json({
-      error: "Erreur serveur lors de la génération du PDF",
+      error: "Erreur serveur lors de la génération du contrat",
     });
   }
 });
