@@ -4,7 +4,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
 import { generatePTASContract, generatePTETContract } from "../../Utils/GenerateContracts";
-import { convertPdfBufferToWebpFiles } from "../../Utils/pdfToImages";
+
 
 
 const router = Router();
