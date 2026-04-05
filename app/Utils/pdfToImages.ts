@@ -36,11 +36,11 @@ export async function convertPdfBufferToJpgPages(
   viewport,
 }).promise;
 
-    const jpgBuffer = await canvas.encode("jpeg", 90);
+const webpBuffer = await canvas.encode("webp", 100);
 
     pages.push({
       page: pageNum,
-      imageBase64: `data:image/jpeg;base64,${jpgBuffer.toString("base64")}`,
+      imageBase64: `data:image/webp;base64,${webpBuffer.toString("base64")}`,
     });
   }
 
