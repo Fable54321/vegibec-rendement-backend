@@ -425,6 +425,22 @@ export const generatePTETContract = async ({
     color: rgb(0, 0, 0),
   });
 
+   fifthPage.drawText(`${worker.surname ?? ""}`, {
+    x: 247,
+    y: 296,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  fifthPage.drawText(`${worker.name ?? ""}`, {
+    x: 260,
+    y: 296,
+    size: 12,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
 };
