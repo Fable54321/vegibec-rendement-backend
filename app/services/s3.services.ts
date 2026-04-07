@@ -1,4 +1,7 @@
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+
+
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3 } from "../s3";
 
 export const uploadBufferToS3 = async ({
@@ -31,3 +34,20 @@ export const uploadBufferToS3 = async ({
 
 
 
+
+export const getSignedUrlForKey = async (key: string) => {
+  const bucket = process.env.AWS_BUCKET_NAME;
+
+  if (!bucket) {
+    throw new Error("AWS_BUCKET_NAME is not defined");
+  }
+
+  const command = new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  });
+
+  return getSignedUrl(s3, command, { expiresIn: 60 * 5 });
+
+
+};
