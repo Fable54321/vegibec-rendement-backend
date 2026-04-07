@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { pool } from "../../db";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { uploadBufferToS3 } from "../../services/s3.services"
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
 import { generatePTASContract, generatePTETContract } from "../../Utils/GenerateContracts";
@@ -238,27 +238,19 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
   try {
     const { pin, contractSlug } = req.body;
 
-    console.log("=== /foreign-worker-contract/by-pin called ===");
-    console.log("Request body:", { pin, contractSlug });
-
     if (pin === undefined || pin === null || pin === "") {
-      console.log("PIN missing");
       return res.status(400).json({ error: "Le PIN est requis" });
     }
 
     const normalizedPin = Number(pin);
-   
 
     if (
       !Number.isInteger(normalizedPin) ||
       normalizedPin < 0 ||
       normalizedPin > 99999
     ) {
-      console.log("Invalid PIN");
       return res.status(400).json({ error: "PIN invalide" });
     }
-
-  
 
     const result = await pool.query(
       `
@@ -311,60 +303,88 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       WHERE fwi.pin = $1
       LIMIT 1
       `,
-      [normalizedPin],
+      [normalizedPin]
     );
 
-    
-
     if (result.rows.length === 0) {
-      console.log("No worker found for PIN:", normalizedPin);
       return res.status(404).json({
         error: "Aucun travailleur trouvé avec ce PIN",
       });
     }
 
     const worker = result.rows[0];
-    console.log("Worker found:", {
-      user_id: worker.user_id,
-      name: worker.name,
-      surname: worker.surname,
-    });
 
     let pdfBuffer: Buffer;
+    let templateVersion: string;
 
     if (contractSlug === "PTAS") {
-      console.log("Generating PTAS contract...");
+      templateVersion = "2026-ptas-v1";
       pdfBuffer = await generatePTASContract({
         worker,
         employer,
         getJobDescription,
       });
-      console.log("PTAS contract generated");
     } else if (contractSlug === "PTET") {
-      console.log("Generating PTET contract...");
+      templateVersion = "2026-ptet-v1";
       pdfBuffer = await generatePTETContract({
         worker,
         employer,
         getJobDescription,
       });
-      console.log("PTET contract generated");
     } else {
-      console.log("Invalid contract slug:", contractSlug);
       return res.status(400).json({
         error: "Slug de contrat invalide",
       });
     }
 
-    console.log("PDF buffer generated");
-    console.log("PDF buffer size:", pdfBuffer.length);
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="contrat-${worker.surname}-${worker.name}.pdf"`,
+    const insertResult = await pool.query(
+      `
+      INSERT INTO worker_contracts (
+        user_id,
+        contract_slug,
+        template_version,
+        status,
+        worker_snapshot,
+        employer_snapshot,
+        accepted_terms
+      )
+      VALUES ($1, $2, $3, 'draft', $4::jsonb, $5::jsonb, false)
+      RETURNING id
+      `,
+      [
+        worker.user_id,
+        contractSlug,
+        templateVersion,
+        JSON.stringify(worker),
+        JSON.stringify(employer),
+      ]
     );
 
-    return res.status(200).send(pdfBuffer);
+    const contractId = insertResult.rows[0].id;
+
+    const draftPdfKey = `contracts/${worker.user_id}/${contractId}/draft.pdf`;
+
+    await uploadBufferToS3({
+      key: draftPdfKey,
+      buffer: pdfBuffer,
+      contentType: "application/pdf",
+    });
+
+    await pool.query(
+      `
+      UPDATE worker_contracts
+      SET draft_pdf_key = $1,
+          updated_at = NOW()
+      WHERE id = $2
+      `,
+      [draftPdfKey, contractId]
+    );
+
+    return res.status(200).json({
+      message: "Contrat brouillon généré avec succès",
+      contractId,
+      draftPdfKey,
+    });
   } catch (err) {
     console.error("Error generating foreign worker contract PDF:", err);
     return res.status(500).json({
