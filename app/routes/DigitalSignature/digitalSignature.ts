@@ -314,6 +314,29 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
 
     const worker = result.rows[0];
 
+    const existingDraftResult = await pool.query(
+  `
+  SELECT id, draft_pdf_key
+  FROM worker_contracts
+  WHERE user_id = $1
+    AND contract_slug = $2
+    AND status = 'draft'
+  LIMIT 1
+  `,
+  [worker.user_id, contractSlug]
+);
+
+if (existingDraftResult.rows.length > 0) {
+  const existing = existingDraftResult.rows[0];
+
+  return res.status(200).json({
+    message: "Contrat brouillon déjà existant",
+    contractId: existing.id,
+    draftPdfKey: existing.draft_pdf_key,
+    reused: true,
+  });
+}
+
     let pdfBuffer: Buffer;
     let templateVersion: string;
 
