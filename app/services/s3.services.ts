@@ -51,3 +51,35 @@ export const getSignedUrlForKey = async (key: string) => {
 
 
 };
+
+
+const streamToBuffer = async (stream: NodeJS.ReadableStream): Promise<Buffer> => {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  return Buffer.concat(chunks);
+};
+
+export const getBufferFromS3 = async (key: string): Promise<Buffer> => {
+  const bucket = process.env.AWS_BUCKET_NAME;
+
+  if (!bucket) {
+    throw new Error("AWS_BUCKET_NAME is not defined");
+  }
+
+  const response = await s3.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+  );
+
+  if (!response.Body) {
+    throw new Error("Fichier introuvable dans S3");
+  }
+
+  return streamToBuffer(response.Body as NodeJS.ReadableStream);
+};

@@ -47,6 +47,20 @@ type Worker = {
   holiday_duration: number | null;
 };
 
+type ContractSlug = "PTAS" | "PTET";
+
+type SignaturePlacement = {
+  signaturePageIndex: number;
+  signatureX: number;
+  signatureY: number;
+  signatureWidth: number;
+  signatureHeight: number;
+  dateX: number;
+  dateY: number;
+  nameX?: number;
+  nameY?: number;
+};
+
 type Employer = {
   surname: string | null;
   name: string | null;
@@ -788,4 +802,93 @@ export const generatePTASContract = async ({
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
+};
+
+
+export const getSignaturePlacement = (
+  contractSlug: ContractSlug
+): SignaturePlacement => {
+  if (contractSlug === "PTAS") {
+    return {
+      signaturePageIndex: 3, // fourth page, since index starts at 0
+      signatureX: 319,
+      signatureY: 215,
+      signatureWidth: 120,
+      signatureHeight: 40,
+      dateX: 319,
+      dateY: 240,
+    };
+  }
+
+  if (contractSlug === "PTET") {
+    return {
+      signaturePageIndex: 4, // fifth page
+      signatureX: 320,
+      signatureY: 245,
+      signatureWidth: 120,
+      signatureHeight: 40,
+      dateX: 320,
+      dateY: 270,
+    };
+  }
+
+  throw new Error("Type de contrat invalide");
+};
+
+
+type ApplySignatureParams = {
+  pdfBuffer: Buffer;
+  contractSlug: ContractSlug;
+  signatureBuffer: Buffer;
+  signedAt?: Date;
+  signedName?: string;
+};
+
+export const applySignatureToContract = async ({
+  pdfBuffer,
+  contractSlug,
+  signatureBuffer,
+  signedAt,
+  signedName,
+}: ApplySignatureParams): Promise<Buffer> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer, {
+    ignoreEncryption: true,
+  });
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const signatureImage = await pdfDoc.embedPng(signatureBuffer);
+
+  const placement = getSignaturePlacement(contractSlug);
+  const page = pdfDoc.getPages()[placement.signaturePageIndex];
+
+  page.drawImage(signatureImage, {
+    x: placement.signatureX,
+    y: placement.signatureY,
+    width: placement.signatureWidth,
+    height: placement.signatureHeight,
+  });
+
+  const formattedDate = (signedAt ?? new Date()).toLocaleDateString("fr-CA");
+
+  page.drawText(formattedDate, {
+    x: placement.dateX,
+    y: placement.dateY,
+    size: 10,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  if (signedName && placement.nameX !== undefined && placement.nameY !== undefined) {
+    page.drawText(signedName, {
+      x: placement.nameX,
+      y: placement.nameY,
+      size: 10,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  const finalPdfBytes = await pdfDoc.save();
+  return Buffer.from(finalPdfBytes);
 };

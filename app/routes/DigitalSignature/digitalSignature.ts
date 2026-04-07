@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { pool } from "../../db";
-import { uploadBufferToS3, getSignedUrlForKey } from "../../services/s3.services"
+import { uploadBufferToS3, getSignedUrlForKey, getBufferFromS3 } from "../../services/s3.services"
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
-import { generatePTASContract, generatePTETContract } from "../../Utils/GenerateContracts";
+import { generatePTASContract, generatePTETContract, getSignaturePlacement, applySignatureToContract } from "../../Utils/GenerateContracts";
 
 
 
@@ -417,34 +417,196 @@ if (existingDraftResult.rows.length > 0) {
 });
 
 
-router.get("/foreign-worker-contract/:id/draft-url", async (req, res) => {
+router.get("/foreign-worker-contract/:id/url", async (req, res) => {
   try {
+    const contractId = Number(req.params.id);
+
+    if (!Number.isInteger(contractId) || contractId <= 0) {
+      return res.status(400).json({ error: "ID de contrat invalide" });
+    }
+
     const result = await pool.query(
       `
-      SELECT draft_pdf_key
+      SELECT
+        status,
+        draft_pdf_key,
+        final_pdf_key
       FROM worker_contracts
       WHERE id = $1
       LIMIT 1
       `,
-      [req.params.id]
+      [contractId]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Contrat introuvable" });
     }
 
-    const { draft_pdf_key } = result.rows[0];
+    const contract = result.rows[0];
 
-    if (!draft_pdf_key) {
-      return res.status(404).json({ error: "PDF brouillon introuvable" });
+    const keyToUse =
+      contract.status === "signed" && contract.final_pdf_key
+        ? contract.final_pdf_key
+        : contract.draft_pdf_key;
+
+    if (!keyToUse) {
+      return res.status(404).json({ error: "Aucun PDF trouvé pour ce contrat" });
     }
 
-    const url = await getSignedUrlForKey(draft_pdf_key);
+    const url = await getSignedUrlForKey(keyToUse);
 
-    return res.status(200).json({ url });
+    return res.status(200).json({
+      url,
+      status: contract.status,
+    });
   } catch (err) {
-    console.error("Error getting signed contract URL:", err);
-    return res.status(500).json({ error: "Erreur serveur" });
+    console.error("Error getting contract URL:", err);
+    return res.status(500).json({
+      error: "Erreur serveur lors de la récupération du contrat",
+    });
+  }
+});
+
+
+router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
+  const client = await pool.connect();
+
+  let signatureImageKey: string | null = null;
+  let finalPdfKey: string | null = null;
+
+  try {
+    const contractId = Number(req.params.id);
+    const { signatureDataUrl, acceptedTerms, signedName } = req.body;
+
+    if (!Number.isInteger(contractId) || contractId <= 0) {
+      return res.status(400).json({ error: "ID de contrat invalide" });
+    }
+
+    if (!signatureDataUrl || typeof signatureDataUrl !== "string") {
+      return res.status(400).json({ error: "Signature requise" });
+    }
+
+    if (!acceptedTerms) {
+      return res.status(400).json({
+        error: "Vous devez accepter le contrat avant de signer",
+      });
+    }
+
+    await client.query("BEGIN");
+
+    const contractResult = await client.query(
+      `
+      SELECT
+        id,
+        user_id,
+        contract_slug,
+        status,
+        draft_pdf_key,
+        final_pdf_key
+      FROM worker_contracts
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [contractId]
+    );
+
+    if (contractResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Contrat introuvable" });
+    }
+
+    const contract = contractResult.rows[0];
+
+    if (contract.status === "signed") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Ce contrat est déjà signé" });
+    }
+
+    if (!contract.draft_pdf_key) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: "Aucun PDF brouillon associé à ce contrat",
+      });
+    }
+
+    const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, "");
+    const signatureBuffer = Buffer.from(base64Data, "base64");
+
+    if (!signatureBuffer.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Signature invalide" });
+    }
+
+    const draftPdfBuffer = await getBufferFromS3(contract.draft_pdf_key);
+
+    const signedAt = new Date();
+
+    const finalPdfBuffer = await applySignatureToContract({
+      pdfBuffer: draftPdfBuffer,
+      contractSlug: contract.contract_slug,
+      signatureBuffer,
+      signedAt,
+      signedName,
+    });
+
+    signatureImageKey = `contracts/${contract.user_id}/${contract.id}/signature.png`;
+    finalPdfKey = `contracts/${contract.user_id}/${contract.id}/final.pdf`;
+
+    await uploadBufferToS3({
+      key: signatureImageKey,
+      buffer: signatureBuffer,
+      contentType: "image/png",
+    });
+
+    await uploadBufferToS3({
+      key: finalPdfKey,
+      buffer: finalPdfBuffer,
+      contentType: "application/pdf",
+    });
+
+    await client.query(
+      `
+      UPDATE worker_contracts
+      SET
+        accepted_terms = $1,
+        signed_name = $2,
+        signed_at = $3,
+        signature_image_key = $4,
+        final_pdf_key = $5,
+        signer_ip = $6,
+        signer_user_agent = $7,
+        status = 'signed',
+        updated_at = NOW()
+      WHERE id = $8
+      `,
+      [
+        true,
+        signedName ?? null,
+        signedAt,
+        signatureImageKey,
+        finalPdfKey,
+        req.ip ?? null,
+        req.get("user-agent") ?? null,
+        contract.id,
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      message: "Contrat signé avec succès",
+      contractId: contract.id,
+      finalPdfKey,
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error signing contract:", err);
+
+    return res.status(500).json({
+      error: "Erreur serveur lors de la signature du contrat",
+    });
+  } finally {
+    client.release();
   }
 });
 
