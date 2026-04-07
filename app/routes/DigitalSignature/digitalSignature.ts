@@ -247,7 +247,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
     }
 
     const normalizedPin = Number(pin);
-    console.log("Normalized PIN:", normalizedPin);
+   
 
     if (
       !Number.isInteger(normalizedPin) ||
@@ -258,7 +258,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       return res.status(400).json({ error: "PIN invalide" });
     }
 
-    console.log("Querying worker by PIN...");
+  
 
     const result = await pool.query(
       `
@@ -314,7 +314,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       [normalizedPin],
     );
 
-    console.log("Worker query done. Rows found:", result.rows.length);
+    
 
     if (result.rows.length === 0) {
       console.log("No worker found for PIN:", normalizedPin);

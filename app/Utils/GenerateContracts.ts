@@ -426,16 +426,16 @@ export const generatePTETContract = async ({
   });
 
    fifthPage.drawText(`${worker.surname ?? ""}`, {
-    x: 247,
-    y: 296,
+    x: 316,
+    y: 294,
     size: 12,
     font: boldFont,
     color: rgb(0, 0, 0),
   });
 
   fifthPage.drawText(`${worker.name ?? ""}`, {
-    x: 260,
-    y: 296,
+    x: 347,
+    y: 294,
     size: 12,
     font: boldFont,
     color: rgb(0, 0, 0),
@@ -766,6 +766,22 @@ export const generatePTASContract = async ({
     x: 31,
     y: 262,
     size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+
+  fourthPage.drawText("171, rang ste-Sophie, Oka, QC J0N 1E0", {
+    x: 319,
+    y: 300,
+    size: 11,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+   fourthPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
+    x: 319,
+    y: 262,
+    size: 12,
     font: boldFont,
     color: rgb(0, 0, 0),
   });
