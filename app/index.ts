@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import { authMiddleware, requireAppRole } from "./middleware/auth";
-
+import { uploadBufferToS3 } from "./services/s3.services";
 
 
 import express from "express";
@@ -35,6 +35,11 @@ import adminRoute from "./routes/Timesheets/admin"
 import signatureRoute from "./routes/DigitalSignature/digitalSignature";
 import path from "path";
 
+import { ListBucketsCommand } from "@aws-sdk/client-s3";
+import { s3 } from "./s3"; 
+
+
+
 
 dotenv.config();
 
@@ -67,6 +72,24 @@ app.use(
     credentials: true,
   }),
 );
+
+
+
+const testUpload = async () => {
+  const buffer = Buffer.from("hello from backend", "utf-8");
+
+  const key = "test/hello.txt";
+
+  await uploadBufferToS3({
+    key,
+    buffer,
+    contentType: "text/plain",
+  });
+
+  console.log("Upload success");
+};
+
+testUpload().catch(console.error);
 
 app.get("/", async (req, res) => {
   const result = await pool.query("SELECT NOW()");

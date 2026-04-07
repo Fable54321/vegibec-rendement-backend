@@ -22,9 +22,7 @@ export const pool = new Pool({
   ssl:
     process.env.DB_SSL === "true"
       ? {
-          // This tells the pg library to use SSL encryption
-          // but skip validating the server's certificate against
-          // system CAs, which is often necessary for cloud providers.
+         
           rejectUnauthorized: false,
         }
       : false,
