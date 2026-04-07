@@ -812,9 +812,9 @@ export const getSignaturePlacement = (
     return {
       signaturePageIndex: 3, // fourth page, since index starts at 0
       signatureX: 319,
-      signatureY: 215,
-      signatureWidth: 120,
-      signatureHeight: 40,
+      signatureY: 195,
+      signatureWidth: 140,
+      signatureHeight: 50,
       dateX: 319,
       dateY: 240,
     };
