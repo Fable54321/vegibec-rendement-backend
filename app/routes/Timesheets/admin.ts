@@ -188,7 +188,8 @@ router.get("/blocks/:blockId/users/:userId/edits", requireAppRole("time", ["admi
         new_duration_minutes,
         reason,
         edited_by_user_id,
-        created_at
+        created_at,
+        is_approved
       FROM timesheets.work_session_edits
       WHERE work_session_id = $1
       ORDER BY created_at DESC
@@ -206,5 +207,65 @@ router.get("/blocks/:blockId/users/:userId/edits", requireAppRole("time", ["admi
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
+
+
+router.patch(
+  "/edits/:editId/approval",
+  requireAppRole("time", ["admin", "dev"]),
+  async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Non autorisé" });
+      }
+
+      const editId = Number(req.params.editId);
+      const { isApproved } = req.body;
+
+      if (!Number.isInteger(editId) || editId <= 0) {
+        return res.status(400).json({ error: "ID de modification invalide" });
+      }
+
+      if (typeof isApproved !== "boolean") {
+        return res.status(400).json({ error: "isApproved doit être un booléen" });
+      }
+
+      const result = await pool.query(
+        `
+        UPDATE timesheets.work_session_edits
+        SET is_approved = $2
+        WHERE id = $1
+        RETURNING
+          id,
+          work_session_id,
+          previous_start_time,
+          previous_end_time,
+          new_start_time,
+          new_end_time,
+          previous_duration_minutes,
+          new_duration_minutes,
+          reason,
+          edited_by_user_id,
+          created_at,
+          is_approved
+        `,
+        [editId, isApproved],
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Modification introuvable" });
+      }
+
+      res.json({
+        message: isApproved
+          ? "Modification approuvée avec succès"
+          : "Approbation retirée avec succès",
+        edit: result.rows[0],
+      });
+    } catch (err) {
+      console.error("Error updating work session edit approval:", err);
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  },
+);
 
 export default router;
