@@ -810,7 +810,7 @@ export const getSignaturePlacement = (
 ): SignaturePlacement => {
   if (contractSlug === "PTAS") {
     return {
-      signaturePageIndex: 3, // fourth page, since index starts at 0
+      signaturePageIndex: 3, 
       signatureX: 319,
       signatureY: 180,
       signatureWidth: 280,
@@ -823,12 +823,12 @@ export const getSignaturePlacement = (
   if (contractSlug === "PTET") {
     return {
       signaturePageIndex: 4, // fifth page
-      signatureX: 320,
-      signatureY: 245,
+      signatureX: 319,
+      signatureY: 180,
       signatureWidth: 120,
-      signatureHeight: 40,
-      dateX: 320,
-      dateY: 270,
+      signatureHeight: 50,
+      dateX: 470,
+      dateY: 262,
     };
   }
 
