@@ -448,7 +448,7 @@ export const generatePTETContract = async ({
   });
 
   fifthPage.drawText(`${worker.name ?? ""}`, {
-    x: 357,
+    x: 354,
     y: 294,
     size: 12,
     font: boldFont,
@@ -828,7 +828,7 @@ export const getSignaturePlacement = (
       signatureWidth: 220,
       signatureHeight: 50,
       dateX: 420,
-      dateY: 200,
+      dateY: 195,
     };
   }
 
