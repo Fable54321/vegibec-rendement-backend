@@ -321,7 +321,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
     // 1) Check if a signed contract already exists first
     const existingSignedResult = await pool.query(
       `
-      SELECT id, signed_pdf_key, draft_pdf_key, status, template_version
+      SELECT id, final_pdf_key, draft_pdf_key, status, template_version
       FROM worker_contracts
       WHERE user_id = $1
         AND contract_slug = $2
@@ -338,7 +338,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       return res.status(200).json({
         message: "Contrat signé existant",
         contractId: existingSigned.id,
-        pdfKey: existingSigned.signed_pdf_key,
+        pdfKey: existingSigned.final_pdf_key,
         status: existingSigned.status,
         templateVersion: existingSigned.template_version,
         reused: true,
@@ -348,7 +348,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
     // 2) If no signed contract exists, check for an existing draft
     const existingDraftResult = await pool.query(
       `
-      SELECT id, draft_pdf_key, signed_pdf_key, status, template_version
+      SELECT id, draft_pdf_key, final_pdf_key, status, template_version
       FROM worker_contracts
       WHERE user_id = $1
         AND contract_slug = $2
