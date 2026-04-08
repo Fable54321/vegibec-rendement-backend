@@ -140,7 +140,7 @@ router.get("/blocks/by-user", requireAppRole("time", ["admin", "dev"]) ,async (r
 });
 
 
-router.get("/blocks/:blockId/users/userId/edits", requireAppRole("time", ["admin", "dev"]) , async (req, res) => {
+router.get("/blocks/:blockId/users/:userId/edits", requireAppRole("time", ["admin", "dev"]) , async (req, res) => {
   try {
 
     
