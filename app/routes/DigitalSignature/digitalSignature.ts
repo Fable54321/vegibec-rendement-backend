@@ -242,6 +242,10 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       return res.status(400).json({ error: "Le PIN est requis" });
     }
 
+    if (!contractSlug || !["PTAS", "PTET"].includes(contractSlug)) {
+      return res.status(400).json({ error: "Slug de contrat invalide" });
+    }
+
     const normalizedPin = Number(pin);
 
     if (
@@ -252,7 +256,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       return res.status(400).json({ error: "PIN invalide" });
     }
 
-    const result = await pool.query(
+    const workerResult = await pool.query(
       `
       SELECT
         u.id AS user_id,
@@ -306,37 +310,69 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       [normalizedPin]
     );
 
-    if (result.rows.length === 0) {
+    if (workerResult.rows.length === 0) {
       return res.status(404).json({
         error: "Aucun travailleur trouvé avec ce PIN",
       });
     }
 
-    const worker = result.rows[0];
+    const worker = workerResult.rows[0];
 
+    // 1) Check if a signed contract already exists first
+    const existingSignedResult = await pool.query(
+      `
+      SELECT id, signed_pdf_key, draft_pdf_key, status, template_version
+      FROM worker_contracts
+      WHERE user_id = $1
+        AND contract_slug = $2
+        AND status = 'signed'
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1
+      `,
+      [worker.user_id, contractSlug]
+    );
+
+    if (existingSignedResult.rows.length > 0) {
+      const existingSigned = existingSignedResult.rows[0];
+
+      return res.status(200).json({
+        message: "Contrat signé existant",
+        contractId: existingSigned.id,
+        pdfKey: existingSigned.signed_pdf_key,
+        status: existingSigned.status,
+        templateVersion: existingSigned.template_version,
+        reused: true,
+      });
+    }
+
+    // 2) If no signed contract exists, check for an existing draft
     const existingDraftResult = await pool.query(
-  `
-  SELECT id, draft_pdf_key
-  FROM worker_contracts
-  WHERE user_id = $1
-    AND contract_slug = $2
-    AND status = 'draft'
-  LIMIT 1
-  `,
-  [worker.user_id, contractSlug]
-);
+      `
+      SELECT id, draft_pdf_key, signed_pdf_key, status, template_version
+      FROM worker_contracts
+      WHERE user_id = $1
+        AND contract_slug = $2
+        AND status = 'draft'
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1
+      `,
+      [worker.user_id, contractSlug]
+    );
 
-if (existingDraftResult.rows.length > 0) {
-  const existing = existingDraftResult.rows[0];
+    if (existingDraftResult.rows.length > 0) {
+      const existingDraft = existingDraftResult.rows[0];
 
-  return res.status(200).json({
-    message: "Contrat brouillon déjà existant",
-    contractId: existing.id,
-    draftPdfKey: existing.draft_pdf_key,
-    reused: true,
-  });
-}
+      return res.status(200).json({
+        message: "Contrat brouillon déjà existant",
+        contractId: existingDraft.id,
+        pdfKey: existingDraft.draft_pdf_key,
+        status: existingDraft.status,
+        templateVersion: existingDraft.template_version,
+        reused: true,
+      });
+    }
 
+    // 3) Otherwise generate a new draft
     let pdfBuffer: Buffer;
     let templateVersion: string;
 
@@ -347,16 +383,12 @@ if (existingDraftResult.rows.length > 0) {
         employer,
         getJobDescription,
       });
-    } else if (contractSlug === "PTET") {
+    } else {
       templateVersion = "2026-ptet-v1";
       pdfBuffer = await generatePTETContract({
         worker,
         employer,
         getJobDescription,
-      });
-    } else {
-      return res.status(400).json({
-        error: "Slug de contrat invalide",
       });
     }
 
@@ -384,7 +416,6 @@ if (existingDraftResult.rows.length > 0) {
     );
 
     const contractId = insertResult.rows[0].id;
-
     const draftPdfKey = `contracts/${worker.user_id}/${contractId}/draft.pdf`;
 
     await uploadBufferToS3({
@@ -406,7 +437,10 @@ if (existingDraftResult.rows.length > 0) {
     return res.status(200).json({
       message: "Contrat brouillon généré avec succès",
       contractId,
-      draftPdfKey,
+      pdfKey: draftPdfKey,
+      status: "draft",
+      templateVersion,
+      reused: false,
     });
   } catch (err) {
     console.error("Error generating foreign worker contract PDF:", err);
@@ -415,7 +449,6 @@ if (existingDraftResult.rows.length > 0) {
     });
   }
 });
-
 
 router.get("/foreign-worker-contract/:id/url", async (req, res) => {
   try {
