@@ -7,7 +7,7 @@ const router = Router();
 
 
 
-router.get("/users/with-worksheet", requireAppRole("time", ["admin", "user", "guest"]), async (req, res) => {
+router.get("/users/with-worksheet", requireAppRole("time", ["admin", "user", "guest", "dev"]), async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
