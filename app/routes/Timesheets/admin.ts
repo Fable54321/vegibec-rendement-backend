@@ -50,7 +50,7 @@ router.get("/users/with-worksheet", requireAppRole("time", ["admin", "user", "gu
 });
 
 
-router.get("/blocks/by-user", requireAppRole("time", ["admin"]) ,async (req, res) => {
+router.get("/blocks/by-user", requireAppRole("time", ["admin", "dev"]) ,async (req, res) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: "Non autorisé" });
