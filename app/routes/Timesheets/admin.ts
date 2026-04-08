@@ -139,4 +139,72 @@ router.get("/blocks/by-user", requireAppRole("time", ["admin", "dev"]) ,async (r
   }
 });
 
+
+router.get("/blocks/:blockId/users/userId/edits", requireAppRole("time", ["admin", "dev"]) , async (req, res) => {
+  try {
+
+    
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+  
+
+    const blockId = Number(req.params.blockId);
+    const userId = Number(req.params.userId);
+
+    if (!Number.isInteger(blockId) || blockId <= 0) {
+      return res.status(400).json({ error: "ID de bloc invalide" });
+    }
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "ID utilisateur invalide" });
+    }
+
+    const ownershipResult = await pool.query(
+      `
+      SELECT id
+      FROM timesheets.work_sessions
+      WHERE id = $1
+        AND user_id = $2
+      `,
+      [blockId, userId],
+    );
+
+    if (ownershipResult.rows.length === 0) {
+      return res.status(404).json({ error: "Bloc introuvable pour cet utilisateur" });
+    }
+
+    const editsResult = await pool.query(
+      `
+      SELECT
+        id,
+        work_session_id,
+        previous_start_time,
+        previous_end_time,
+        new_start_time,
+        new_end_time,
+        previous_duration_minutes,
+        new_duration_minutes,
+        reason,
+        edited_by_user_id,
+        created_at
+      FROM timesheets.work_session_edits
+      WHERE work_session_id = $1
+      ORDER BY created_at DESC
+      `,
+      [blockId],
+    );
+
+    res.json({
+      blockId,
+      userId,
+      edits: editsResult.rows,
+    });
+  } catch (err) {
+    console.error("Error fetching admin block edits:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
 export default router;
