@@ -50,94 +50,138 @@ router.get("/users/with-worksheet", requireAppRole("time", ["admin", "user", "gu
 });
 
 
-router.get("/blocks/by-user", requireAppRole("time", ["admin", "dev"]) ,async (req, res) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ error: "Non autorisé" });
-    }
+router.get(
+  "/blocks/by-user",
+  requireAppRole("time", ["admin", "dev"]),
+  async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Non autorisé" });
+      }
 
-   
+      const userId = Number(req.query.user_id);
+      const date = typeof req.query.date === "string" ? req.query.date : null;
 
-    const userId = Number(req.query.user_id);
-    const date = typeof req.query.date === "string" ? req.query.date : null;
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ error: "user_id invalide" });
+      }
 
-    if (!userId) {
-      return res.status(400).json({ error: "user_id requis" });
-    }
+      if (!date) {
+        return res.status(400).json({ error: "La date est requise" });
+      }
 
-    if (!date) {
-      return res.status(400).json({ error: "La date est requise" });
-    }
+      const sessionsResult = await pool.query(
+        `
+        SELECT
+          ws.id,
+          ws.user_id,
+          ws.start_time,
+          ws.end_time,
+          ws.created_at,
+          ws.updated_at,
+          ws.is_modified,
+          ws.modified_at,
+          ROUND(EXTRACT(EPOCH FROM (ws.end_time - ws.start_time)) / 60) AS total_minutes
+        FROM timesheets.work_sessions ws
+        WHERE ws.user_id = $1
+          AND ws.end_time IS NOT NULL
+          AND (ws.start_time AT TIME ZONE 'America/Toronto')::date = $2::date
+        ORDER BY ws.start_time DESC
+        `,
+        [userId, date],
+      );
 
-    const sessionsResult = await pool.query(
-      `
-      SELECT
-        ws.id,
-        ws.user_id,
-        ws.start_time,
-        ws.end_time,
-        ws.created_at,
-        ws.updated_at,
-        ws.is_modified,
-        ws.modified_at,
-        ROUND(EXTRACT(EPOCH FROM (ws.end_time - ws.start_time)) / 60) AS total_minutes
-      FROM timesheets.work_sessions ws
-      WHERE ws.user_id = $1
-        AND ws.end_time IS NOT NULL
-        AND (ws.start_time AT TIME ZONE 'America/Toronto')::date = $2::date
-      ORDER BY ws.start_time DESC
-      `,
-      [userId, date],
-    );
+      const sessions = sessionsResult.rows;
 
-    const sessions = sessionsResult.rows;
+      if (sessions.length === 0) {
+        return res.json({
+          date,
+          has_unapproved_edits: false,
+          unapproved_blocks_count: 0,
+          blocks: [],
+        });
+      }
 
-    if (sessions.length === 0) {
-      return res.json({
-        date,
-        blocks: [],
+      const sessionIds = sessions.map((s) => Number(s.id));
+
+      const notesResult = await pool.query(
+        `
+        SELECT
+          id,
+          work_session_id,
+          note,
+          created_at
+        FROM timesheets.work_session_notes
+        WHERE work_session_id = ANY($1::int[])
+        ORDER BY created_at ASC
+        `,
+        [sessionIds],
+      );
+
+      const notesBySession = new Map<number, typeof notesResult.rows>();
+
+      for (const note of notesResult.rows) {
+        const workSessionId = Number(note.work_session_id);
+        const arr = notesBySession.get(workSessionId) || [];
+        arr.push(note);
+        notesBySession.set(workSessionId, arr);
+      }
+
+      const editsSummaryResult = await pool.query(
+        `
+        SELECT
+          work_session_id,
+          COUNT(*)::int AS edits_count,
+          COUNT(*) FILTER (WHERE is_approved = false)::int AS unapproved_edits_count
+        FROM timesheets.work_session_edits
+        WHERE work_session_id = ANY($1::int[])
+        GROUP BY work_session_id
+        `,
+        [sessionIds],
+      );
+
+      const editsSummaryBySession = new Map<
+        number,
+        { edits_count: number; unapproved_edits_count: number }
+      >();
+
+      for (const row of editsSummaryResult.rows) {
+        editsSummaryBySession.set(Number(row.work_session_id), {
+          edits_count: Number(row.edits_count),
+          unapproved_edits_count: Number(row.unapproved_edits_count),
+        });
+      }
+
+      const blocks = sessions.map((session) => {
+        const summary = editsSummaryBySession.get(Number(session.id));
+
+        const unapprovedEditsCount = summary?.unapproved_edits_count ?? 0;
+
+        return {
+          ...session,
+          notes: notesBySession.get(Number(session.id)) || [],
+          edits_count: summary?.edits_count ?? 0,
+          unapproved_edits_count: unapprovedEditsCount,
+          has_unapproved_edits: unapprovedEditsCount > 0,
+        };
       });
+
+      const unapprovedBlocksCount = blocks.filter(
+        (block) => block.has_unapproved_edits,
+      ).length;
+
+      res.json({
+        date,
+        has_unapproved_edits: unapprovedBlocksCount > 0,
+        unapproved_blocks_count: unapprovedBlocksCount,
+        blocks,
+      });
+    } catch (err) {
+      console.error("Error fetching work blocks by user:", err);
+      res.status(500).json({ error: "Erreur serveur" });
     }
-
-    const sessionIds = sessions.map((s) => Number(s.id));
-
-    const notesResult = await pool.query(
-      `
-      SELECT
-        id,
-        work_session_id,
-        note,
-        created_at
-      FROM timesheets.work_session_notes
-      WHERE work_session_id = ANY($1::int[])
-      ORDER BY created_at ASC
-      `,
-      [sessionIds],
-    );
-
-    const notesBySession = new Map<number, typeof notesResult.rows>();
-
-    for (const note of notesResult.rows) {
-      const workSessionId = Number(note.work_session_id);
-      const arr = notesBySession.get(workSessionId) || [];
-      arr.push(note);
-      notesBySession.set(workSessionId, arr);
-    }
-
-    const blocks = sessions.map((session) => ({
-      ...session,
-      notes: notesBySession.get(Number(session.id)) || [],
-    }));
-
-    res.json({
-      date,
-      blocks,
-    });
-  } catch (err) {
-    console.error("Error fetching work blocks by user:", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
-});
+  },
+);
 
 
 router.get("/blocks/:blockId/users/:userId/edits", requireAppRole("time", ["admin", "dev"]) , async (req, res) => {
