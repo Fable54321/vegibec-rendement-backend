@@ -824,7 +824,7 @@ export const getSignaturePlacement = (
     return {
       signaturePageIndex: 4, // fifth page
       signatureX: 322,
-      signatureY: 200,
+      signatureY: 220,
       signatureWidth: 220,
       signatureHeight: 50,
       dateX: 420,
