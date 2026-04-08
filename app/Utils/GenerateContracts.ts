@@ -448,7 +448,7 @@ export const generatePTETContract = async ({
   });
 
   fifthPage.drawText(`${worker.name ?? ""}`, {
-    x: 347,
+    x: 357,
     y: 294,
     size: 12,
     font: boldFont,
@@ -813,7 +813,7 @@ export const getSignaturePlacement = (
       signaturePageIndex: 3, 
       signatureX: 319,
       signatureY: 180,
-      signatureWidth: 280,
+      signatureWidth: 220,
       signatureHeight: 50,
       dateX: 470,
       dateY: 162,
@@ -823,12 +823,12 @@ export const getSignaturePlacement = (
   if (contractSlug === "PTET") {
     return {
       signaturePageIndex: 4, // fifth page
-      signatureX: 319,
-      signatureY: 180,
-      signatureWidth: 120,
+      signatureX: 322,
+      signatureY: 200,
+      signatureWidth: 220,
       signatureHeight: 50,
-      dateX: 470,
-      dateY: 262,
+      dateX: 420,
+      dateY: 210,
     };
   }
 
