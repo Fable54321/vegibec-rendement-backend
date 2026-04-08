@@ -811,8 +811,8 @@ export const getSignaturePlacement = (
   if (contractSlug === "PTAS") {
     return {
       signaturePageIndex: 3, 
-      signatureX: 319,
-      signatureY: 180,
+      signatureX: 329,
+      signatureY: 190,
       signatureWidth: 220,
       signatureHeight: 50,
       dateX: 470,
@@ -826,7 +826,7 @@ export const getSignaturePlacement = (
       signatureX: 322,
       signatureY: 200,
       signatureWidth: 220,
-      signatureHeight: 90,
+      signatureHeight: 50,
       dateX: 420,
       dateY: 210,
     };
