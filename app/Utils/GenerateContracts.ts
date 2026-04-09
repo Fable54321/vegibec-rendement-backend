@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { drawCoordinateGrid } from "./drawField";
 
 type Worker = {
   user_id: number;
@@ -47,7 +48,7 @@ type Worker = {
   holiday_duration: number | null;
 };
 
-type ContractSlug = "PTAS" | "PTET" | "0Au" | "0Av" | "0Lo" | "Aut-ded" | "Aut-ret" | "Pol-bris";
+type ContractSlug = "PTAS" | "PTET" | "0Au" | "0Av" | "0Lo" | "Aut-ded" | "Aut-ret" | "Pol-bris" | "Pol-harc" | "Pol-prot" | "Pol-vio";
 
 type SignaturePlacement = {
   signaturePageIndex: number;
@@ -223,6 +224,15 @@ export const generatePTETContract = async ({
   const thirdPage = pages[2];
   const fourthPage = pages[3];
   const fifthPage = pages[4];
+
+  
+
+  const employerCoordinates = {
+    x: 48,
+    y: 218,
+  };
+  
+  
 
   firstPage.drawText(`${worker.surname ?? ""}`, {
     x: 247,
@@ -598,6 +608,15 @@ export const generatePTASContract = async ({
   const secondPage = pages[1];
   const thirdPage = pages[2];
   const fourthPage = pages[3];
+
+  
+  const EmployerSignatureCoordinates = {
+    x: 30,
+    y: 187,
+  };
+
+ 
+  
 
   firstPage.drawText(`${worker.surname ?? ""}`, {
     x: 222,
@@ -997,7 +1016,7 @@ export const getSignaturePlacement = (
 
   if (contractSlug === "Aut-ret") {
     return {
-      signaturePageIndex: 1,
+      signaturePageIndex: 0,
       signatureX: 270,
       signatureY: 147,
       signatureWidth: 220,
@@ -1022,22 +1041,40 @@ export const getSignaturePlacement = (
   if (contractSlug === "Pol-harc"){
     return {
       signaturePageIndex: 0,
-      signatureX: 420,
-      signatureY: 485,
+      signatureX: 131,
+      signatureY: 53,
       signatureWidth: 180,
       signatureHeight: 20,
-      dateX: 122,
-      dateY: 485,
+      dateX: 372,
+      dateY: 53,
+    }
+  }
+
+  if (contractSlug === "Pol-prot"){
+    return {
+      signaturePageIndex: 1,
+      signatureX: 92,
+      signatureY: 181,
+      signatureWidth: 180,
+      signatureHeight: 20,
+      dateX: 440,
+      dateY: 181,
+    }
+  }
+
+  if(contractSlug === "Pol-vio"){
+    return {
+      signaturePageIndex: 1,
+      signatureX: 125,
+      signatureY: 428.5,
+      signatureWidth: 180,
+      signatureHeight: 20,
+      dateX: 370,
+      dateY: 428.5,
     }
   }
 
 
-  
-
-
-
-
-  
  
 
 

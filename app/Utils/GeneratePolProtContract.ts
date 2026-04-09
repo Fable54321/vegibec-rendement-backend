@@ -2,7 +2,7 @@
 import path from "path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import fs from "fs/promises";
-import { drawCoordinateGrid } from "./drawField";
+import { drawField, drawCoordinateGrid } from "./drawField";
 
 
 type Employer = {
@@ -63,7 +63,7 @@ type Worker = {
 };
 
 
-type GenerateAutretContractParams = {
+type GeneratepolProtContractParams = {
   worker: Worker;
   employer: Employer;
   getJobDescription: (jobTitle: string) => string | undefined;
@@ -71,11 +71,11 @@ type GenerateAutretContractParams = {
 
 
 
-export const generateAutretContract = async ({
+export const generatepolProtContract = async ({
   worker,
   employer,
   getJobDescription,
-} : GenerateAutretContractParams): Promise<Buffer> => {
+} : GeneratepolProtContractParams): Promise<Buffer> => {
 
 
 
@@ -84,7 +84,7 @@ export const generateAutretContract = async ({
     process.cwd(),
     "public",
     "templates",
-    "Aut-ret.pdf",
+    "Pol-prot.pdf",
   );
 
    const existingPdfBytes = await fs.readFile(templatePath);
@@ -97,55 +97,41 @@ export const generateAutretContract = async ({
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
   const pages = pdfDoc.getPages();
-  const firstPage = pages[0];
+  const secondPage = pages[1];
 
  
-  const employerCoordinates = {
-    x: 273,
-    y: 113,
-  };
 
-   
 
- firstPage.drawText(`${worker.matricula ?? ""}`, {
-    x: 255,
-    y: 596,
+  secondPage.drawText(`${worker.matricula ?? ""}`, {
+    x: 508,
+    y: 220,
     size: 11,
     font: boldFont,
   });
 
-  firstPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
-    x: 220,
-    y: 573,
+  secondPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
+    x: 131,
+    y: 220,
     size: 11,
     font: boldFont,
   });
 
+//   secondPage.drawText("SIGNATURE TEST", {
+//     x: 92,
+//     y: 181,
+//     size: 20,
+//     font: boldFont,
+//   });
 
-
-
-
-
-
-  
-   
-
- 
-
-
-
-
-
-
- 
-
-
-
-
+//   secondPage.drawText("2026-08-06", {
+//     x: 440,
+//     y: 181,
+//     size: 11,
+//     font: boldFont,
+//   });
+//  drawCoordinateGrid(secondPage);
 
  
-
-
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);

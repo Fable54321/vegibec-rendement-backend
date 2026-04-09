@@ -8,6 +8,9 @@ import { generate0LoContract } from "../../Utils/Generate0LoContract";
 import { generateAutdedContract } from "../../Utils/GenerateAutDed";
 import { generateAutretContract } from "../../Utils/generateAutretContract";
 import { generatePolBrisContract } from "../../Utils/GeneratePolBriscontract"
+import { generatePolHarcContract } from "../../Utils/GeneratePolHarcContract"
+import { generatepolProtContract } from "../../Utils/GeneratePolProtContract"
+import { generatepolVioContract } from "../../Utils/GeneratePolVio";
 
 
 const router = Router();
@@ -251,7 +254,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       return res.status(400).json({ error: "Le PIN est requis" });
     }
 
-    if (!contractSlug || !["PTAS", "PTET", "0Au", "0Av", "0Lo", "Aut-ded", "Aut-ret", "Pol-bris"].includes(contractSlug)) {
+    if (!contractSlug || !["PTAS", "PTET", "0Au", "0Av", "0Lo", "Aut-ded", "Aut-ret", "Pol-bris", "Pol-harc", "Pol-prot", "Pol-vio"].includes(contractSlug)) {
 
       
 
@@ -360,32 +363,34 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       });
     }
 
+    
+
     // 2) If no signed contract exists, check for an existing draft
-    // const existingDraftResult = await pool.query(
-    //   `
-    //   SELECT id, draft_pdf_key, final_pdf_key, status, template_version
-    //   FROM worker_contracts
-    //   WHERE user_id = $1
-    //     AND contract_slug = $2
-    //     AND status = 'draft'
-    //   ORDER BY updated_at DESC, id DESC
-    //   LIMIT 1
-    //   `,
-    //   [worker.user_id, contractSlug]
-    // );
+    const existingDraftResult = await pool.query(
+      `
+      SELECT id, draft_pdf_key, final_pdf_key, status, template_version
+      FROM worker_contracts
+      WHERE user_id = $1
+        AND contract_slug = $2
+        AND status = 'draft'
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1
+      `,
+      [worker.user_id, contractSlug]
+    );
 
-    // if (existingDraftResult.rows.length > 0) {
-    //   const existingDraft = existingDraftResult.rows[0];
+    if (existingDraftResult.rows.length > 0) {
+      const existingDraft = existingDraftResult.rows[0];
 
-    //   return res.status(200).json({
-    //     message: "Contrat brouillon déjà existant",
-    //     contractId: existingDraft.id,
-    //     pdfKey: existingDraft.draft_pdf_key,
-    //     status: existingDraft.status,
-    //     templateVersion: existingDraft.template_version,
-    //     reused: true,
-    //   });
-    // }
+      return res.status(200).json({
+        message: "Contrat brouillon déjà existant",
+        contractId: existingDraft.id,
+        pdfKey: existingDraft.draft_pdf_key,
+        status: existingDraft.status,
+        templateVersion: existingDraft.template_version,
+        reused: true,
+      });
+    }
 
     // 3) Otherwise generate a new draft
     let pdfBuffer: Buffer;
@@ -450,6 +455,33 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
     else if (contractSlug === "Pol-bris") {
       templateVersion = "2026-pol-bris-v1";
       pdfBuffer = await generatePolBrisContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+
+    else if (contractSlug === "Pol-harc") {
+      templateVersion = "2026-pol-harc-v1";
+      pdfBuffer = await generatePolHarcContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+
+    else if (contractSlug === "Pol-prot") {
+      templateVersion = "2026-pol-prot-v1";
+      pdfBuffer = await generatepolProtContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+
+    else if (contractSlug === "Pol-vio") {
+      templateVersion = "2026-pol-vio-v1";
+      pdfBuffer = await generatepolVioContract({
         worker,
         employer,
         getJobDescription,

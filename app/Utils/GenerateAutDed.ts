@@ -2,6 +2,7 @@
 import path from "path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import fs from "fs/promises";
+import { drawCoordinateGrid } from "./drawField";
 
 
 type Employer = {
@@ -99,6 +100,11 @@ export const generateAutdedContract = async ({
   const firstPage = pages[0];
 
  
+
+const employerCoordinates = {
+  x:279, 
+  y:121
+}
 
 
 

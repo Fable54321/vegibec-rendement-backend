@@ -2,7 +2,7 @@
 import path from "path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import fs from "fs/promises";
-import { drawCoordinateGrid } from "./drawField";
+import { drawField, drawCoordinateGrid } from "./drawField";
 
 
 type Employer = {
@@ -63,7 +63,7 @@ type Worker = {
 };
 
 
-type GenerateAutretContractParams = {
+type GeneratepolVioContractParams = {
   worker: Worker;
   employer: Employer;
   getJobDescription: (jobTitle: string) => string | undefined;
@@ -71,20 +71,21 @@ type GenerateAutretContractParams = {
 
 
 
-export const generateAutretContract = async ({
+export const generatepolVioContract = async ({
   worker,
   employer,
   getJobDescription,
-} : GenerateAutretContractParams): Promise<Buffer> => {
+} : GeneratepolVioContractParams): Promise<Buffer> => {
 
 
 
+    
 
   const templatePath = path.join(
     process.cwd(),
     "public",
     "templates",
-    "Aut-ret.pdf",
+    "Pol-vio.pdf",
   );
 
    const existingPdfBytes = await fs.readFile(templatePath);
@@ -98,54 +99,29 @@ export const generateAutretContract = async ({
 
   const pages = pdfDoc.getPages();
   const firstPage = pages[0];
+  const secondPage = pages[1];
 
  
-  const employerCoordinates = {
-    x: 273,
-    y: 113,
-  };
 
-   
 
- firstPage.drawText(`${worker.matricula ?? ""}`, {
-    x: 255,
-    y: 596,
+  firstPage.drawText(`${worker.matricula ?? ""}`, {
+    x: 493,
+    y: 694,
     size: 11,
     font: boldFont,
   });
 
   firstPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
-    x: 220,
-    y: 573,
+    x: 114,
+    y: 694,
     size: 11,
     font: boldFont,
   });
 
-
-
-
-
-
-
-  
-   
+ 
+//  drawCoordinateGrid(secondPage);
 
  
-
-
-
-
-
-
- 
-
-
-
-
-
- 
-
-
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);

@@ -2,6 +2,7 @@
 import path from "path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import fs from "fs/promises";
+import { drawField, drawCoordinateGrid } from "./drawField";
 
 
 type Employer = {
@@ -96,39 +97,39 @@ export const generatePolHarcContract = async ({
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
   const pages = pdfDoc.getPages();
-  const secondPage = pages[1];
+  const firstPage = pages[0];
 
  
 
 
-  secondPage.drawText(`${worker.matricula ?? ""}`, {
+  firstPage.drawText(`${worker.matricula ?? ""}`, {
     x: 495,
-    y: 530,
+    y: 697,
     size: 11,
     font: boldFont,
   });
 
-  secondPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
-    x: 115,
-    y: 530,
+  firstPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
+    x: 112,
+    y: 697,
     size: 11,
     font: boldFont,
   });
 
-// secondPage.drawText("SIGNATURE TEST", {
-//     x: 420,
-//     y: 485,
+// firstPage.drawText("SIGNATURE TEST", {
+//     x: 131,
+//     y: 53,
 //     size: 20,
 //     font: boldFont,
 //   });
 
-//   secondPage.drawText("2026-08-06", {
-//     x: 122,
-//     y: 485,
+//   firstPage.drawText("2026-08-06", {
+//     x: 372,
+//     y: 53,
 //     size: 11,
 //     font: boldFont,
 //   });
-
+//  drawCoordinateGrid(firstPage);
 
  
 
