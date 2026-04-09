@@ -3,7 +3,7 @@ import { pool } from "../../db";
 import { uploadBufferToS3, getSignedUrlForKey, getBufferFromS3 } from "../../services/s3.services"
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
-import { generatePTASContract, generatePTETContract, getSignaturePlacement, applySignatureToContract } from "../../Utils/GenerateContracts";
+import { generatePTASContract, generatePTETContract, applySignatureToContract, generate0AuContract } from "../../Utils/GenerateContracts";
 
 
 
@@ -242,7 +242,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       return res.status(400).json({ error: "Le PIN est requis" });
     }
 
-    if (!contractSlug || !["PTAS", "PTET"].includes(contractSlug)) {
+    if (!contractSlug || !["PTAS", "PTET", "0Au"].includes(contractSlug)) {
       return res.status(400).json({ error: "Slug de contrat invalide" });
     }
 
@@ -383,7 +383,16 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         employer,
         getJobDescription,
       });
-    } else {
+
+    } else if (contractSlug === "0Au") {
+      templateVersion = "2026-0Au-v1";
+      pdfBuffer = await generate0AuContract({
+        worker,
+        employer,
+        getJobDescription,
+      }); }
+    
+    else {
       templateVersion = "2026-ptet-v1";
       pdfBuffer = await generatePTETContract({
         worker,

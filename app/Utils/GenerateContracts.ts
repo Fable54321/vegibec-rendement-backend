@@ -47,7 +47,7 @@ type Worker = {
   holiday_duration: number | null;
 };
 
-type ContractSlug = "PTAS" | "PTET";
+type ContractSlug = "PTAS" | "PTET" | "0Au";
 
 type SignaturePlacement = {
   signaturePageIndex: number;
@@ -83,6 +83,62 @@ type GeneratePTETContractParams = {
   employer: Employer;
   getJobDescription: (jobTitle: string) => string | undefined;
 };
+
+
+type Generate0AuContractParams = {
+  worker: Worker;
+  employer: Employer;
+  getJobDescription: (jobTitle: string) => string | undefined;
+};
+
+
+export const generate0AuContract = async ({
+  worker,
+  employer,
+  getJobDescription,
+} : Generate0AuContractParams): Promise<Buffer> => {
+  const templatePath = path.join(
+    process.cwd(),
+    "public",
+    "templates",
+    "0Au.pdf",
+  );
+
+   const existingPdfBytes = await fs.readFile(templatePath);
+
+  const pdfDoc = await PDFDocument.load(existingPdfBytes, {
+    ignoreEncryption: true,
+  });
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  const firstPage = pages[0];
+  const secondPage = pages[1];
+  const thirdPage = pages[2];
+  const fourthPage = pages[3];
+  const fifthPage = pages[4];
+
+  firstPage.drawText(`${worker.surname ?? ""}`, {
+    x: 247,
+    y: 397,
+    size: 12,
+    font: boldFont,
+  });
+
+  firstPage.drawText(`${worker.name ?? ""}`, {
+    x: 247,
+    y: 385,
+    size: 12,
+    font: boldFont,
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+
+}
+  
 
 export const generatePTETContract = async ({
   worker,
