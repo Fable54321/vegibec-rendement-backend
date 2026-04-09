@@ -3,8 +3,11 @@ import { pool } from "../../db";
 import { uploadBufferToS3, getSignedUrlForKey, getBufferFromS3 } from "../../services/s3.services"
 
 import { employer, getJobDescription } from "../../Utils/DocumentInfo";
-import { generatePTASContract, generatePTETContract, applySignatureToContract, generate0AuContract } from "../../Utils/GenerateContracts";
-
+import { generatePTASContract, generatePTETContract, applySignatureToContract, generate0AuContract, generate0AvContract } from "../../Utils/GenerateContracts";
+import { generate0LoContract } from "../../Utils/Generate0LoContract";
+import { generateAutdedContract } from "../../Utils/GenerateAutDed";
+import { generateAutretContract } from "../../Utils/generateAutretContract";
+import { generatePolBrisContract } from "../../Utils/GeneratePolBriscontract"
 
 
 const router = Router();
@@ -212,7 +215,8 @@ router.get("/foreign-worker-info/current", async (req, res) => {
         fwi.more_info_ptet,
         fwi.is_connected,
         fwi.pin,
-        fwi.holiday_duration
+        fwi.holiday_duration,
+        fwi.matricula
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
@@ -238,13 +242,23 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
   try {
     const { pin, contractSlug } = req.body;
 
+    
+
     if (pin === undefined || pin === null || pin === "") {
+
+
+
       return res.status(400).json({ error: "Le PIN est requis" });
     }
 
-    if (!contractSlug || !["PTAS", "PTET", "0Au"].includes(contractSlug)) {
+    if (!contractSlug || !["PTAS", "PTET", "0Au", "0Av", "0Lo", "Aut-ded", "Aut-ret", "Pol-bris"].includes(contractSlug)) {
+
+      
+
       return res.status(400).json({ error: "Slug de contrat invalide" });
     }
+
+    
 
     const normalizedPin = Number(pin);
 
@@ -300,7 +314,8 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         fwi.high_wage,
         fwi.more_info_ptet,
         fwi.pin,
-        fwi.holiday_duration
+        fwi.holiday_duration,
+        fwi.matricula
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
@@ -346,35 +361,37 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
     }
 
     // 2) If no signed contract exists, check for an existing draft
-    const existingDraftResult = await pool.query(
-      `
-      SELECT id, draft_pdf_key, final_pdf_key, status, template_version
-      FROM worker_contracts
-      WHERE user_id = $1
-        AND contract_slug = $2
-        AND status = 'draft'
-      ORDER BY updated_at DESC, id DESC
-      LIMIT 1
-      `,
-      [worker.user_id, contractSlug]
-    );
+    // const existingDraftResult = await pool.query(
+    //   `
+    //   SELECT id, draft_pdf_key, final_pdf_key, status, template_version
+    //   FROM worker_contracts
+    //   WHERE user_id = $1
+    //     AND contract_slug = $2
+    //     AND status = 'draft'
+    //   ORDER BY updated_at DESC, id DESC
+    //   LIMIT 1
+    //   `,
+    //   [worker.user_id, contractSlug]
+    // );
 
-    if (existingDraftResult.rows.length > 0) {
-      const existingDraft = existingDraftResult.rows[0];
+    // if (existingDraftResult.rows.length > 0) {
+    //   const existingDraft = existingDraftResult.rows[0];
 
-      return res.status(200).json({
-        message: "Contrat brouillon déjà existant",
-        contractId: existingDraft.id,
-        pdfKey: existingDraft.draft_pdf_key,
-        status: existingDraft.status,
-        templateVersion: existingDraft.template_version,
-        reused: true,
-      });
-    }
+    //   return res.status(200).json({
+    //     message: "Contrat brouillon déjà existant",
+    //     contractId: existingDraft.id,
+    //     pdfKey: existingDraft.draft_pdf_key,
+    //     status: existingDraft.status,
+    //     templateVersion: existingDraft.template_version,
+    //     reused: true,
+    //   });
+    // }
 
     // 3) Otherwise generate a new draft
     let pdfBuffer: Buffer;
     let templateVersion: string;
+
+    
 
     if (contractSlug === "PTAS") {
       templateVersion = "2026-ptas-v1";
@@ -391,6 +408,53 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         employer,
         getJobDescription,
       }); }
+
+    else if (contractSlug === "0Av") {
+      templateVersion = "2026-0Av-v1";
+      pdfBuffer = await generate0AvContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+
+    else if (contractSlug === "0Lo") {
+      templateVersion = "2026-0Lo-v1";
+      pdfBuffer = await generate0LoContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+
+    else if (contractSlug === "Aut-ded") {
+      
+
+      templateVersion = "2026-autded-v1";
+      pdfBuffer = await generateAutdedContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+
+    else if (contractSlug === "Aut-ret"){
+      templateVersion = "2026-autret-v1";
+      pdfBuffer = await generateAutretContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
+
+    else if (contractSlug === "Pol-bris") {
+      templateVersion = "2026-pol-bris-v1";
+      pdfBuffer = await generatePolBrisContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
     
     else {
       templateVersion = "2026-ptet-v1";

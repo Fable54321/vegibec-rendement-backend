@@ -75,21 +75,9 @@ app.use(
 
 
 
-const testUpload = async () => {
-  const buffer = Buffer.from("hello from backend", "utf-8");
 
-  const key = "test/hello.txt";
 
-  await uploadBufferToS3({
-    key,
-    buffer,
-    contentType: "text/plain",
-  });
 
-  console.log("Upload success");
-};
-
-testUpload().catch(console.error);
 
 app.get("/", async (req, res) => {
   const result = await pool.query("SELECT NOW()");

@@ -47,7 +47,7 @@ type Worker = {
   holiday_duration: number | null;
 };
 
-type ContractSlug = "PTAS" | "PTET" | "0Au";
+type ContractSlug = "PTAS" | "PTET" | "0Au" | "0Av" | "0Lo" | "Aut-ded" | "Aut-ret" | "Pol-bris";
 
 type SignaturePlacement = {
   signaturePageIndex: number;
@@ -115,24 +115,80 @@ export const generate0AuContract = async ({
 
   const pages = pdfDoc.getPages();
   const firstPage = pages[0];
-  const secondPage = pages[1];
-  const thirdPage = pages[2];
-  const fourthPage = pages[3];
-  const fifthPage = pages[4];
+ 
+
+
+
 
   firstPage.drawText(`${worker.surname ?? ""}`, {
-    x: 247,
-    y: 397,
-    size: 12,
+    x: 133,
+    y: 608,
+    size: 11,
     font: boldFont,
   });
 
-  firstPage.drawText(`${worker.name ?? ""}`, {
-    x: 247,
-    y: 385,
-    size: 12,
+    firstPage.drawText(`${worker.name ?? ""}`, {
+    x: 158,
+    y: 570,
+    size: 11,
     font: boldFont,
   });
+
+
+
+ 
+
+
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+
+}
+
+export const generate0AvContract = async ({
+  worker,
+  employer,
+  getJobDescription,
+} : Generate0AuContractParams): Promise<Buffer> => {
+  const templatePath = path.join(
+    process.cwd(),
+    "public",
+    "templates",
+    "0Av.pdf",
+  );
+
+   const existingPdfBytes = await fs.readFile(templatePath);
+
+  const pdfDoc = await PDFDocument.load(existingPdfBytes, {
+    ignoreEncryption: true,
+  });
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const pages = pdfDoc.getPages();
+  const firstPage = pages[0];
+ 
+
+
+  firstPage.drawText(`${worker.surname ?? ""}`, {
+    x: 188,
+    y: 151,
+    size: 10,
+    font: boldFont,
+  });
+
+    firstPage.drawText(`${worker.name ?? ""}`, {
+    x: 243,
+    y: 151,
+    size: 10,
+    font: boldFont,
+  });
+
+
+
+
+
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
@@ -888,6 +944,113 @@ export const getSignaturePlacement = (
     };
   }
 
+  if (contractSlug === "0Au") {
+    return {
+      signaturePageIndex: 0,
+      signatureX: 60,
+      signatureY: 65,
+      signatureWidth: 220,
+      signatureHeight: 30,
+      dateX: 111,
+      dateY: 115,
+    };
+  }
+
+  if (contractSlug === "0Av") {
+    return {
+      signaturePageIndex: 0,
+      signatureX: 120,
+      signatureY: 95,
+      signatureWidth: 220,
+      signatureHeight: 30,
+      dateX: 236,
+      dateY: 208,
+
+    };
+  }
+
+  if (contractSlug === "0Lo") {
+    return {
+      signaturePageIndex: 1,
+      signatureX: 90,
+      signatureY: 92,
+      signatureWidth: 220,
+      signatureHeight: 30,
+      dateX: 421,
+      dateY: 91,
+    };
+  }
+
+
+  if (contractSlug === "Aut-ded") {
+    return {
+      signaturePageIndex: 0,
+      signatureX: 270,
+      signatureY: 154,
+      signatureWidth: 220,
+      signatureHeight: 26,
+      dateX: 328,
+      dateY: 188,
+    };
+  }
+
+
+  if (contractSlug === "Aut-ret") {
+    return {
+      signaturePageIndex: 1,
+      signatureX: 270,
+      signatureY: 147,
+      signatureWidth: 220,
+      signatureHeight: 26,
+      dateX: 288,
+      dateY: 180,
+    }
+  }
+
+  if (contractSlug === "Pol-bris"){
+    return {
+      signaturePageIndex: 1,
+      signatureX: 420,
+      signatureY: 485,
+      signatureWidth: 180,
+      signatureHeight: 20,
+      dateX: 122,
+      dateY: 485,
+    }
+  }
+
+  if (contractSlug === "Pol-harc"){
+    return {
+      signaturePageIndex: 0,
+      signatureX: 420,
+      signatureY: 485,
+      signatureWidth: 180,
+      signatureHeight: 20,
+      dateX: 122,
+      dateY: 485,
+    }
+  }
+
+
+  
+
+
+
+
+  
+ 
+
+
+ 
+  
+  
+
+
+  
+    
+
+
+
   throw new Error("Type de contrat invalide");
 };
 
@@ -926,6 +1089,8 @@ export const applySignatureToContract = async ({
   });
 
   const formattedDate = (signedAt ?? new Date()).toLocaleDateString("fr-CA");
+
+
 
   page.drawText(formattedDate, {
     x: placement.dateX,
