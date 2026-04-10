@@ -219,7 +219,8 @@ router.get("/foreign-worker-info/current", async (req, res) => {
         fwi.is_connected,
         fwi.pin,
         fwi.holiday_duration,
-        fwi.matricula
+        fwi.matricula,
+        fwi.contract_type
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
@@ -318,7 +319,8 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         fwi.more_info_ptet,
         fwi.pin,
         fwi.holiday_duration,
-        fwi.matricula
+        fwi.matricula,
+        fwi.contract_type,
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
@@ -392,19 +394,32 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       });
     }
 
-    // 3) Otherwise generate a new draft
-    let pdfBuffer: Buffer;
-    let templateVersion: string;
+    
+ let pdfBuffer: Buffer | null = null;
+let templateVersion: string | null = null;
 
     
 
-    if (contractSlug === "PTAS") {
+    if (contractSlug === "PTAS" || contractSlug === "PTET") {
+
+        
+if (contractSlug === "PTAS") {
       templateVersion = "2026-ptas-v1";
       pdfBuffer = await generatePTASContract({
         worker,
         employer,
         getJobDescription,
       });
+
+
+    } else if (contractSlug === "PTET") {
+      templateVersion = "2026-ptet-v1";
+      pdfBuffer = await generatePTETContract({
+        worker,
+        employer,
+        getJobDescription,
+      });
+    }
 
     } else if (contractSlug === "0Au") {
       templateVersion = "2026-0Au-v1";
@@ -496,6 +511,10 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         getJobDescription,
       });
     }
+
+    if (!pdfBuffer || !templateVersion) {
+  throw new Error("Failed to generate contract: missing template or buffer");
+}
 
     const insertResult = await pool.query(
       `
