@@ -103,19 +103,14 @@ export const generate0LoContract = async ({
 
 
 
-  firstPage.drawText(`${worker.surname ?? ""}`, {
+  firstPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
     x: 102,
     y: 654,
     size: 11,
     font: boldFont,
   });
 
-    firstPage.drawText(`${worker.name ?? ""}`, {
-    x: 163,
-    y: 654,
-    size: 11,
-    font: boldFont,
-  });
+  
 
   firstPage.drawText(`${worker.matricula ?? ""}`, {
     x: 480,

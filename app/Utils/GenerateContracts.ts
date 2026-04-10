@@ -172,19 +172,14 @@ export const generate0AvContract = async ({
  
 
 
-  firstPage.drawText(`${worker.surname ?? ""}`, {
+  firstPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
     x: 188,
     y: 151,
     size: 10,
     font: boldFont,
   });
 
-    firstPage.drawText(`${worker.name ?? ""}`, {
-    x: 243,
-    y: 151,
-    size: 10,
-    font: boldFont,
-  });
+ 
 
 
 
@@ -234,13 +229,13 @@ export const generatePTETContract = async ({
   
   
 
-  firstPage.drawText(`${worker.surname ?? ""}`, {
-    x: 247,
-    y: 397,
-    size: 12,
-    font: boldFont,
-    color: rgb(0, 0, 0),
-  });
+firstPage.drawText(`${worker.surname}`, {
+  x: 247,
+  y: 397,
+  size: 12,
+  font: boldFont,
+  color: rgb(0, 0, 0),
+});
 
   firstPage.drawText(`${worker.name ?? ""}`, {
     x: 246,
@@ -561,7 +556,7 @@ export const generatePTETContract = async ({
     color: rgb(0, 0, 0),
   });
 
-   fifthPage.drawText(`${worker.surname ?? ""}`, {
+   fifthPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
     x: 316,
     y: 294,
     size: 12,
@@ -569,13 +564,7 @@ export const generatePTETContract = async ({
     color: rgb(0, 0, 0),
   });
 
-  fifthPage.drawText(`${worker.name ?? ""}`, {
-    x: 354,
-    y: 294,
-    size: 12,
-    font: boldFont,
-    color: rgb(0, 0, 0),
-  });
+ 
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
@@ -618,7 +607,7 @@ export const generatePTASContract = async ({
  
   
 
-  firstPage.drawText(`${worker.surname ?? ""}`, {
+  firstPage.drawText(`${worker.surname ?? ""} `, {
     x: 222,
     y: 391,
     size: 12,
