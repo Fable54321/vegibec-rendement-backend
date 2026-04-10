@@ -320,7 +320,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
         fwi.pin,
         fwi.holiday_duration,
         fwi.matricula,
-        fwi.contract_type,
+        fwi.contract_type
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
