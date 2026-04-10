@@ -403,7 +403,7 @@ let templateVersion: string | null = null;
     if (contractSlug === "PTAS" || contractSlug === "PTET") {
 
         
-if (contractSlug === "PTAS") {
+if (worker.contract_type === "PTAS") {
       templateVersion = "2026-ptas-v1";
       pdfBuffer = await generatePTASContract({
         worker,
@@ -412,7 +412,7 @@ if (contractSlug === "PTAS") {
       });
 
 
-    } else if (contractSlug === "PTET") {
+    } else if (worker.contract_type === "PTET") {
       templateVersion = "2026-ptet-v1";
       pdfBuffer = await generatePTETContract({
         worker,
