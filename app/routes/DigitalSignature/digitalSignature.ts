@@ -110,7 +110,7 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
       FROM foreign_workers_info
       WHERE pin = $1
       `,
-      [normalizedPin]
+      [pin]
     );
 
     if (parseInt(result.rows[0].count) === 0) {
@@ -126,7 +126,7 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
       SET is_connected = true
       WHERE pin = $1
       `,
-      [normalizedPin]
+      [pin]
     );
 
     return res.status(200).json({
@@ -156,7 +156,7 @@ router.post("/foreign-worker-info/disconnect", async (req, res) => {
       SET is_connected = false
       WHERE pin = $1
       `,
-      [normalizedPin]
+      [pin]
     );
 
     return res.status(200).json({
@@ -327,7 +327,7 @@ router.post("/foreign-worker-contract/by-pin", async (req, res) => {
       WHERE fwi.pin = $1
       LIMIT 1
       `,
-      [normalizedPin]
+      [pin]
     );
 
     if (workerResult.rows.length === 0) {
