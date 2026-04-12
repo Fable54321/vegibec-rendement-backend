@@ -1,16 +1,10 @@
 import { Router } from "express";
 import { pool } from "../../db";
 import { uploadBufferToS3, getSignedUrlForKey, getBufferFromS3 } from "../../services/s3.services"
-
-import { employer, getJobDescription } from "../../Utils/DocumentInfo";
-import { generatePTASContract, generatePTETContract, applySignatureToContract, generate0AuContract, generate0AvContract } from "../../Utils/GenerateContracts";
-import { generate0LoContract } from "../../Utils/Generate0LoContract";
-import { generateAutdedContract } from "../../Utils/GenerateAutDed";
-import { generateAutretContract } from "../../Utils/generateAutretContract";
-import { generatePolBrisContract } from "../../Utils/GeneratePolBriscontract"
-import { generatePolHarcContract } from "../../Utils/GeneratePolHarcContract"
-import { generatepolProtContract } from "../../Utils/GeneratePolProtContract"
-import { generatepolVioContract } from "../../Utils/GeneratePolVio";
+import { employer } from "../../Utils/DocumentInfo"
+import { applySignatureToContract } from "../../Utils/GenerateContracts";
+import { getRequiredContractSlugsForWorker, getContractTitle, getWorkerFullByPin } from "../../Utils/ContractHelpers/getRequiredContractSlugForWorker";
+import { generateContractBuffer } from "../../Utils/ContractHelpers/generateContractBuffer";
 
 
 const router = Router();
@@ -242,387 +236,387 @@ router.get("/foreign-worker-info/current", async (req, res) => {
   }
 });
 
-router.post("/foreign-worker-contract/by-pin", async (req, res) => {
-  try {
-    const { pin, contractSlug } = req.body;
+// router.post("/foreign-worker-contract/by-pin", async (req, res) => {
+//   try {
+//     const { pin, contractSlug } = req.body;
 
     
 
-    if (pin === undefined || pin === null || pin === "") {
+//     if (pin === undefined || pin === null || pin === "") {
 
 
 
-      return res.status(400).json({ error: "Le PIN est requis" });
-    }
+//       return res.status(400).json({ error: "Le PIN est requis" });
+//     }
 
-    if (!contractSlug || !["PTAS", "PTET", "0Au", "0Av", "0Lo", "Aut-ded", "Aut-ret", "Pol-bris", "Pol-harc", "Pol-prot", "Pol-vio"].includes(contractSlug)) {
+//     if (!contractSlug || !["PTAS", "PTET", "0Au", "0Av", "0Lo", "Aut-ded", "Aut-ret", "Pol-bris", "Pol-harc", "Pol-prot", "Pol-vio"].includes(contractSlug)) {
 
       
 
-      return res.status(400).json({ error: "Slug de contrat invalide" });
-    }
+//       return res.status(400).json({ error: "Slug de contrat invalide" });
+//     }
 
     
 
-    const normalizedPin = Number(pin);
+//     const normalizedPin = Number(pin);
 
-    if (
-      !Number.isInteger(normalizedPin) ||
-      normalizedPin < 0 ||
-      normalizedPin > 99999
-    ) {
-      return res.status(400).json({ error: "PIN invalide" });
-    }
+//     if (
+//       !Number.isInteger(normalizedPin) ||
+//       normalizedPin < 0 ||
+//       normalizedPin > 99999
+//     ) {
+//       return res.status(400).json({ error: "PIN invalide" });
+//     }
 
-    const workerResult = await pool.query(
-      `
-      SELECT
-        u.id AS user_id,
-        u.name,
-        u.surname,
-        u.username,
-        u.email,
-        fwi.birth_date,
-        fwi.residence_country,
-        fwi.phone_number,
-        fwi.job_title,
-        fwi.job_description,
-        fwi.hourly_wage,
-        fwi.overtime_hourly_wage,
-        fwi.daily_hours_for_overtime,
-        fwi.weekly_hours_for_overtime,
-        fwi.contingent_applicable,
-        fwi.contingent_details,
-        fwi.debut_date,
-        fwi.job_duration,
-        fwi.approximative_daily_hours,
-        fwi.approximative_weekly_hours,
-        fwi.is_full_time,
-        fwi.no_full_time_details,
-        fwi.holidays,
-        fwi.no_holidays_compensation,
-        fwi.invalid_insurance,
-        fwi.dentist_insurance,
-        fwi.pension_scheme,
-        fwi.healthcare,
-        fwi.other,
-        fwi.other_details,
-        fwi.accommodation_type,
-        fwi.on_site_accommodation,
-        fwi.off_site_accommodation_under_30,
-        fwi.off_site_accommodation_custom,
-        fwi.weekly_amount_deducted,
-        fwi.monthly_amount_deducted,
-        fwi.low_wage,
-        fwi.accommodation_provided,
-        fwi.high_wage,
-        fwi.more_info_ptet,
-        fwi.pin,
-        fwi.holiday_duration,
-        fwi.matricula,
-        fwi.contract_type
-      FROM foreign_workers_info fwi
-      INNER JOIN users u
-        ON u.id = fwi.user_id
-      WHERE fwi.pin = $1
-      LIMIT 1
-      `,
-      [pin]
-    );
+//     const workerResult = await pool.query(
+//       `
+//       SELECT
+//         u.id AS user_id,
+//         u.name,
+//         u.surname,
+//         u.username,
+//         u.email,
+//         fwi.birth_date,
+//         fwi.residence_country,
+//         fwi.phone_number,
+//         fwi.job_title,
+//         fwi.job_description,
+//         fwi.hourly_wage,
+//         fwi.overtime_hourly_wage,
+//         fwi.daily_hours_for_overtime,
+//         fwi.weekly_hours_for_overtime,
+//         fwi.contingent_applicable,
+//         fwi.contingent_details,
+//         fwi.debut_date,
+//         fwi.job_duration,
+//         fwi.approximative_daily_hours,
+//         fwi.approximative_weekly_hours,
+//         fwi.is_full_time,
+//         fwi.no_full_time_details,
+//         fwi.holidays,
+//         fwi.no_holidays_compensation,
+//         fwi.invalid_insurance,
+//         fwi.dentist_insurance,
+//         fwi.pension_scheme,
+//         fwi.healthcare,
+//         fwi.other,
+//         fwi.other_details,
+//         fwi.accommodation_type,
+//         fwi.on_site_accommodation,
+//         fwi.off_site_accommodation_under_30,
+//         fwi.off_site_accommodation_custom,
+//         fwi.weekly_amount_deducted,
+//         fwi.monthly_amount_deducted,
+//         fwi.low_wage,
+//         fwi.accommodation_provided,
+//         fwi.high_wage,
+//         fwi.more_info_ptet,
+//         fwi.pin,
+//         fwi.holiday_duration,
+//         fwi.matricula,
+//         fwi.contract_type
+//       FROM foreign_workers_info fwi
+//       INNER JOIN users u
+//         ON u.id = fwi.user_id
+//       WHERE fwi.pin = $1
+//       LIMIT 1
+//       `,
+//       [pin]
+//     );
 
-    if (workerResult.rows.length === 0) {
-      return res.status(404).json({
-        error: "Aucun travailleur trouvé avec ce PIN",
-      });
-    }
+//     if (workerResult.rows.length === 0) {
+//       return res.status(404).json({
+//         error: "Aucun travailleur trouvé avec ce PIN",
+//       });
+//     }
 
-    const worker = workerResult.rows[0];
+//     const worker = workerResult.rows[0];
 
-    // 1) Check if a signed contract already exists first
-    const existingSignedResult = await pool.query(
-      `
-      SELECT id, final_pdf_key, draft_pdf_key, status, template_version
-      FROM worker_contracts
-      WHERE user_id = $1
-        AND contract_slug = $2
-        AND status = 'signed'
-      ORDER BY updated_at DESC, id DESC
-      LIMIT 1
-      `,
-      [worker.user_id, contractSlug]
-    );
+//     // 1) Check if a signed contract already exists first
+//     const existingSignedResult = await pool.query(
+//       `
+//       SELECT id, final_pdf_key, draft_pdf_key, status, template_version
+//       FROM worker_contracts
+//       WHERE user_id = $1
+//         AND contract_slug = $2
+//         AND status = 'signed'
+//       ORDER BY updated_at DESC, id DESC
+//       LIMIT 1
+//       `,
+//       [worker.user_id, contractSlug]
+//     );
 
-    if (existingSignedResult.rows.length > 0) {
-      const existingSigned = existingSignedResult.rows[0];
+//     if (existingSignedResult.rows.length > 0) {
+//       const existingSigned = existingSignedResult.rows[0];
 
-      return res.status(200).json({
-        message: "Contrat signé existant",
-        contractId: existingSigned.id,
-        pdfKey: existingSigned.final_pdf_key,
-        status: existingSigned.status,
-        templateVersion: existingSigned.template_version,
-        reused: true,
-      });
-    }
-
-    
-
-    // 2) If no signed contract exists, check for an existing draft
-    const existingDraftResult = await pool.query(
-      `
-      SELECT id, draft_pdf_key, final_pdf_key, status, template_version
-      FROM worker_contracts
-      WHERE user_id = $1
-        AND contract_slug = $2
-        AND status = 'draft'
-      ORDER BY updated_at DESC, id DESC
-      LIMIT 1
-      `,
-      [worker.user_id, contractSlug]
-    );
-
-    if (existingDraftResult.rows.length > 0) {
-      const existingDraft = existingDraftResult.rows[0];
-
-      return res.status(200).json({
-        message: "Contrat brouillon déjà existant",
-        contractId: existingDraft.id,
-        pdfKey: existingDraft.draft_pdf_key,
-        status: existingDraft.status,
-        templateVersion: existingDraft.template_version,
-        reused: true,
-      });
-    }
-
-    
- let pdfBuffer: Buffer | null = null;
-let templateVersion: string | null = null;
+//       return res.status(200).json({
+//         message: "Contrat signé existant",
+//         contractId: existingSigned.id,
+//         pdfKey: existingSigned.final_pdf_key,
+//         status: existingSigned.status,
+//         templateVersion: existingSigned.template_version,
+//         reused: true,
+//       });
+//     }
 
     
 
-    if (contractSlug === "PTAS" || contractSlug === "PTET") {
+//     // 2) If no signed contract exists, check for an existing draft
+//     const existingDraftResult = await pool.query(
+//       `
+//       SELECT id, draft_pdf_key, final_pdf_key, status, template_version
+//       FROM worker_contracts
+//       WHERE user_id = $1
+//         AND contract_slug = $2
+//         AND status = 'draft'
+//       ORDER BY updated_at DESC, id DESC
+//       LIMIT 1
+//       `,
+//       [worker.user_id, contractSlug]
+//     );
+
+//     if (existingDraftResult.rows.length > 0) {
+//       const existingDraft = existingDraftResult.rows[0];
+
+//       return res.status(200).json({
+//         message: "Contrat brouillon déjà existant",
+//         contractId: existingDraft.id,
+//         pdfKey: existingDraft.draft_pdf_key,
+//         status: existingDraft.status,
+//         templateVersion: existingDraft.template_version,
+//         reused: true,
+//       });
+//     }
+
+    
+//  let pdfBuffer: Buffer | null = null;
+// let templateVersion: string | null = null;
+
+    
+
+//     if (contractSlug === "PTAS" || contractSlug === "PTET") {
 
         
-if (worker.contract_type === "PTAS") {
-      templateVersion = "2026-ptas-v1";
-      pdfBuffer = await generatePTASContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
+// if (worker.contract_type === "PTAS") {
+//       templateVersion = "2026-ptas-v1";
+//       pdfBuffer = await generatePTASContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
 
 
-    } else if (worker.contract_type === "PTET") {
-      templateVersion = "2026-ptet-v1";
-      pdfBuffer = await generatePTETContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     } else if (worker.contract_type === "PTET") {
+//       templateVersion = "2026-ptet-v1";
+//       pdfBuffer = await generatePTETContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    } else if (contractSlug === "0Au") {
-      templateVersion = "2026-0Au-v1";
-      pdfBuffer = await generate0AuContract({
-        worker,
-        employer,
-        getJobDescription,
-      }); }
+//     } else if (contractSlug === "0Au") {
+//       templateVersion = "2026-0Au-v1";
+//       pdfBuffer = await generate0AuContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       }); }
 
-    else if (contractSlug === "0Av") {
-      templateVersion = "2026-0Av-v1";
-      pdfBuffer = await generate0AvContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else if (contractSlug === "0Av") {
+//       templateVersion = "2026-0Av-v1";
+//       pdfBuffer = await generate0AvContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    else if (contractSlug === "0Lo") {
-      templateVersion = "2026-0Lo-v1";
-      pdfBuffer = await generate0LoContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else if (contractSlug === "0Lo") {
+//       templateVersion = "2026-0Lo-v1";
+//       pdfBuffer = await generate0LoContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    else if (contractSlug === "Aut-ded") {
+//     else if (contractSlug === "Aut-ded") {
       
 
-      templateVersion = "2026-autded-v1";
-      pdfBuffer = await generateAutdedContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//       templateVersion = "2026-autded-v1";
+//       pdfBuffer = await generateAutdedContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    else if (contractSlug === "Aut-ret"){
-      templateVersion = "2026-autret-v1";
-      pdfBuffer = await generateAutretContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else if (contractSlug === "Aut-ret"){
+//       templateVersion = "2026-autret-v1";
+//       pdfBuffer = await generateAutretContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    else if (contractSlug === "Pol-bris") {
-      templateVersion = "2026-pol-bris-v1";
-      pdfBuffer = await generatePolBrisContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else if (contractSlug === "Pol-bris") {
+//       templateVersion = "2026-pol-bris-v1";
+//       pdfBuffer = await generatePolBrisContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    else if (contractSlug === "Pol-harc") {
-      templateVersion = "2026-pol-harc-v1";
-      pdfBuffer = await generatePolHarcContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else if (contractSlug === "Pol-harc") {
+//       templateVersion = "2026-pol-harc-v1";
+//       pdfBuffer = await generatePolHarcContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    else if (contractSlug === "Pol-prot") {
-      templateVersion = "2026-pol-prot-v1";
-      pdfBuffer = await generatepolProtContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else if (contractSlug === "Pol-prot") {
+//       templateVersion = "2026-pol-prot-v1";
+//       pdfBuffer = await generatepolProtContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    else if (contractSlug === "Pol-vio") {
-      templateVersion = "2026-pol-vio-v1";
-      pdfBuffer = await generatepolVioContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else if (contractSlug === "Pol-vio") {
+//       templateVersion = "2026-pol-vio-v1";
+//       pdfBuffer = await generatepolVioContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
     
-    else {
-      templateVersion = "2026-ptet-v1";
-      pdfBuffer = await generatePTETContract({
-        worker,
-        employer,
-        getJobDescription,
-      });
-    }
+//     else {
+//       templateVersion = "2026-ptet-v1";
+//       pdfBuffer = await generatePTETContract({
+//         worker,
+//         employer,
+//         getJobDescription,
+//       });
+//     }
 
-    if (!pdfBuffer || !templateVersion) {
-  throw new Error("Failed to generate contract: missing template or buffer");
-}
+//     if (!pdfBuffer || !templateVersion) {
+//   throw new Error("Failed to generate contract: missing template or buffer");
+// }
 
-    const insertResult = await pool.query(
-      `
-      INSERT INTO worker_contracts (
-        user_id,
-        contract_slug,
-        template_version,
-        status,
-        worker_snapshot,
-        employer_snapshot,
-        accepted_terms
-      )
-      VALUES ($1, $2, $3, 'draft', $4::jsonb, $5::jsonb, false)
-      RETURNING id
-      `,
-      [
-        worker.user_id,
-        contractSlug,
-        templateVersion,
-        JSON.stringify(worker),
-        JSON.stringify(employer),
-      ]
-    );
+//     const insertResult = await pool.query(
+//       `
+//       INSERT INTO worker_contracts (
+//         user_id,
+//         contract_slug,
+//         template_version,
+//         status,
+//         worker_snapshot,
+//         employer_snapshot,
+//         accepted_terms
+//       )
+//       VALUES ($1, $2, $3, 'draft', $4::jsonb, $5::jsonb, false)
+//       RETURNING id
+//       `,
+//       [
+//         worker.user_id,
+//         contractSlug,
+//         templateVersion,
+//         JSON.stringify(worker),
+//         JSON.stringify(employer),
+//       ]
+//     );
 
-    const contractId = insertResult.rows[0].id;
-    const draftPdfKey = `contracts/${worker.user_id}/${contractId}/draft.pdf`;
+//     const contractId = insertResult.rows[0].id;
+//     const draftPdfKey = `contracts/${worker.user_id}/${contractId}/draft.pdf`;
 
-    await uploadBufferToS3({
-      key: draftPdfKey,
-      buffer: pdfBuffer,
-      contentType: "application/pdf",
-    });
+//     await uploadBufferToS3({
+//       key: draftPdfKey,
+//       buffer: pdfBuffer,
+//       contentType: "application/pdf",
+//     });
 
-    await pool.query(
-      `
-      UPDATE worker_contracts
-      SET draft_pdf_key = $1,
-          updated_at = NOW()
-      WHERE id = $2
-      `,
-      [draftPdfKey, contractId]
-    );
+//     await pool.query(
+//       `
+//       UPDATE worker_contracts
+//       SET draft_pdf_key = $1,
+//           updated_at = NOW()
+//       WHERE id = $2
+//       `,
+//       [draftPdfKey, contractId]
+//     );
 
-    return res.status(200).json({
-      message: "Contrat brouillon généré avec succès",
-      contractId,
-      pdfKey: draftPdfKey,
-      status: "draft",
-      templateVersion,
-      reused: false,
-    });
-  } catch (err) {
-    console.error("Error generating foreign worker contract PDF:", err);
-    return res.status(500).json({
-      error: "Erreur serveur lors de la génération du contrat",
-    });
-  }
-});
+//     return res.status(200).json({
+//       message: "Contrat brouillon généré avec succès",
+//       contractId,
+//       pdfKey: draftPdfKey,
+//       status: "draft",
+//       templateVersion,
+//       reused: false,
+//     });
+//   } catch (err) {
+//     console.error("Error generating foreign worker contract PDF:", err);
+//     return res.status(500).json({
+//       error: "Erreur serveur lors de la génération du contrat",
+//     });
+//   }
+// });
 
-router.get("/foreign-worker-contract/:id/url", async (req, res) => {
-  try {
-    const contractId = Number(req.params.id);
+// router.get("/foreign-worker-contract/:id/url", async (req, res) => {
+//   try {
+//     const contractId = Number(req.params.id);
 
-    if (!Number.isInteger(contractId) || contractId <= 0) {
-      return res.status(400).json({ error: "ID de contrat invalide" });
-    }
+//     if (!Number.isInteger(contractId) || contractId <= 0) {
+//       return res.status(400).json({ error: "ID de contrat invalide" });
+//     }
 
-    const result = await pool.query(
-      `
-      SELECT
-        status,
-        draft_pdf_key,
-        final_pdf_key
-      FROM worker_contracts
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [contractId]
-    );
+//     const result = await pool.query(
+//       `
+//       SELECT
+//         status,
+//         draft_pdf_key,
+//         final_pdf_key
+//       FROM worker_contracts
+//       WHERE id = $1
+//       LIMIT 1
+//       `,
+//       [contractId]
+//     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Contrat introuvable" });
-    }
+//     if (result.rows.length === 0) {
+//       return res.status(404).json({ error: "Contrat introuvable" });
+//     }
 
-    const contract = result.rows[0];
+//     const contract = result.rows[0];
 
-    const keyToUse =
-      contract.status === "signed" && contract.final_pdf_key
-        ? contract.final_pdf_key
-        : contract.draft_pdf_key;
+//     const keyToUse =
+//       contract.status === "signed" && contract.final_pdf_key
+//         ? contract.final_pdf_key
+//         : contract.draft_pdf_key;
 
-    if (!keyToUse) {
-      return res.status(404).json({ error: "Aucun PDF trouvé pour ce contrat" });
-    }
+//     if (!keyToUse) {
+//       return res.status(404).json({ error: "Aucun PDF trouvé pour ce contrat" });
+//     }
 
-    const url = await getSignedUrlForKey(keyToUse);
+//     const url = await getSignedUrlForKey(keyToUse);
 
-    return res.status(200).json({
-      url,
-      status: contract.status,
-    });
-  } catch (err) {
-    console.error("Error getting contract URL:", err);
-    return res.status(500).json({
-      error: "Erreur serveur lors de la récupération du contrat",
-    });
-  }
-});
+//     return res.status(200).json({
+//       url,
+//       status: contract.status,
+//     });
+//   } catch (err) {
+//     console.error("Error getting contract URL:", err);
+//     return res.status(500).json({
+//       error: "Erreur serveur lors de la récupération du contrat",
+//     });
+//   }
+// });
 
 
 router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
@@ -764,6 +758,259 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
     });
   } finally {
     client.release();
+  }
+});
+
+
+async function ensureContractPrepared({
+  worker,
+  contractSlug,
+  includeSignedUrl,
+}: {
+  worker: {
+    user_id: number;
+    [key: string]: any;
+  };
+  contractSlug: string;
+  includeSignedUrl: boolean;
+}) {
+  const workerId = worker.user_id;
+
+  // 1) signed exists?
+  const signedResult = await pool.query(
+    `
+    SELECT id, final_pdf_key, status, template_version
+    FROM worker_contracts
+    WHERE user_id = $1
+      AND contract_slug = $2
+      AND status = 'signed'
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+    `,
+    [workerId, contractSlug]
+  );
+
+  if (signedResult.rows.length > 0) {
+    const row = signedResult.rows[0];
+    return {
+      contractId: row.id,
+      slug: contractSlug,
+      title: getContractTitle(contractSlug),
+      status: row.status,
+      templateVersion: row.template_version,
+      accessUrl: includeSignedUrl
+        ? await getSignedUrlForKey(row.final_pdf_key)
+        : null,
+      isReady: true,
+      reused: true,
+    };
+  }
+
+  // 2) draft exists?
+  const draftResult = await pool.query(
+    `
+    SELECT id, draft_pdf_key, status, template_version
+    FROM worker_contracts
+    WHERE user_id = $1
+      AND contract_slug = $2
+      AND status = 'draft'
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+    `,
+    [workerId, contractSlug]
+  );
+
+  if (draftResult.rows.length > 0) {
+    const row = draftResult.rows[0];
+    return {
+      contractId: row.id,
+      slug: contractSlug,
+      title: getContractTitle(contractSlug),
+      status: row.status,
+      templateVersion: row.template_version,
+      accessUrl: includeSignedUrl
+        ? await getSignedUrlForKey(row.draft_pdf_key)
+        : null,
+      isReady: true,
+      reused: true,
+    };
+  }
+
+  const { pdfBuffer, templateVersion } = await generateContractBuffer({
+    worker,
+    contractSlug,
+  });
+
+  const insertResult = await pool.query(
+    `
+    INSERT INTO worker_contracts (
+      user_id,
+      contract_slug,
+      template_version,
+      status,
+      worker_snapshot,
+      employer_snapshot,
+      accepted_terms
+    )
+    VALUES ($1, $2, $3, 'draft', $4::jsonb, $5::jsonb, false)
+    RETURNING id
+    `,
+    [
+      worker.user_id,
+      contractSlug,
+      templateVersion,
+      JSON.stringify(worker),
+      JSON.stringify(employer),
+    ]
+  );
+
+  const contractId = insertResult.rows[0].id;
+  const draftPdfKey = `contracts/${worker.user_id}/${contractId}/draft.pdf`;
+
+  await uploadBufferToS3({
+    key: draftPdfKey,
+    buffer: pdfBuffer,
+    contentType: "application/pdf",
+  });
+
+  await pool.query(
+    `
+    UPDATE worker_contracts
+    SET draft_pdf_key = $1,
+        updated_at = NOW()
+    WHERE id = $2
+    `,
+    [draftPdfKey, contractId]
+  );
+
+  return {
+    contractId,
+    slug: contractSlug,
+    title: getContractTitle(contractSlug),
+    status: "draft" as const,
+    templateVersion,
+    accessUrl: includeSignedUrl
+      ? await getSignedUrlForKey(draftPdfKey)
+      : null,
+    isReady: true,
+    reused: false,
+  };
+}
+
+
+router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
+  try {
+    const { pin } = req.body;
+
+    if (pin === undefined || pin === null || pin === "") {
+      return res.status(400).json({ error: "Le PIN est requis" });
+    }
+
+    const normalizedPin = Number(pin);
+
+    if (
+      !Number.isInteger(normalizedPin) ||
+      normalizedPin < 0 ||
+      normalizedPin > 99999
+    ) {
+      return res.status(400).json({ error: "PIN invalide" });
+    }
+
+    const fullWorker = await getWorkerFullByPin(pin);
+
+    const requiredSlugs = getRequiredContractSlugsForWorker(fullWorker);
+
+    const preparedContracts = await Promise.all(
+      requiredSlugs.map((slug, index) =>
+        ensureContractPrepared({
+          worker: fullWorker,
+          contractSlug: slug,
+          includeSignedUrl: index < 2,
+        })
+      )
+    );
+
+    const currentIndex = preparedContracts.findIndex((c) => c.status !== "signed");
+
+    return res.status(200).json({
+      worker: {
+        userId: fullWorker.user_id,
+        name: fullWorker.name,
+        surname: fullWorker.surname,
+        contractType: fullWorker.contract_type ?? null,
+      },
+      contracts: preparedContracts,
+      currentIndex: currentIndex === -1,
+    });
+  } catch (err) {
+    console.error("Error starting contract session:", err);
+
+    if (err instanceof Error && err.message === "Aucun travailleur trouvé avec ce PIN") {
+      return res.status(404).json({
+        error: "Aucun travailleur trouvé avec ce PIN",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Erreur serveur lors de la préparation de la session",
+    });
+  }
+});
+
+
+router.get("/foreign-worker-contract/:id/access", async (req, res) => {
+  try {
+    const contractId = Number(req.params.id);
+
+    if (!Number.isInteger(contractId) || contractId <= 0) {
+      return res.status(400).json({ error: "ID de contrat invalide" });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        status,
+        draft_pdf_key,
+        final_pdf_key,
+        template_version,
+        contract_slug
+      FROM worker_contracts
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [contractId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Contrat introuvable" });
+    }
+
+    const contract = result.rows[0];
+
+    const keyToUse =
+      contract.status === "signed" && contract.final_pdf_key
+        ? contract.final_pdf_key
+        : contract.draft_pdf_key;
+
+    if (!keyToUse) {
+      return res.status(404).json({ error: "Aucun PDF trouvé pour ce contrat" });
+    }
+
+    const accessUrl = await getSignedUrlForKey(keyToUse);
+
+    return res.status(200).json({
+      contractId: contract.id,
+      slug: contract.contract_slug,
+      status: contract.status,
+      templateVersion: contract.template_version,
+      accessUrl,
+    });
+  } catch (err) {
+    console.error("Error getting contract access:", err);
+    return res.status(500).json({
+      error: "Erreur serveur lors de la récupération du contrat",
+    });
   }
 });
 
