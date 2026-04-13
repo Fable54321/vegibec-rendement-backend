@@ -35,7 +35,7 @@ router.get("/foreign-workers", async (_req, res) => {
 });
 
 
-router.get("/foreign-workers/:id/contracts", async (req, res) => {
+router.get("/foreign-workers/contracts/:id/", async (req, res) => {
   try {
     const userId = Number(req.params.id);
 
