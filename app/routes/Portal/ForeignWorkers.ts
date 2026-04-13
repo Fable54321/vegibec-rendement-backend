@@ -48,7 +48,6 @@ router.get("/foreign-workers/contracts/:id", async (req, res) => {
       SELECT
         wc.id,
         wc.user_id,
-        wc.contract_type,
         wc.status,
         wc.created_at,
         wc.updated_at,
