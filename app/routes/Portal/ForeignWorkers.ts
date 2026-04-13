@@ -1,5 +1,6 @@
 import express from "express";
 import { pool } from "../../db";
+import { requireAppRole } from "../../middleware/auth";
 
 const router = express.Router();
 
@@ -7,7 +8,7 @@ const router = express.Router();
  * 1) Get all foreign workers
  * Used to display the list of names
  */
-router.get("/foreign-workers", async (_req, res) => {
+router.get("/foreign-workers", requireAppRole("main", ["admin"]), async (_req, res) => {
   try {
     const result = await pool.query(
       `
@@ -35,7 +36,7 @@ router.get("/foreign-workers", async (_req, res) => {
 });
 
 
-router.get("/foreign-workers/contracts/:id", async (req, res) => {
+router.get("/foreign-workers/contracts/:id", requireAppRole("main", ["admin"]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
 
@@ -69,7 +70,7 @@ router.get("/foreign-workers/contracts/:id", async (req, res) => {
   }
 });
 
-router.get("/foreign-workers/:id", async (req, res) => {
+router.get("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
 
