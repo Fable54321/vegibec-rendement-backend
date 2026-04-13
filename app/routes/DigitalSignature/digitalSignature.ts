@@ -236,7 +236,7 @@ router.get("/foreign-worker-info/current", async (req, res) => {
   }
 });
 
-// router.post("/foreign-worker-contract/by-pin", async (req, res) => {
+
 //   try {
 //     const { pin, contractSlug } = req.body;
 
@@ -776,7 +776,7 @@ async function ensureContractPrepared({
   includeSignedUrl: boolean;
 }) {
   const workerId = worker.user_id;
-  const effectiveSlug = normalizeContractSlugForWorker(worker, contractSlug);
+  const effectiveSlug = normalizeMainContractSlug(worker, contractSlug);
 
   const signedResult = await pool.query(
     `
@@ -897,7 +897,7 @@ async function ensureContractPrepared({
   };
 }
 
-function normalizeContractSlugForWorker(
+function normalizeMainContractSlug(
   worker: { contract_type?: string | null },
   slug: string
 ) {
@@ -929,10 +929,10 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
 
     const fullWorker = await getWorkerFullByPin(pin);
 
-   const requiredSlugs = [
+const requiredSlugs = [
   ...new Set(
     getRequiredContractSlugsForWorker(fullWorker).map((slug) =>
-      normalizeContractSlugForWorker(fullWorker, slug)
+      normalizeMainContractSlug(fullWorker, slug)
     )
   ),
 ];
