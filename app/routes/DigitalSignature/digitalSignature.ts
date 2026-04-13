@@ -916,7 +916,7 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
       return res.status(400).json({ error: "PIN invalide" });
     }
 
-    const fullWorker = await getWorkerFullByPin(normalizedPin);
+    const fullWorker = await getWorkerFullByPin(pin);
 
     const requiredSlugs = [
       ...new Set(getRequiredContractSlugsForWorker(fullWorker))
