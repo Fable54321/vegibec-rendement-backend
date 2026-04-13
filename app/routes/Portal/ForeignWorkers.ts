@@ -52,7 +52,8 @@ router.get("/foreign-workers/contracts/:id", async (req, res) => {
         wc.created_at,
         wc.updated_at,
         wc.signed_at,
-        wc.pdf_url,
+        wc.draft_pdf_key,
+        wc.final_pdf_key,
         wc.contract_slug
       FROM worker_contracts wc
       WHERE wc.user_id = $1
