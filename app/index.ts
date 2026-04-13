@@ -33,6 +33,7 @@ import timeSheetsCalculationsRoute from "./routes/Timesheets/calculations";
 import userDailyDurationRoute from "./routes/Timesheets/userDailyDuration";
 import adminRoute from "./routes/Timesheets/admin"
 import signatureRoute from "./routes/DigitalSignature/digitalSignature";
+import foreignWorkersRoute from "./routes/Portal/ForeignWorkers";
 import path from "path";
 
 import { ListBucketsCommand } from "@aws-sdk/client-s3";
@@ -896,6 +897,8 @@ app.use("/task-categories", taskCateogriesRoute);
 app.use("/losses-tracking", lossesTrackingRoute);
 
 app.use("/portal", portalRoute);
+
+app.use("/portal/foreign-workers", foreignWorkersRoute);
 
 app.use("/warehouse", warehouseProductsRoute);
 
