@@ -916,21 +916,29 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
       return res.status(400).json({ error: "PIN invalide" });
     }
 
-    const fullWorker = await getWorkerFullByPin(pin);
+    const fullWorker = await getWorkerFullByPin(normalizedPin);
 
-    const requiredSlugs = getRequiredContractSlugsForWorker(fullWorker);
+    const requiredSlugs = [
+      ...new Set(getRequiredContractSlugsForWorker(fullWorker))
+    ];
 
-    const preparedContracts = await Promise.all(
-      requiredSlugs.map((slug, index) =>
-        ensureContractPrepared({
-          worker: fullWorker,
-          contractSlug: slug,
-          includeSignedUrl: index < 2,
-        })
-      )
+    const preparedContracts = [];
+
+    for (let i = 0; i < requiredSlugs.length; i++) {
+      const slug = requiredSlugs[i];
+
+      const prepared = await ensureContractPrepared({
+        worker: fullWorker,
+        contractSlug: slug,
+        includeSignedUrl: i < 2,
+      });
+
+      preparedContracts.push(prepared);
+    }
+
+    const currentIndex = preparedContracts.findIndex(
+      (c) => c.status !== "signed"
     );
-
-    const currentIndex = preparedContracts.findIndex((c) => c.status !== "signed");
 
     return res.status(200).json({
       worker: {
@@ -940,12 +948,16 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
         contractType: fullWorker.contract_type ?? null,
       },
       contracts: preparedContracts,
-      currentIndex: currentIndex === -1,
+      currentIndex,
+      allSigned: currentIndex === -1,
     });
   } catch (err) {
     console.error("Error starting contract session:", err);
 
-    if (err instanceof Error && err.message === "Aucun travailleur trouvé avec ce PIN") {
+    if (
+      err instanceof Error &&
+      err.message === "Aucun travailleur trouvé avec ce PIN"
+    ) {
       return res.status(404).json({
         error: "Aucun travailleur trouvé avec ce PIN",
       });
