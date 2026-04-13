@@ -769,14 +769,15 @@ async function ensureContractPrepared({
 }: {
   worker: {
     user_id: number;
+    contract_type?: string | null;
     [key: string]: any;
   };
   contractSlug: string;
   includeSignedUrl: boolean;
 }) {
   const workerId = worker.user_id;
+  const effectiveSlug = normalizeContractSlugForWorker(worker, contractSlug);
 
-  // 1) signed exists?
   const signedResult = await pool.query(
     `
     SELECT id, final_pdf_key, status, template_version
@@ -787,15 +788,15 @@ async function ensureContractPrepared({
     ORDER BY updated_at DESC, id DESC
     LIMIT 1
     `,
-    [workerId, contractSlug]
+    [workerId, effectiveSlug]
   );
 
   if (signedResult.rows.length > 0) {
     const row = signedResult.rows[0];
     return {
       contractId: row.id,
-      slug: contractSlug,
-      title: getContractTitle(contractSlug),
+      slug: effectiveSlug,
+      title: getContractTitle(effectiveSlug),
       status: row.status,
       templateVersion: row.template_version,
       accessUrl: includeSignedUrl
@@ -806,7 +807,6 @@ async function ensureContractPrepared({
     };
   }
 
-  // 2) draft exists?
   const draftResult = await pool.query(
     `
     SELECT id, draft_pdf_key, status, template_version
@@ -817,15 +817,15 @@ async function ensureContractPrepared({
     ORDER BY updated_at DESC, id DESC
     LIMIT 1
     `,
-    [workerId, contractSlug]
+    [workerId, effectiveSlug]
   );
 
   if (draftResult.rows.length > 0) {
     const row = draftResult.rows[0];
     return {
       contractId: row.id,
-      slug: contractSlug,
-      title: getContractTitle(contractSlug),
+      slug: effectiveSlug,
+      title: getContractTitle(effectiveSlug),
       status: row.status,
       templateVersion: row.template_version,
       accessUrl: includeSignedUrl
@@ -838,7 +838,7 @@ async function ensureContractPrepared({
 
   const { pdfBuffer, templateVersion } = await generateContractBuffer({
     worker,
-    contractSlug,
+    contractSlug: effectiveSlug,
   });
 
   const insertResult = await pool.query(
@@ -857,7 +857,7 @@ async function ensureContractPrepared({
     `,
     [
       worker.user_id,
-      contractSlug,
+      effectiveSlug,
       templateVersion,
       JSON.stringify(worker),
       JSON.stringify(employer),
@@ -885,8 +885,8 @@ async function ensureContractPrepared({
 
   return {
     contractId,
-    slug: contractSlug,
-    title: getContractTitle(contractSlug),
+    slug: effectiveSlug,
+    title: getContractTitle(effectiveSlug),
     status: "draft" as const,
     templateVersion,
     accessUrl: includeSignedUrl
@@ -895,6 +895,17 @@ async function ensureContractPrepared({
     isReady: true,
     reused: false,
   };
+}
+
+function normalizeContractSlugForWorker(
+  worker: { contract_type?: string | null },
+  slug: string
+) {
+  if (slug === "PTET" || slug === "PTAS") {
+    return worker.contract_type === "PTAS" ? "PTAS" : "PTET";
+  }
+
+  return slug;
 }
 
 
@@ -918,9 +929,13 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
 
     const fullWorker = await getWorkerFullByPin(pin);
 
-    const requiredSlugs = [
-      ...new Set(getRequiredContractSlugsForWorker(fullWorker))
-    ];
+   const requiredSlugs = [
+  ...new Set(
+    getRequiredContractSlugsForWorker(fullWorker).map((slug) =>
+      normalizeContractSlugForWorker(fullWorker, slug)
+    )
+  ),
+];
 
     const preparedContracts = [];
 
