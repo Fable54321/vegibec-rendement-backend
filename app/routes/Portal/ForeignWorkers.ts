@@ -201,6 +201,13 @@ router.get(
         return res.status(404).json({ error: "Aucun PDF associé à ce contrat" });
       }
 
+      console.log("contract row:", {
+  id: contract.id,
+  draft_pdf_key: contract.draft_pdf_key,
+  final_pdf_key: contract.final_pdf_key,
+  status: contract.status,
+});
+
       const url = await getSignedUrlForKey(pdfKey);
 
       return res.status(200).json({
