@@ -34,10 +34,41 @@ router.get("/foreign-workers", async (_req, res) => {
   }
 });
 
-/**
- * 2) Get one foreign worker by user id
- * Used when clicking a worker in the list
- */
+
+router.get("/foreign-workers/:id/contracts", async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "ID invalide" });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        wc.id,
+        wc.user_id,
+        wc.contract_type,
+        wc.status,
+        wc.created_at,
+        wc.updated_at,
+        wc.signed_at,
+        wc.pdf_url,
+        wc.contract_slug
+      FROM worker_contracts wc
+      WHERE wc.user_id = $1
+      ORDER BY wc.created_at DESC
+      `,
+      [userId]
+    );
+
+    return res.status(200).json(result.rows);
+  } catch (err) {
+    console.error("Error fetching worker contracts:", err);
+    return res.status(500).json({ error: "Erreur lors de la récupération des contrats" });
+  }
+});
+
 router.get("/foreign-workers/:id", async (req, res) => {
   try {
     const userId = Number(req.params.id);
@@ -123,38 +154,6 @@ router.get("/foreign-workers/:id", async (req, res) => {
  * 3) Get contracts for one worker
  * Used for the contracts page/tab of a specific worker
  */
-router.get("/foreign-workers/:id/contracts", async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
 
-    if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ error: "ID invalide" });
-    }
-
-    const result = await pool.query(
-      `
-      SELECT
-        wc.id,
-        wc.user_id,
-        wc.contract_type,
-        wc.status,
-        wc.created_at,
-        wc.updated_at,
-        wc.signed_at,
-        wc.pdf_url,
-        wc.contract_slug
-      FROM worker_contracts wc
-      WHERE wc.user_id = $1
-      ORDER BY wc.created_at DESC
-      `,
-      [userId]
-    );
-
-    return res.status(200).json(result.rows);
-  } catch (err) {
-    console.error("Error fetching worker contracts:", err);
-    return res.status(500).json({ error: "Erreur lors de la récupération des contrats" });
-  }
-});
 
 export default router;
