@@ -57,6 +57,7 @@ const allowedOrigins = [
   "https://vegibec-portail.com",
   "https://gestion-entreposage.netlify.app",
   "https://feuilles-de-temps.netlify.app",
+  "https://signature-digitale.netlify.app",
 ];
 
 app.use(
