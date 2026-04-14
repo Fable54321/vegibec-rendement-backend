@@ -1,10 +1,9 @@
 import { Router } from "express";
 import { pool } from "../../db";
 import { uploadBufferToS3, getSignedUrlForKey, getBufferFromS3 } from "../../services/s3.services"
-import { employer } from "../../Utils/DocumentInfo"
 import { applySignatureToContract } from "../../Utils/GenerateContracts";
-import { getRequiredContractSlugsForWorker, getContractTitle, getWorkerFullByPin } from "../../Utils/ContractHelpers/getRequiredContractSlugForWorker";
-import { generateContractBuffer } from "../../Utils/ContractHelpers/generateContractBuffer";
+import { getWorkerFullByPin } from "../../Utils/ContractHelpers/getRequiredContractSlugForWorker";
+import { buildContractSession } from "../../Utils/ContractHelpers/buildContracSession";
 
 
 const router = Router();
@@ -762,151 +761,9 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
 });
 
 
-async function ensureContractPrepared({
-  worker,
-  contractSlug,
-  includeSignedUrl,
-}: {
-  worker: {
-    user_id: number;
-    contract_type?: string | null;
-    [key: string]: any;
-  };
-  contractSlug: string;
-  includeSignedUrl: boolean;
-}) {
-  const workerId = worker.user_id;
-  const effectiveSlug = normalizeMainContractSlug(worker, contractSlug);
 
-  const signedResult = await pool.query(
-    `
-    SELECT id, final_pdf_key, status, template_version
-    FROM worker_contracts
-    WHERE user_id = $1
-      AND contract_slug = $2
-      AND status = 'signed'
-    ORDER BY updated_at DESC, id DESC
-    LIMIT 1
-    `,
-    [workerId, effectiveSlug]
-  );
 
-  if (signedResult.rows.length > 0) {
-    const row = signedResult.rows[0];
-    return {
-      contractId: row.id,
-      slug: effectiveSlug,
-      title: getContractTitle(effectiveSlug),
-      status: row.status,
-      templateVersion: row.template_version,
-      accessUrl: includeSignedUrl
-        ? await getSignedUrlForKey(row.final_pdf_key)
-        : null,
-      isReady: true,
-      reused: true,
-    };
-  }
 
-  const draftResult = await pool.query(
-    `
-    SELECT id, draft_pdf_key, status, template_version
-    FROM worker_contracts
-    WHERE user_id = $1
-      AND contract_slug = $2
-      AND status = 'draft'
-    ORDER BY updated_at DESC, id DESC
-    LIMIT 1
-    `,
-    [workerId, effectiveSlug]
-  );
-
-  if (draftResult.rows.length > 0) {
-    const row = draftResult.rows[0];
-    return {
-      contractId: row.id,
-      slug: effectiveSlug,
-      title: getContractTitle(effectiveSlug),
-      status: row.status,
-      templateVersion: row.template_version,
-      accessUrl: includeSignedUrl
-        ? await getSignedUrlForKey(row.draft_pdf_key)
-        : null,
-      isReady: true,
-      reused: true,
-    };
-  }
-
-  const { pdfBuffer, templateVersion } = await generateContractBuffer({
-    worker,
-    contractSlug: effectiveSlug,
-  });
-
-  const insertResult = await pool.query(
-    `
-    INSERT INTO worker_contracts (
-      user_id,
-      contract_slug,
-      template_version,
-      status,
-      worker_snapshot,
-      employer_snapshot,
-      accepted_terms
-    )
-    VALUES ($1, $2, $3, 'draft', $4::jsonb, $5::jsonb, false)
-    RETURNING id
-    `,
-    [
-      worker.user_id,
-      effectiveSlug,
-      templateVersion,
-      JSON.stringify(worker),
-      JSON.stringify(employer),
-    ]
-  );
-
-  const contractId = insertResult.rows[0].id;
-  const draftPdfKey = `contracts/${worker.user_id}/${contractId}/draft.pdf`;
-
-  await uploadBufferToS3({
-    key: draftPdfKey,
-    buffer: pdfBuffer,
-    contentType: "application/pdf",
-  });
-
-  await pool.query(
-    `
-    UPDATE worker_contracts
-    SET draft_pdf_key = $1,
-        updated_at = NOW()
-    WHERE id = $2
-    `,
-    [draftPdfKey, contractId]
-  );
-
-  return {
-    contractId,
-    slug: effectiveSlug,
-    title: getContractTitle(effectiveSlug),
-    status: "draft" as const,
-    templateVersion,
-    accessUrl: includeSignedUrl
-      ? await getSignedUrlForKey(draftPdfKey)
-      : null,
-    isReady: true,
-    reused: false,
-  };
-}
-
-function normalizeMainContractSlug(
-  worker: { contract_type?: string | null },
-  slug: string
-) {
-  if (slug === "PTET" || slug === "PTAS") {
-    return worker.contract_type === "PTAS" ? "PTAS" : "PTET";
-  }
-
-  return slug;
-}
 
 
 router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
@@ -928,44 +785,9 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
     }
 
     const fullWorker = await getWorkerFullByPin(pin);
+    const session = await buildContractSession(fullWorker);
 
-const requiredSlugs = [
-  ...new Set(
-    getRequiredContractSlugsForWorker(fullWorker).map((slug) =>
-      normalizeMainContractSlug(fullWorker, slug)
-    )
-  ),
-];
-
-    const preparedContracts = [];
-
-    for (let i = 0; i < requiredSlugs.length; i++) {
-      const slug = requiredSlugs[i];
-
-      const prepared = await ensureContractPrepared({
-        worker: fullWorker,
-        contractSlug: slug,
-        includeSignedUrl: i < 2,
-      });
-
-      preparedContracts.push(prepared);
-    }
-
-    const currentIndex = preparedContracts.findIndex(
-      (c) => c.status !== "signed"
-    );
-
-    return res.status(200).json({
-      worker: {
-        userId: fullWorker.user_id,
-        name: fullWorker.name,
-        surname: fullWorker.surname,
-        contractType: fullWorker.contract_type ?? null,
-      },
-      contracts: preparedContracts,
-      currentIndex,
-      allSigned: currentIndex === -1,
-    });
+    return res.status(200).json(session);
   } catch (err) {
     console.error("Error starting contract session:", err);
 
@@ -975,6 +797,16 @@ const requiredSlugs = [
     ) {
       return res.status(404).json({
         error: "Aucun travailleur trouvé avec ce PIN",
+      });
+    }
+
+    if (
+      err instanceof Error &&
+      (err.message === "Contrat introuvable" ||
+        err.message === "Aucun PDF trouvé pour ce contrat")
+    ) {
+      return res.status(404).json({
+        error: err.message,
       });
     }
 
