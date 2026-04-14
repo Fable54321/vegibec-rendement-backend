@@ -6,10 +6,7 @@ import { getSignedUrlForKey } from "../../services/s3.services";
 
 const router = express.Router();
 
-/**
- * 1) Get all foreign workers
- * Used to display the list of names
- */
+
 router.get("/foreign-workers", requireAppRole("main", ["admin"]), async (_req, res) => {
   try {
     const result = await pool.query(
