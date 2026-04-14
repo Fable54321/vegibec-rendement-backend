@@ -233,6 +233,7 @@ export async function buildContractSession(fullWorker: any) {
       surname: fullWorker.surname,
       contractType: fullWorker.contract_type ?? null,
       pin: fullWorker.pin ?? null,
+      birth_date: fullWorker.birth_date ?? null,
     },
     contracts: preparedContracts,
     currentIndex,
