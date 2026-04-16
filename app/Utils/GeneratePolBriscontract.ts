@@ -2,6 +2,7 @@
 import path from "path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import fs from "fs/promises";
+import { drawCoordinateGrid } from "./drawField";
 
 
 type Employer = {
@@ -130,7 +131,6 @@ export const generatePolBrisContract = async ({
 //   });
 
 
- 
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);

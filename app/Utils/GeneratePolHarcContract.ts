@@ -131,7 +131,6 @@ export const generatePolHarcContract = async ({
 //   });
 //  drawCoordinateGrid(firstPage);
 
- 
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);

@@ -182,7 +182,7 @@ export const generate0AvContract = async ({
  
 
 
-
+ 
 
 
 
@@ -566,6 +566,8 @@ firstPage.drawText(`${worker.surname}`, {
 
  
 
+ 
+
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
 };
@@ -919,6 +921,8 @@ export const generatePTASContract = async ({
     font: boldFont,
     color: rgb(0, 0, 0),
   });
+
+  
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
