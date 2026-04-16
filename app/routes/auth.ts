@@ -212,7 +212,6 @@ router.post("/change-password", async (req, res) => {
   }
 });
 
-// AUTH CHECK
 router.get("/me", async (req, res) => {
   const token = req.cookies.accessToken;
 
@@ -221,9 +220,7 @@ router.get("/me", async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as {
-      id: number;
-    };
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: number };
 
     const userResult = await pool.query(
       `
@@ -249,15 +246,33 @@ router.get("/me", async (req, res) => {
       [decoded.id],
     );
 
+    const agrivisionPrefsResult = await pool.query(
+      `
+      SELECT organic_filter_mode, trend_preference
+      FROM user_agrivision_preferences
+      WHERE user_id = $1
+      `,
+      [decoded.id],
+    );
+
     const user = userResult.rows[0];
+    const prefs = agrivisionPrefsResult.rows[0];
 
     return res.json({
       user: {
-        ...user,
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        surname: user.surname,
+        full_name: `${user.name ?? ""} ${user.surname ?? ""}`.trim(),
+        organic_filter_mode: prefs?.organic_filter_mode ?? "all",
+        trend_preference: prefs?.trend_preference ?? "monthly",
         appAccess: appAccessResult.rows,
       },
     });
-  } catch {
+  } catch (err) {
+    console.error("Error in /auth/me:", err);
     return res.status(401).json({ error: "Invalid token" });
   }
 });
