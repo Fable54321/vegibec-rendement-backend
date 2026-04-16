@@ -228,5 +228,233 @@ router.get(
 );
 
 
+router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const userId = Number(req.params.id);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "ID invalide" });
+    }
+
+    const allowedUserFields = [
+      "name",
+      "surname",
+      "username",
+      "email",
+      "role",
+      "uses_worksheet",
+    ] as const;
+
+    const allowedFwiFields = [
+      "birth_date",
+      "residence_country",
+      "phone_number",
+      "job_title",
+      "job_description",
+      "hourly_wage",
+      "overtime_hourly_wage",
+      "daily_hours_for_overtime",
+      "weekly_hours_for_overtime",
+      "contingent_applicable",
+      "contingent_details",
+      "debut_date",
+      "job_duration",
+      "approximative_daily_hours",
+      "approximative_weekly_hours",
+      "is_full_time",
+      "no_full_time_details",
+      "holidays",
+      "no_holidays_compensation",
+      "invalid_insurance",
+      "dentist_insurance",
+      "pension_scheme",
+      "healthcare",
+      "other",
+      "other_details",
+      "accommodation_type",
+      "on_site_accommodation",
+      "off_site_accommodation_under_30",
+      "off_site_accommodation_custom",
+      "weekly_amount_deducted",
+      "monthly_amount_deducted",
+      "low_wage",
+      "accommodation_provided",
+      "high_wage",
+      "more_info_ptet",
+      "pin",
+      "is_connected",
+      "holiday_duration",
+      "matricula",
+      "contract_type",
+      "nas",
+      "ramq",
+      "folio_number",
+    ] as const;
+
+    const userUpdates: Record<string, unknown> = {};
+    const fwiUpdates: Record<string, unknown> = {};
+
+    for (const field of allowedUserFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        userUpdates[field] = req.body[field];
+      }
+    }
+
+    for (const field of allowedFwiFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        fwiUpdates[field] = req.body[field];
+      }
+    }
+
+    if (Object.keys(userUpdates).length === 0 && Object.keys(fwiUpdates).length === 0) {
+      return res.status(400).json({ error: "Aucune donnée à modifier" });
+    }
+
+    await client.query("BEGIN");
+
+    const existingWorker = await client.query(
+      `
+      SELECT u.id
+      FROM users u
+      INNER JOIN foreign_workers_info fwi
+        ON fwi.user_id = u.id
+      WHERE u.id = $1
+      `,
+      [userId]
+    );
+
+    if (existingWorker.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Travailleur introuvable" });
+    }
+
+    if (Object.keys(userUpdates).length > 0) {
+      const userSetClauses: string[] = [];
+      const userValues: unknown[] = [];
+      let paramIndex = 1;
+
+      for (const [key, value] of Object.entries(userUpdates)) {
+        userSetClauses.push(`${key} = $${paramIndex}`);
+        userValues.push(value);
+        paramIndex++;
+      }
+
+      userSetClauses.push(`updated_at = NOW()`);
+
+      userValues.push(userId);
+
+      await client.query(
+        `
+        UPDATE users
+        SET ${userSetClauses.join(", ")}
+        WHERE id = $${paramIndex}
+        `,
+        userValues
+      );
+    }
+
+    if (Object.keys(fwiUpdates).length > 0) {
+      const fwiSetClauses: string[] = [];
+      const fwiValues: unknown[] = [];
+      let paramIndex = 1;
+
+      for (const [key, value] of Object.entries(fwiUpdates)) {
+        fwiSetClauses.push(`${key} = $${paramIndex}`);
+        fwiValues.push(value);
+        paramIndex++;
+      }
+
+      fwiValues.push(userId);
+
+      await client.query(
+        `
+        UPDATE foreign_workers_info
+        SET ${fwiSetClauses.join(", ")}
+        WHERE user_id = $${paramIndex}
+        `,
+        fwiValues
+      );
+    }
+
+    const updatedWorker = await client.query(
+      `
+      SELECT
+        u.id,
+        u.name,
+        u.surname,
+        u.username,
+        u.email,
+        u.role,
+        u.uses_worksheet,
+
+        fwi.birth_date,
+        fwi.residence_country,
+        fwi.phone_number,
+        fwi.job_title,
+        fwi.job_description,
+        fwi.hourly_wage,
+        fwi.overtime_hourly_wage,
+        fwi.daily_hours_for_overtime,
+        fwi.weekly_hours_for_overtime,
+        fwi.contingent_applicable,
+        fwi.contingent_details,
+        fwi.debut_date,
+        fwi.job_duration,
+        fwi.approximative_daily_hours,
+        fwi.approximative_weekly_hours,
+        fwi.is_full_time,
+        fwi.no_full_time_details,
+        fwi.holidays,
+        fwi.no_holidays_compensation,
+        fwi.invalid_insurance,
+        fwi.dentist_insurance,
+        fwi.pension_scheme,
+        fwi.healthcare,
+        fwi.other,
+        fwi.other_details,
+        fwi.accommodation_type,
+        fwi.on_site_accommodation,
+        fwi.off_site_accommodation_under_30,
+        fwi.off_site_accommodation_custom,
+        fwi.weekly_amount_deducted,
+        fwi.monthly_amount_deducted,
+        fwi.low_wage,
+        fwi.accommodation_provided,
+        fwi.high_wage,
+        fwi.more_info_ptet,
+        fwi.pin,
+        fwi.is_connected,
+        fwi.holiday_duration,
+        fwi.matricula,
+        fwi.contract_type,
+        fwi.nas,
+        fwi.ramq,
+        fwi.folio_number
+      FROM users u
+      INNER JOIN foreign_workers_info fwi
+        ON fwi.user_id = u.id
+      WHERE u.id = $1
+      `,
+      [userId]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      message: "Travailleur mis à jour avec succès",
+      worker: updatedWorker.rows[0],
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error updating foreign worker:", err);
+    return res.status(500).json({ error: "Erreur lors de la mise à jour du travailleur" });
+  } finally {
+    client.release();
+  }
+});
+
+
 
 export default router;
