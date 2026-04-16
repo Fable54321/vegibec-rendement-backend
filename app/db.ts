@@ -4,12 +4,12 @@ import { Pool } from "pg";
 
 
 
-export const pool = new Pool({
-  connectionString:
-""  ,ssl: {
-    rejectUnauthorized: false,
-  },
-});
+// export const pool = new Pool({
+//   connectionString:
+// ""  ,ssl: {
+//     rejectUnauthorized: false,
+//   },
+// });
 
 export const pool = new Pool({
   host: process.env.DB_HOST,
