@@ -59,6 +59,7 @@ const allowedOrigins = [
   "https://gestion-entreposage.netlify.app",
   "https://feuilles-de-temps.netlify.app",
   "https://signature-digitale.netlify.app",
+  "https://tb-agrivision.netlify.app/accueil",
 ];
 
 app.use(
