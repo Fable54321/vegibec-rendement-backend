@@ -3,10 +3,7 @@ import jwt from "jsonwebtoken";
 import { pool } from "../../db";
 
 const router = express.Router();
-
 const JWT_SECRET = process.env.JWT_SECRET!;
-
-
 
 router.post("/preferences", async (req, res) => {
   const token = req.cookies.accessToken;
@@ -39,7 +36,7 @@ router.post("/preferences", async (req, res) => {
 
     await pool.query(
       `
-      INSERT INTO user_agrivision_preferences (
+      INSERT INTO agrivision.preferences (
         user_id,
         organic_filter_mode,
         trend_preference,
@@ -57,11 +54,11 @@ router.post("/preferences", async (req, res) => {
       DO UPDATE SET
         organic_filter_mode = COALESCE(
           EXCLUDED.organic_filter_mode,
-          user_agrivision_preferences.organic_filter_mode
+          agrivision.preferences.organic_filter_mode
         ),
         trend_preference = COALESCE(
           EXCLUDED.trend_preference,
-          user_agrivision_preferences.trend_preference
+          agrivision.preferences.trend_preference
         ),
         updated_at = NOW()
       `,
@@ -77,7 +74,6 @@ router.post("/preferences", async (req, res) => {
   }
 });
 
-
 router.post("/preferences/vegetables", async (req, res) => {
   const token = req.cookies.accessToken;
 
@@ -91,33 +87,56 @@ router.post("/preferences/vegetables", async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET) as { id: number };
     const userId = decoded.id;
 
-    const { vegetables } = req.body;
+    const { vegetableIds } = req.body;
 
     if (
-      !Array.isArray(vegetables) ||
-      vegetables.some((v) => typeof v !== "string" || !v.trim())
+      !Array.isArray(vegetableIds) ||
+      vegetableIds.some(
+        (id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0,
+      )
     ) {
-      return res.status(400).json({ error: "Invalid vegetables list" });
+      return res.status(400).json({ error: "Invalid vegetableIds" });
     }
 
     await client.query("BEGIN");
 
+    if (vegetableIds.length > 0) {
+      const existingVegetables = await client.query(
+        `
+        SELECT id
+        FROM agrivision.vegetables
+        WHERE id = ANY($1::int[])
+        `,
+        [vegetableIds],
+      );
+
+      if (existingVegetables.rows.length !== vegetableIds.length) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "One or more vegetableIds are invalid",
+        });
+      }
+    }
+
     await client.query(
-      `DELETE FROM user_agrivision_preference_vegetables WHERE user_id = $1`,
+      `
+      DELETE FROM agrivision.preference_vegetables
+      WHERE user_id = $1
+      `,
       [userId],
     );
 
-    if (vegetables.length > 0) {
-      const values = vegetables
+    if (vegetableIds.length > 0) {
+      const values = vegetableIds
         .map((_, i) => `($1, $${i + 2})`)
         .join(",");
 
       await client.query(
         `
-        INSERT INTO user_agrivision_preference_vegetables (user_id, vegetable_name)
+        INSERT INTO agrivision.preference_vegetables (user_id, vegetable_id)
         VALUES ${values}
         `,
-        [userId, ...vegetables.map((v) => v.trim())],
+        [userId, ...vegetableIds],
       );
     }
 
