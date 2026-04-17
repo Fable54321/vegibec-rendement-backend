@@ -20,10 +20,8 @@ const getUserIdFromCookie = (req: express.Request): number | null => {
   }
 };
 
-// -----------------------------------
-// GET all Agrivision vegetables
-// Same idea as /api/vegetables
-// -----------------------------------
+
+
 router.get("/vegetables", async (_req, res) => {
   try {
     const result = await pool.query(
@@ -47,10 +45,7 @@ router.get("/vegetables", async (_req, res) => {
   }
 });
 
-// -----------------------------------
-// GET current user's Agrivision preferences
-// Same structure regardless of auth source
-// -----------------------------------
+
 router.get("/preferences", async (req, res) => {
   const userId = getUserIdFromCookie(req);
 
@@ -82,10 +77,7 @@ router.get("/preferences", async (req, res) => {
   }
 });
 
-// -----------------------------------
-// GET current user's selected vegetables
-// Returns full vegetable rows, same shape your frontend already expects
-// -----------------------------------
+
 router.get("/preferences/vegetables", async (req, res) => {
   const userId = getUserIdFromCookie(req);
 
@@ -119,9 +111,7 @@ router.get("/preferences/vegetables", async (req, res) => {
   }
 });
 
-// -----------------------------------
-// POST preferences
-// -----------------------------------
+
 router.post("/preferences", async (req, res) => {
   const userId = getUserIdFromCookie(req);
 
@@ -188,9 +178,7 @@ router.post("/preferences", async (req, res) => {
   }
 });
 
-// -----------------------------------
-// POST selected vegetables
-// -----------------------------------
+
 router.post("/preferences/vegetables", async (req, res) => {
   const userId = getUserIdFromCookie(req);
 
