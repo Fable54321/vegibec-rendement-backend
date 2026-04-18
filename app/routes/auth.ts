@@ -2,6 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { pool } from "../db";
+import e from "express";
 
 const router = express.Router();
 
@@ -136,7 +137,7 @@ router.post("/refresh", (req, res) => {
   }
 });
 
-// LOGOUT
+
 router.post("/logout", (req, res) => {
   const isProd = process.env.NODE_ENV === "production";
 
@@ -153,7 +154,107 @@ router.post("/logout", (req, res) => {
   res.json({ message: "Vous êtes maintenant déconnecté" });
 });
 
-// CHANGE PASSWORD
+
+router.post("/change-username", async (req, res) => {
+  const token = req.cookies.accessToken;
+
+  if (!token) {
+    return res.status(401).json({ error: "Missing token" });
+  }
+
+  let userId: number;
+  let currentRole: string;
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: number;
+      username: string;
+      role: string;
+    };
+
+    userId = decoded.id;
+    currentRole = decoded.role;
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+
+  const { currentPassword, newUsername } = req.body;
+
+  if (!currentPassword || !newUsername) {
+    return res
+      .status(400)
+      .json({ error: "Missing current password or new username" });
+  }
+
+  const normalizedUsername = String(newUsername).trim();
+
+  if (!normalizedUsername) {
+    return res.status(400).json({ error: "New username cannot be empty" });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT password_hash FROM users WHERE id = $1",
+      [userId],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = result.rows[0];
+    const valid = await bcrypt.compare(currentPassword, user.password_hash);
+
+    if (!valid) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+
+    const existing = await pool.query(
+      "SELECT id FROM users WHERE username = $1",
+      [normalizedUsername],
+    );
+
+    if (existing.rowCount && existing.rowCount > 0 && existing.rows[0].id !== userId) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
+
+    await pool.query("UPDATE users SET username = $1 WHERE id = $2", [
+      normalizedUsername,
+      userId,
+    ]);
+
+    const updatedUser = {
+      id: userId,
+      username: normalizedUsername,
+      role: currentRole,
+    };
+
+    const accessToken = generateAccessToken(updatedUser);
+    const refreshToken = generateRefreshToken(updatedUser);
+    const isProd = process.env.NODE_ENV === "production";
+
+    res.cookie(
+      "accessToken",
+      accessToken,
+      getCookieOptions(isProd, 60 * 60 * 1000),
+    );
+
+    res.cookie(
+      "refreshToken",
+      refreshToken,
+      getCookieOptions(isProd, 7 * 24 * 60 * 60 * 1000),
+    );
+
+    res.json({
+      message: "Username changed successfully",
+      username: normalizedUsername,
+    });
+  } catch (err) {
+    console.error("Change username error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/change-password", async (req, res) => {
   const token = req.cookies.accessToken;
 
