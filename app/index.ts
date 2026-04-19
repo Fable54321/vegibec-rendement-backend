@@ -60,6 +60,7 @@ const allowedOrigins = [
   "https://feuilles-de-temps.netlify.app",
   "https://signature-digitale.netlify.app",
   "https://tb-agrivision.netlify.app",
+  "https://punch.vegibec-portail.com",
 ];
 
 app.use(
