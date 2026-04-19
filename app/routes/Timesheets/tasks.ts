@@ -18,6 +18,12 @@ router.post("/description", async (req, res) => {
       return res.status(400).json({ error: "La description est requise" });
     }
 
+    const cleanedDescription = description.trim();
+
+if (cleanedDescription.length > 1000) {
+  return res.status(400).json({ error: "La description est trop longue" });
+}
+
     await client.query("BEGIN");
 
     const sessionResult = await client.query(
@@ -77,6 +83,12 @@ router.patch("/notes/:noteId", async (req, res) => {
     const userId = req.user.id;
     const noteId = Number(req.params.noteId);
     const { note } = req.body;
+
+    const cleanedDescription = note.trim();
+
+if (cleanedDescription.length > 1000) {
+  return res.status(400).json({ error: "La description est trop longue" });
+}
 
     if (!Number.isInteger(noteId) || noteId <= 0) {
       return res.status(400).json({ error: "ID de tâche invalide" });
