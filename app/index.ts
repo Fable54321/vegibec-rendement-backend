@@ -62,6 +62,7 @@ const allowedOrigins = [
   "https://tb-agrivision.netlify.app",
   "https://punch.vegibec-portail.com",
   "https://rendement.vegibec-portail.com",
+  "https://agrivision.vegibec-portail.com"
 ];
 
 app.use(
