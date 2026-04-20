@@ -8,11 +8,11 @@ const router = express.Router();
 
 router.get("/import/tables", requireAppRole("convert", ["admin"]), async (req, res) => {
   try {
-   const result = await pool.query(`
+const result = await pool.query(`
   SELECT table_schema, table_name
   FROM information_schema.tables
-  WHERE table_type = 'BASE TABLE'
-  ORDER BY table_schema, table_name;
+  WHERE table_schema IN ('public', 'timesheets')
+    AND table_type = 'BASE TABLE'
 `);
     const tables = result.rows.map(row => row.table_name);
 
