@@ -35,6 +35,7 @@ import adminRoute from "./routes/Timesheets/admin"
 import signatureRoute from "./routes/DigitalSignature/digitalSignature";
 import foreignWorkersRoute from "./routes/Portal/ForeignWorkers";
 import agrivisionRoute from "./routes/Agrivision/agrivision";
+import converterRoute from "./routes/Converter/Converter";
 import path from "path";
 
 import { ListBucketsCommand } from "@aws-sdk/client-s3";
@@ -917,6 +918,8 @@ app.use("/timesheets/user", userDailyDurationRoute);
 app.use("/timesheets/admin", adminRoute);
 
 app.use("/agrivision", agrivisionRoute);
+
+app.use("/converter", converterRoute);
 
 const PORT = process.env.PORT || 3000;
 
