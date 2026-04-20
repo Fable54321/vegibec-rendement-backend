@@ -24,3 +24,6 @@ router.get("/import/tables", requireAppRole("convert", ["admin"]), async (req, r
     res.status(500).json({ error: "Failed to fetch tables" });
   }
 });
+
+
+export default router;
