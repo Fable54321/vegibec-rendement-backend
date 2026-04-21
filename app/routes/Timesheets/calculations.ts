@@ -13,7 +13,7 @@ router.get("/daily-duration", async (req, res) => {
     const start = typeof req.query.start === "string" ? req.query.start : null;
     const end = typeof req.query.end === "string" ? req.query.end : null;
     const dateField =
-      req.query.by === "start_time" ? "ws.start_time" : "ws.created_at";
+      req.query.by === "created_at" ? "ws.created_at" : "ws.start_time";
 
     if (start && isNaN(Date.parse(start))) {
       return res.status(400).json({ error: "Date de début invalide" });
