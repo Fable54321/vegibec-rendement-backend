@@ -2,6 +2,21 @@ import { Router } from "express";
 import { pool } from "../../db";
 
 const router = Router();
+const MAX_NOTE_LENGTH = 1000;
+
+const parseDateInput = (value: unknown): Date | null => {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
+};
 
 router.get("/blocks", async (req, res) => {
   try {
@@ -304,6 +319,147 @@ router.post("/stop", async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("Error stopping session:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  } finally {
+    client.release();
+  }
+});
+
+router.post("/blocks", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorise" });
+    }
+
+    const userId = req.user.id;
+    const startTime = parseDateInput(req.body.start_time);
+    const endTime = parseDateInput(req.body.end_time);
+
+    if (!startTime) {
+      return res.status(400).json({ error: "L'heure de debut est requise" });
+    }
+
+    if (!endTime) {
+      return res.status(400).json({ error: "L'heure de fin est requise" });
+    }
+
+    if (startTime >= endTime) {
+      return res
+        .status(400)
+        .json({ error: "L'heure de fin doit etre apres l'heure de debut" });
+    }
+
+    await client.query("BEGIN");
+
+    const insertResult = await client.query(
+      `
+      INSERT INTO timesheets.work_sessions (user_id, start_time, end_time)
+      VALUES ($1, $2, $3)
+      RETURNING *
+      `,
+      [userId, startTime, endTime],
+    );
+
+    await client.query("COMMIT");
+
+    const session = insertResult.rows[0];
+    const totalMinutes = Math.round(
+      (new Date(session.end_time).getTime() -
+        new Date(session.start_time).getTime()) /
+        1000 /
+        60,
+    );
+
+    res.status(201).json({
+      session,
+      totalMinutes,
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error creating work block:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  } finally {
+    client.release();
+  }
+});
+
+router.post("/blocks/:blockId/notes", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorise" });
+    }
+
+    const userId = req.user.id;
+    const blockId = Number(req.params.blockId);
+    const rawNote =
+      typeof req.body.note === "string"
+        ? req.body.note
+        : typeof req.body.description === "string"
+          ? req.body.description
+          : "";
+    const note = rawNote.trim();
+
+    if (!Number.isInteger(blockId) || blockId <= 0) {
+      return res.status(400).json({ error: "ID de bloc invalide" });
+    }
+
+    if (!note) {
+      return res.status(400).json({ error: "La note est requise" });
+    }
+
+    if (note.length > MAX_NOTE_LENGTH) {
+      return res.status(400).json({ error: "La note est trop longue" });
+    }
+
+    await client.query("BEGIN");
+
+    const ownershipResult = await client.query(
+      `
+      SELECT id
+      FROM timesheets.work_sessions
+      WHERE id = $1
+        AND user_id = $2
+      `,
+      [blockId, userId],
+    );
+
+    if (ownershipResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Bloc introuvable" });
+    }
+
+    const noteResult = await client.query(
+      `
+      INSERT INTO timesheets.work_session_notes (work_session_id, note)
+      VALUES ($1, $2)
+      RETURNING
+        id,
+        work_session_id,
+        note,
+        created_at
+      `,
+      [blockId, note],
+    );
+
+    await client.query(
+      `
+      UPDATE timesheets.work_sessions
+      SET updated_at = NOW()
+      WHERE id = $1
+      `,
+      [blockId],
+    );
+
+    await client.query("COMMIT");
+
+    res.status(201).json(noteResult.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error adding note to work block:", err);
     res.status(500).json({ error: "Erreur serveur" });
   } finally {
     client.release();
