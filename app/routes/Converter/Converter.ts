@@ -11,7 +11,7 @@ router.get("/import/tables", requireAppRole("convert", ["admin"]), async (req, r
 const result = await pool.query(`
   SELECT table_schema, table_name
   FROM information_schema.tables
-  WHERE table_schema IN ('public', 'timesheets')
+  WHERE table_schema IN ('test')
     AND table_type = 'BASE TABLE'
 `);
     const tables = result.rows.map(row => row.table_name);
