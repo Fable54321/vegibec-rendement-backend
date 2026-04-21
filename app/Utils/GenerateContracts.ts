@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { drawCoordinateGrid } from "./drawField";
+import { get } from "http";
 
 type Worker = {
   user_id: number;
@@ -93,6 +94,14 @@ type Generate0AuContractParams = {
 };
 
 
+const getImage = async (pdfDoc: PDFDocument, imagePath: string) => {
+  const imageBuffer = await fs.readFile(imagePath);
+  return await pdfDoc.embedPng(imageBuffer);
+};
+
+const imagePath = "public/signatureFabrice.png";
+
+
 export const generate0AuContract = async ({
   worker,
   employer,
@@ -105,11 +114,16 @@ export const generate0AuContract = async ({
     "0Au.pdf",
   );
 
+
+  
+
    const existingPdfBytes = await fs.readFile(templatePath);
 
   const pdfDoc = await PDFDocument.load(existingPdfBytes, {
     ignoreEncryption: true,
   });
+
+  const image = await getImage(pdfDoc, imagePath);
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -164,6 +178,9 @@ export const generate0AvContract = async ({
     ignoreEncryption: true,
   });
 
+ 
+
+
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
@@ -209,6 +226,8 @@ export const generatePTETContract = async ({
   const pdfDoc = await PDFDocument.load(existingPdfBytes, {
     ignoreEncryption: true,
   });
+
+const image = await getImage(pdfDoc, imagePath);
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -564,6 +583,12 @@ firstPage.drawText(`${worker.surname}`, {
     color: rgb(0, 0, 0),
   });
 
+  fifthPage.drawImage(image, {
+    x: 50,
+    y: 220,
+    width: 100,
+    height: 100,
+  })
  
 
  

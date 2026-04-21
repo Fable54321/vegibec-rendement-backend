@@ -93,6 +93,10 @@ export const generateAutdedContract = async ({
     ignoreEncryption: true,
   });
 
+
+  const imageBuffer = await fs.readFile("./public/signatureFabrice.png")
+  const image = await pdfDoc.embedPng(imageBuffer);
+
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
