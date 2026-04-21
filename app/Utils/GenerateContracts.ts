@@ -94,12 +94,9 @@ type Generate0AuContractParams = {
 };
 
 
-const getImage = async (pdfDoc: PDFDocument, imagePath: string) => {
-  const imageBuffer = await fs.readFile(imagePath);
-  return await pdfDoc.embedPng(imageBuffer);
-};
 
-const imagePath = "public/signatureFabrice.png";
+
+
 
 
 export const generate0AuContract = async ({
@@ -123,7 +120,7 @@ export const generate0AuContract = async ({
     ignoreEncryption: true,
   });
 
-  const image = await getImage(pdfDoc, imagePath);
+
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -227,7 +224,7 @@ export const generatePTETContract = async ({
     ignoreEncryption: true,
   });
 
-const image = await getImage(pdfDoc, imagePath);
+
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -583,13 +580,7 @@ firstPage.drawText(`${worker.surname}`, {
     color: rgb(0, 0, 0),
   });
 
-  fifthPage.drawImage(image, {
-    x: 50,
-    y: 220,
-    width: 100,
-    height: 100,
-  })
- 
+
 
  
 
