@@ -336,9 +336,6 @@ router.post("/blocks", async (req, res) => {
     const userId = req.user.id;
     const startTime = parseDateInput(req.body.start_time);
     const endTime = parseDateInput(req.body.end_time);
-    
-
-
 
     if (!startTime) {
       return res.status(400).json({ error: "L'heure de debut est requise" });
@@ -354,7 +351,15 @@ router.post("/blocks", async (req, res) => {
         .json({ error: "L'heure de fin doit etre apres l'heure de debut" });
     }
 
-    
+    const sameLocalDay =
+  startTime.toLocaleDateString("en-CA", { timeZone: "America/Toronto" }) ===
+  endTime.toLocaleDateString("en-CA", { timeZone: "America/Toronto" });
+
+if (!sameLocalDay) {
+  return res.status(400).json({
+    error: "L'heure de debut et l'heure de fin doivent etre dans la meme journee",
+  });
+}
 
     await client.query("BEGIN");
 
