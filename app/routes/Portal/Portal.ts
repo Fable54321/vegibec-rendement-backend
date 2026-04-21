@@ -171,7 +171,7 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
       });
     }
 
-    if (password.length < 8) {
+    if (password.length < 4) {
       return res.status(400).json({
         success: false,
         message: "Password too short",
