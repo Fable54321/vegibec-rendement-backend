@@ -1,9 +1,12 @@
 import { Router } from "express";
 import { pool } from "../../db";
-import { uploadBufferToS3, getSignedUrlForKey, getBufferFromS3 } from "../../services/s3.services"
+import { uploadBufferToS3, getBufferFromS3 } from "../../services/s3.services"
 import { applySignatureToContract } from "../../Utils/GenerateContracts";
 import { getWorkerFullByPin } from "../../Utils/ContractHelpers/getRequiredContractSlugForWorker";
-import { buildContractSession } from "../../Utils/ContractHelpers/buildContracSession";
+import {
+  buildContractSession,
+  getContractAccessDetails,
+} from "../../Utils/ContractHelpers/buildContracSession";
 
 
 const router = Router();
@@ -292,7 +295,14 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
       return res.status(400).json({ error: "Ce contrat est déjà signé" });
     }
 
-    if (!contract.draft_pdf_key) {
+    let draftPdfKey = contract.draft_pdf_key;
+
+    if (!draftPdfKey) {
+      const access = await getContractAccessDetails(contractId);
+      draftPdfKey = access.draftPdfKey;
+    }
+
+    if (!draftPdfKey) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         error: "Aucun PDF brouillon associé à ce contrat",
@@ -307,7 +317,7 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
       return res.status(400).json({ error: "Signature invalide" });
     }
 
-    const draftPdfBuffer = await getBufferFromS3(contract.draft_pdf_key);
+    const draftPdfBuffer = await getBufferFromS3(draftPdfKey);
 
     const signedAt = new Date();
 
@@ -423,7 +433,8 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
     if (
       err instanceof Error &&
       (err.message === "Contrat introuvable" ||
-        err.message === "Aucun PDF trouvé pour ce contrat")
+        err.message === "Aucun PDF trouvé pour ce contrat" ||
+        err.message === "Aucun PDF trouve pour ce contrat")
     ) {
       return res.status(404).json({
         error: err.message,
@@ -445,47 +456,24 @@ router.get("/foreign-worker-contract/:id/access", async (req, res) => {
       return res.status(400).json({ error: "ID de contrat invalide" });
     }
 
-    const result = await pool.query(
-      `
-      SELECT
-        id,
-        status,
-        draft_pdf_key,
-        final_pdf_key,
-        template_version,
-        contract_slug
-      FROM worker_contracts
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [contractId]
-    );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Contrat introuvable" });
-    }
-
-    const contract = result.rows[0];
-
-    const keyToUse =
-      contract.status === "signed" && contract.final_pdf_key
-        ? contract.final_pdf_key
-        : contract.draft_pdf_key;
-
-    if (!keyToUse) {
-      return res.status(404).json({ error: "Aucun PDF trouvé pour ce contrat" });
-    }
-
-    const accessUrl = await getSignedUrlForKey(keyToUse);
-
+    const access = await getContractAccessDetails(contractId);
     return res.status(200).json({
-      contractId: contract.id,
-      slug: contract.contract_slug,
-      status: contract.status,
-      templateVersion: contract.template_version,
-      accessUrl,
+      contractId: access.contractId,
+      slug: access.slug,
+      status: access.status,
+      templateVersion: access.templateVersion,
+      accessUrl: access.accessUrl,
     });
   } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message === "Contrat introuvable" ||
+        err.message === "Aucun PDF trouve pour ce contrat")
+    ) {
+      return res.status(404).json({ error: err.message });
+    }
+
     console.error("Error getting contract access:", err);
     return res.status(500).json({
       error: "Erreur serveur lors de la récupération du contrat",

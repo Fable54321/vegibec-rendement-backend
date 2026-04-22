@@ -1,7 +1,7 @@
 import express from "express";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
-import { getSignedUrlForKey } from "../../services/s3.services";
+import { getContractAccessDetails } from "../../Utils/ContractHelpers/buildContracSession";
 
 
 const router = express.Router();
@@ -166,61 +166,36 @@ router.get(
         return res.status(400).json({ error: "contractId invalide" });
       }
 
-      const result = await pool.query(
-        `
-        SELECT
-          wc.id,
-          wc.user_id,
-          wc.status,
-          wc.created_at,
-          wc.updated_at,
-          wc.signed_at,
-          wc.draft_pdf_key,
-          wc.final_pdf_key,
-          wc.contract_slug
-        FROM worker_contracts wc
-        WHERE wc.id = $1
-          AND wc.user_id = $2
-        LIMIT 1
-        `,
-        [contractId, userId]
-      );
+      const contract = await getContractAccessDetails(contractId);
 
-      if (result.rows.length === 0) {
+      if (contract.userId !== userId) {
         return res.status(404).json({ error: "Contrat introuvable pour ce travailleur" });
       }
 
-      const contract = result.rows[0];
-
-      const pdfKey = contract.final_pdf_key || contract.draft_pdf_key;
-
-      if (!pdfKey) {
-        return res.status(404).json({ error: "Aucun PDF associé à ce contrat" });
-      }
-
-      console.log("contract row:", {
-  id: contract.id,
-  draft_pdf_key: contract.draft_pdf_key,
-  final_pdf_key: contract.final_pdf_key,
-  status: contract.status,
-});
-
-      const url = await getSignedUrlForKey(pdfKey);
+      const pdfKey = contract.finalPdfKey || contract.draftPdfKey;
 
       return res.status(200).json({
-        id: contract.id,
-        user_id: contract.user_id,
+        id: contract.contractId,
+        user_id: contract.userId,
         status: contract.status,
-        contract_slug: contract.contract_slug,
-        created_at: contract.created_at,
-        updated_at: contract.updated_at,
-        signed_at: contract.signed_at,
-        draft_pdf_key: contract.draft_pdf_key,
-        final_pdf_key: contract.final_pdf_key,
+        contract_slug: contract.slug,
+        created_at: contract.createdAt,
+        updated_at: contract.updatedAt,
+        signed_at: contract.signedAt,
+        draft_pdf_key: contract.draftPdfKey,
+        final_pdf_key: contract.finalPdfKey,
         pdf_key: pdfKey,
-        url,
+        url: contract.accessUrl,
       });
     } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message === "Contrat introuvable" ||
+          err.message === "Aucun PDF trouve pour ce contrat")
+      ) {
+        return res.status(404).json({ error: err.message });
+      }
+
       console.error("Error fetching specific worker contract:", err);
       return res.status(500).json({ error: "Erreur lors de la récupération du contrat" });
     }
