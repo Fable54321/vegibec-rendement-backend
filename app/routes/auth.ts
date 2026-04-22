@@ -122,15 +122,33 @@ router.post("/refresh", (req, res) => {
       { expiresIn: "1h" },
     );
 
+    const newRefreshToken = jwt.sign(
+      {
+        id: decoded.id,
+        username: decoded.username,
+        role: decoded.role,
+      },
+      REFRESH_SECRET,
+      { expiresIn: "7d" },
+    );
+
     const isProd = process.env.NODE_ENV === "production";
 
+    // ✅ set new access token
     res.cookie(
       "accessToken",
       newAccessToken,
       getCookieOptions(isProd, 60 * 60 * 1000),
     );
 
-    res.json({ message: "Access token refreshed" });
+    // ✅ IMPORTANT: rotate refresh token
+    res.cookie(
+      "refreshToken",
+      newRefreshToken,
+      getCookieOptions(isProd, 7 * 24 * 60 * 60 * 1000),
+    );
+
+    res.json({ message: "Tokens refreshed" });
   } catch (err) {
     console.error("Refresh error:", err);
     return res.status(403).json({ error: "Invalid or expired refresh token" });
