@@ -60,7 +60,8 @@ router.get("/foreign-worker-info", async (req, res) => {
         accommodation_provided,
         high_wage,
         more_info_ptet,
-        pin
+        pin,
+        nas,
       FROM foreign_workers_info
       WHERE user_id = $1
       `,
@@ -216,7 +217,8 @@ router.get("/foreign-worker-info/current", async (req, res) => {
         fwi.pin,
         fwi.holiday_duration,
         fwi.matricula,
-        fwi.contract_type
+        fwi.contract_type,
+        fwi.nas,
       FROM foreign_workers_info fwi
       INNER JOIN users u
         ON u.id = fwi.user_id
