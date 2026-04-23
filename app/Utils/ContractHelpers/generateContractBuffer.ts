@@ -8,6 +8,8 @@ import {
 import { generate0LoContract } from "../Generate0LoContract";
 import { generateAutdedContract } from "../GenerateAutDed";
 import { generateAutretContract } from "../generateAutretContract";
+import { generateImpAutContract } from "../GenerateImpAut";
+import { generateImpCons } from "../GenerateImpCons";
 import { generatePolBrisContract } from "../GeneratePolBriscontract";
 import { generatePolHarcContract } from "../GeneratePolHarcContract";
 import { generatepolProtContract } from "../GeneratePolProtContract";
@@ -48,6 +50,14 @@ export function getContractTemplateVersion({
 
   if (contractSlug === "Aut-ret") {
     return "2026-autret-v1";
+  }
+
+  if (contractSlug === "Imp-aut") {
+    return "2026-impaut-v1";
+  }
+
+  if (contractSlug === "Imp-con") {
+    return "2026-icon-v1";
   }
 
   if (contractSlug === "Pol-bris") {
@@ -120,6 +130,18 @@ export async function generateContractBuffer({
     });
   } else if (contractSlug === "Aut-ret") {
     pdfBuffer = await generateAutretContract({
+      worker,
+      employer,
+      getJobDescription,
+    });
+  } else if (contractSlug === "Imp-aut") {
+    pdfBuffer = await generateImpAutContract({
+      worker,
+      employer,
+      getJobDescription,
+    });
+  } else if (contractSlug === "Imp-con") {
+    pdfBuffer = await generateImpCons({
       worker,
       employer,
       getJobDescription,

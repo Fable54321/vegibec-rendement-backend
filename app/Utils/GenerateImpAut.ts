@@ -139,13 +139,6 @@ export const generateImpAutContract = async ({
     font: boldFont,
   });
 
-  firstPage.drawText(`${ "TEST SIGNATURE"}`, {
-    x: 60,
-    y: 138,
-    size: 16,
-    font: boldFont,
-  });
-
 
  
 
@@ -176,13 +169,6 @@ fourthPage.drawText(`${worker.name ?? ""}`, {
   x: 355,
   y: 565,
   size: 11,
-  font: boldFont,
-});  
-
-fourthPage.drawText("SIGNATURE TEST", {
-  x: 71,
-  y: 188,
-  size: 16,
   font: boldFont,
 });
   

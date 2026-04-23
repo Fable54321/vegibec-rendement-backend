@@ -120,20 +120,6 @@ export const generateImpCons = async ({
     font: boldFont,
   });
 
-firstPage.drawText("SIGNATURE TEST", {
-    x: 350,
-    y: 149,
-    size: 20,
-    font: boldFont,
-  });
-
-  firstPage.drawText("2026-08-06", {
-    x: 330,
-    y: 110,
-    size: 11,
-    font: boldFont,
-  });
-
 
 
 
