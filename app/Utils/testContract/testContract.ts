@@ -1,5 +1,5 @@
 import express from "express";
-import { generateImpAutContract } from "../GenerateImpAut";
+import { generateImpCons } from "../GenerateImpCons";
 const router = express.Router();
 
 
@@ -51,7 +51,7 @@ router.get("/debug/contract-preview/impaut", async (_req, res) => {
       more_info_ptet: null,
       pin: null,
       holiday_duration: null,
-      nas: null,
+      nas: "111111111",
     };
 
     const employer = {
@@ -64,7 +64,7 @@ router.get("/debug/contract-preview/impaut", async (_req, res) => {
       website: "vegibec.com",
     };
 
-    const pdfBuffer = await generateImpAutContract({
+    const pdfBuffer = await generateImpCons({
       worker,
       employer,
       getJobDescription: (jobTitle: string) => jobTitle,

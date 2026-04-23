@@ -72,6 +72,9 @@ type GenerateImpAutContractParams = {
 
 
 
+
+
+
 export const generateImpAutContract = async ({
   worker,
   employer,
@@ -107,20 +110,83 @@ export const generateImpAutContract = async ({
 
    
 
- firstPage.drawText(`${worker.matricula ?? ""}`, {
-    x: 255,
-    y: 596,
+ firstPage.drawText(`${worker.nas ?? ""}`, {
+    x: 80,
+    y: 513,
     size: 11,
     font: boldFont,
   });
 
-  firstPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
-    x: 220,
-    y: 573,
+  firstPage.drawText(`${worker.surname ?? ""}`, {
+    x: 200,
+    y: 513,
     size: 11,
     font: boldFont,
   });
 
+  firstPage.drawText(`${worker.name ?? ""}`, {
+    x: 420,
+    y: 513,
+    size: 11,
+    font: boldFont,
+  });
+
+
+    firstPage.drawText(`${worker.surname ?? ""} ${ worker.name ?? ""}`, {
+    x: 20,
+    y: 211,
+    size: 11,
+    font: boldFont,
+  });
+
+  firstPage.drawText(`${ "TEST SIGNATURE"}`, {
+    x: 60,
+    y: 138,
+    size: 16,
+    font: boldFont,
+  });
+
+
+ 
+
+
+  const nas =  worker.nas;
+const startX = 450;
+const y = 533;
+const step = 12;
+
+nas?.split("").forEach((char, index) => {
+  secondPage.drawText(char, {
+    x: startX + index * step,
+    y,
+    size: 11,
+    font: boldFont,
+  });
+});
+
+
+fourthPage.drawText(`${worker.surname ?? ""}`, {
+  x: 80,
+  y: 565,
+  size: 11,
+  font: boldFont,
+});
+
+fourthPage.drawText(`${worker.name ?? ""}`, {
+  x: 355,
+  y: 565,
+  size: 11,
+  font: boldFont,
+});  
+
+fourthPage.drawText("SIGNATURE TEST", {
+  x: 71,
+  y: 188,
+  size: 16,
+  font: boldFont,
+});
+  
+ 
 
 
 
