@@ -135,7 +135,7 @@ firstPage.drawText("SIGNATURE TEST", {
   });
 
 
-drawCoordinateGrid(firstPage);
+
 
 
 
