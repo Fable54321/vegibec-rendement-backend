@@ -37,7 +37,7 @@ import foreignWorkersRoute from "./routes/Portal/ForeignWorkers";
 import agrivisionRoute from "./routes/Agrivision/agrivision";
 import converterRoute from "./routes/Converter/Converter";
 import path from "path";
-import testRoute from "../app/Utils/testContract/testContract"
+
 
 
 import { ListBucketsCommand } from "@aws-sdk/client-s3";
@@ -106,7 +106,7 @@ app.use(
   express.static(path.join(process.cwd(), "public", "generated-contracts"))
 );
 
-app.use("/test", testRoute);
+
 
 app.use("/auth", authRoute);
 
