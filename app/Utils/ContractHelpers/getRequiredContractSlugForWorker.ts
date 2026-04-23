@@ -90,6 +90,7 @@ export async function getWorkerFullByPin(pin: string | number) {
       fwi.pin,
       fwi.holiday_duration,
       fwi.matricula,
+      fwi.nas,
       fwi.contract_type
     FROM foreign_workers_info fwi
     INNER JOIN users u
