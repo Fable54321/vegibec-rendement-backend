@@ -91,6 +91,7 @@ router.get(
           ws.updated_at,
           ws.is_modified,
           ws.modified_at,
+          ws.dinner_duration,
           ROUND(EXTRACT(EPOCH FROM (ws.end_time - ws.start_time)) / 60) AS total_minutes
         FROM timesheets.work_sessions ws
         WHERE ws.user_id = $1
@@ -337,6 +338,7 @@ router.patch(
             updated_at = NOW(),
             is_modified = true,
             modified_at = NOW()
+            
         WHERE id = $3
         RETURNING
           *,
