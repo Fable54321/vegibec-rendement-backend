@@ -2,7 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { pool } from "../db";
-import e from "express";
+import type { CookieOptions } from "express";
 
 const router = express.Router();
 
@@ -29,12 +29,24 @@ function generateRefreshToken(user: any) {
   );
 }
 
-function getCookieOptions(isProd: boolean, maxAge: number) {
+const COOKIE_SAME_SITE: CookieOptions["sameSite"] = "none";
+
+function getCookieOptions(maxAge: number): CookieOptions {
   return {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? ("none" as const) : ("lax" as const),
+    // Browsers require Secure when SameSite=None. Keep these together.
+    secure: true,
+    sameSite: COOKIE_SAME_SITE,
     maxAge,
+    path: "/",
+  };
+}
+
+function getClearCookieOptions(): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: true,
+    sameSite: COOKIE_SAME_SITE,
     path: "/",
   };
 }
@@ -70,18 +82,16 @@ router.post("/login", async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    const isProd = process.env.NODE_ENV === "production";
-
     res.cookie(
       "accessToken",
       accessToken,
-      getCookieOptions(isProd, 60 * 60 * 1000), // 1 hour
+      getCookieOptions(60 * 60 * 1000), // 1 hour
     );
 
     res.cookie(
       "refreshToken",
       refreshToken,
-      getCookieOptions(isProd, 7 * 24 * 60 * 60 * 1000), // 7 days
+      getCookieOptions(7 * 24 * 60 * 60 * 1000), // 7 days
     );
 
     res.json({
@@ -132,20 +142,19 @@ router.post("/refresh", (req, res) => {
       { expiresIn: "7d" },
     );
 
-    const isProd = process.env.NODE_ENV === "production";
 
     // ✅ set new access token
     res.cookie(
       "accessToken",
       newAccessToken,
-      getCookieOptions(isProd, 60 * 60 * 1000),
+      getCookieOptions(60 * 60 * 1000),
     );
 
     // ✅ IMPORTANT: rotate refresh token
     res.cookie(
       "refreshToken",
       newRefreshToken,
-      getCookieOptions(isProd, 7 * 24 * 60 * 60 * 1000),
+      getCookieOptions(7 * 24 * 60 * 60 * 1000),
     );
 
     res.json({ message: "Tokens refreshed" });
@@ -157,14 +166,7 @@ router.post("/refresh", (req, res) => {
 
 
 router.post("/logout", (req, res) => {
-  const isProd = process.env.NODE_ENV === "production";
-
-  const clearCookieOptions = {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? ("none" as const) : ("lax" as const),
-    path: "/",
-  };
+  const clearCookieOptions = getClearCookieOptions();
 
   res.clearCookie("accessToken", clearCookieOptions);
   res.clearCookie("refreshToken", clearCookieOptions);
@@ -249,18 +251,16 @@ router.post("/change-username", async (req, res) => {
 
     const accessToken = generateAccessToken(updatedUser);
     const refreshToken = generateRefreshToken(updatedUser);
-    const isProd = process.env.NODE_ENV === "production";
-
     res.cookie(
       "accessToken",
       accessToken,
-      getCookieOptions(isProd, 60 * 60 * 1000),
+      getCookieOptions(60 * 60 * 1000),
     );
 
     res.cookie(
       "refreshToken",
       refreshToken,
-      getCookieOptions(isProd, 7 * 24 * 60 * 60 * 1000),
+      getCookieOptions(7 * 24 * 60 * 60 * 1000),
     );
 
     res.json({
