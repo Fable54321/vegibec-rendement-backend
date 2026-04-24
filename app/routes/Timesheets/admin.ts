@@ -5,6 +5,16 @@ import { requireAppRole } from "../../middleware/auth";
 const router = Router();
 
 
+const parseDateInput = (value: unknown): Date | null => {
+  if (typeof value !== "string" && !(value instanceof Date)) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
 
 
 router.get("/users/with-worksheet", requireAppRole("time", ["admin", "user", "guest", "dev"]), async (req, res) => {
@@ -179,6 +189,177 @@ router.get(
     } catch (err) {
       console.error("Error fetching work blocks by user:", err);
       res.status(500).json({ error: "Erreur serveur" });
+    }
+  },
+);
+
+
+router.patch(
+  "/blocks/:blockId/users/:userId",
+  requireAppRole("time", ["admin", "dev"]),
+  async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Non autorisÃ©" });
+      }
+
+      const blockId = Number(req.params.blockId);
+      const userId = Number(req.params.userId);
+      const { start_time, end_time, reason } = req.body;
+
+      if (!Number.isInteger(blockId) || blockId <= 0) {
+        return res.status(400).json({ error: "ID de bloc invalide" });
+      }
+
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ error: "ID utilisateur invalide" });
+      }
+
+      if (start_time === undefined && end_time === undefined) {
+        return res.status(400).json({ error: "Aucune heure fournie" });
+      }
+
+      await client.query("BEGIN");
+
+      const ownershipResult = await client.query(
+        `
+        SELECT id, user_id, start_time, end_time
+        FROM timesheets.work_sessions
+        WHERE id = $1
+          AND user_id = $2
+        FOR UPDATE
+        `,
+        [blockId, userId],
+      );
+
+      if (ownershipResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Bloc introuvable pour cet utilisateur" });
+      }
+
+      const existingSession = ownershipResult.rows[0];
+      const existingStartTime = new Date(existingSession.start_time);
+      const existingEndTime = existingSession.end_time
+        ? new Date(existingSession.end_time)
+        : null;
+
+      let newStartTime = existingStartTime;
+      let newEndTime = existingEndTime;
+
+      if (start_time !== undefined) {
+        const parsedStartTime = parseDateInput(start_time);
+
+        if (!parsedStartTime) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Heure de début invalide" });
+        }
+
+        newStartTime = parsedStartTime;
+      }
+
+      if (end_time !== undefined) {
+        if (end_time === null || end_time === "") {
+          newEndTime = null;
+        } else {
+          const parsedEndTime = parseDateInput(end_time);
+
+          if (!parsedEndTime) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "Heure de fin invalide" });
+          }
+
+          newEndTime = parsedEndTime;
+        }
+      }
+
+      if (newEndTime && newStartTime >= newEndTime) {
+        await client.query("ROLLBACK");
+        return res
+          .status(400)
+          .json({ error: "L'heure de fin doit être après l'heure de début" });
+      }
+
+      const hasTimeChanged =
+        existingStartTime.getTime() !== newStartTime.getTime() ||
+        (existingEndTime === null ? null : existingEndTime.getTime()) !==
+          (newEndTime === null ? null : newEndTime.getTime());
+
+      if (!hasTimeChanged) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Aucune modification détectée" });
+      }
+
+      const editResult = await client.query(
+        `
+        INSERT INTO timesheets.work_session_edits (
+          work_session_id,
+          previous_start_time,
+          previous_end_time,
+          new_start_time,
+          new_end_time,
+          reason,
+          edited_by_user_id,
+          is_approved
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+        RETURNING
+          id,
+          work_session_id,
+          previous_start_time,
+          previous_end_time,
+          new_start_time,
+          new_end_time,
+          previous_duration_minutes,
+          new_duration_minutes,
+          reason,
+          edited_by_user_id,
+          created_at,
+          is_approved
+        `,
+        [
+          blockId,
+          existingStartTime,
+          existingEndTime,
+          newStartTime,
+          newEndTime,
+          typeof reason === "string" ? reason.trim() || null : null,
+          req.user.id,
+        ],
+      );
+
+      const updateResult = await client.query(
+        `
+        UPDATE timesheets.work_sessions
+        SET start_time = $1,
+            end_time = $2,
+            updated_at = NOW(),
+            is_modified = true,
+            modified_at = NOW()
+        WHERE id = $3
+        RETURNING
+          *,
+          CASE
+            WHEN end_time IS NULL THEN NULL
+            ELSE ROUND(EXTRACT(EPOCH FROM (end_time - start_time)) / 60)
+          END AS total_minutes
+        `,
+        [newStartTime, newEndTime, blockId],
+      );
+
+      await client.query("COMMIT");
+
+      res.json({
+        block: updateResult.rows[0],
+        edit: editResult.rows[0],
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("Error updating admin work block:", err);
+      res.status(500).json({ error: "Erreur serveur" });
+    } finally {
+      client.release();
     }
   },
 );
