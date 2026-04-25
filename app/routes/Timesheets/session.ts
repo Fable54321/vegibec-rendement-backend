@@ -38,6 +38,7 @@ router.get("/blocks", async (req, res) => {
         ws.user_id,
         ws.start_time,
         ws.end_time,
+        ws.lunch_duration,
         ws.created_at,
         ws.updated_at,
         ws.is_modified,
@@ -152,6 +153,53 @@ router.get("/active", async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching active session:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+router.patch("/active/lunch-duration", async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+
+    const userId = req.user.id;
+    const { lunch_duration } = req.body;
+
+    const parsedLunchDuration = Number(lunch_duration);
+
+    if (
+      lunch_duration === undefined ||
+      lunch_duration === null ||
+      !Number.isInteger(parsedLunchDuration) ||
+      parsedLunchDuration < 0
+    ) {
+      return res.status(400).json({
+        error: "Durée du dîner invalide",
+      });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE timesheets.work_sessions
+      SET lunch_duration = $1,
+          updated_at = NOW()
+      WHERE user_id = $2
+        AND end_time IS NULL
+      RETURNING *
+      `,
+      [parsedLunchDuration, userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Aucune session active",
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error updating active lunch duration:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -476,7 +524,7 @@ router.post("/blocks/:blockId/notes", async (req, res) => {
   }
 });
 
-// Modify block and save the old version to history
+
 
 router.patch("/blocks/:blockId", async (req, res) => {
   const client = await pool.connect();
@@ -488,7 +536,7 @@ router.patch("/blocks/:blockId", async (req, res) => {
 
     const userId = req.user.id;
     const blockId = Number(req.params.blockId);
-    const { start_time, end_time, reason } = req.body;
+    const { start_time, end_time, reason, lunch_duration } = req.body;
 
     if (!Number.isInteger(blockId) || blockId <= 0) {
       return res.status(400).json({ error: "ID de bloc invalide" });
@@ -498,7 +546,7 @@ router.patch("/blocks/:blockId", async (req, res) => {
 
     const ownershipResult = await client.query(
       `
-      SELECT id, start_time, end_time
+      SELECT id, start_time, end_time, lunch_duration
       FROM timesheets.work_sessions
       WHERE id = $1
         AND user_id = $2
@@ -515,6 +563,7 @@ router.patch("/blocks/:blockId", async (req, res) => {
 
     let newStartTime = existingSession.start_time;
     let newEndTime = existingSession.end_time;
+    let newLunchDuration = existingSession.lunch_duration ?? 0;
 
     if (start_time) {
       newStartTime = new Date(start_time);
@@ -533,6 +582,20 @@ router.patch("/blocks/:blockId", async (req, res) => {
       }
     }
 
+    if (lunch_duration !== undefined) {
+      const parsedLunchDuration = Number(lunch_duration);
+
+      if (
+        !Number.isInteger(parsedLunchDuration) ||
+        parsedLunchDuration < 0
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Durée du dîner invalide" });
+      }
+
+      newLunchDuration = parsedLunchDuration;
+    }
+
     if (newEndTime && newStartTime >= newEndTime) {
       await client.query("ROLLBACK");
       return res
@@ -548,7 +611,12 @@ router.patch("/blocks/:blockId", async (req, res) => {
         : new Date(existingSession.end_time).getTime()) !==
         (newEndTime === null ? null : new Date(newEndTime).getTime());
 
-    if (!hasTimeChanged) {
+    const hasLunchChanged =
+      Number(newLunchDuration) !== Number(existingSession.lunch_duration ?? 0);
+
+    const hasAnyChange = hasTimeChanged || hasLunchChanged;
+
+    if (!hasAnyChange) {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "Aucune modification détectée" });
     }
@@ -582,13 +650,14 @@ router.patch("/blocks/:blockId", async (req, res) => {
       UPDATE timesheets.work_sessions
       SET start_time = $1,
           end_time = $2,
+          lunch_duration = $3,
           updated_at = NOW(),
           is_modified = true,
           modified_at = NOW()
-      WHERE id = $3
+      WHERE id = $4
       RETURNING *
       `,
-      [newStartTime, newEndTime, blockId],
+      [newStartTime, newEndTime, newLunchDuration, blockId],
     );
 
     await client.query("COMMIT");
@@ -602,7 +671,6 @@ router.patch("/blocks/:blockId", async (req, res) => {
     client.release();
   }
 });
-
 //See edits mades to a block
 
 router.get("/blocks/:blockId/edits", async (req, res) => {
