@@ -202,12 +202,12 @@ router.patch(
 
     try {
       if (!req.user) {
-        return res.status(401).json({ error: "Non autorisÃ©" });
+        return res.status(401).json({ error: "Non autorisé" });
       }
 
       const blockId = Number(req.params.blockId);
       const userId = Number(req.params.userId);
-      const { start_time, end_time, reason } = req.body;
+      const { start_time, end_time, reason, lunch_duration } = req.body;
 
       if (!Number.isInteger(blockId) || blockId <= 0) {
         return res.status(400).json({ error: "ID de bloc invalide" });
@@ -217,15 +217,19 @@ router.patch(
         return res.status(400).json({ error: "ID utilisateur invalide" });
       }
 
-      if (start_time === undefined && end_time === undefined) {
-        return res.status(400).json({ error: "Aucune heure fournie" });
+      if (
+        start_time === undefined &&
+        end_time === undefined &&
+        lunch_duration === undefined
+      ) {
+        return res.status(400).json({ error: "Aucune modification fournie" });
       }
 
       await client.query("BEGIN");
 
       const ownershipResult = await client.query(
         `
-        SELECT id, user_id, start_time, end_time
+        SELECT id, user_id, start_time, end_time, lunch_duration
         FROM timesheets.work_sessions
         WHERE id = $1
           AND user_id = $2
@@ -240,13 +244,16 @@ router.patch(
       }
 
       const existingSession = ownershipResult.rows[0];
+
       const existingStartTime = new Date(existingSession.start_time);
       const existingEndTime = existingSession.end_time
         ? new Date(existingSession.end_time)
         : null;
+      const existingLunchDuration = Number(existingSession.lunch_duration ?? 0);
 
       let newStartTime = existingStartTime;
       let newEndTime = existingEndTime;
+      let newLunchDuration = existingLunchDuration;
 
       if (start_time !== undefined) {
         const parsedStartTime = parseDateInput(start_time);
@@ -274,6 +281,20 @@ router.patch(
         }
       }
 
+      if (lunch_duration !== undefined) {
+        const parsedLunchDuration = Number(lunch_duration);
+
+        if (
+          !Number.isInteger(parsedLunchDuration) ||
+          parsedLunchDuration < 0
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Durée du dîner invalide" });
+        }
+
+        newLunchDuration = parsedLunchDuration;
+      }
+
       if (newEndTime && newStartTime >= newEndTime) {
         await client.query("ROLLBACK");
         return res
@@ -286,7 +307,9 @@ router.patch(
         (existingEndTime === null ? null : existingEndTime.getTime()) !==
           (newEndTime === null ? null : newEndTime.getTime());
 
-      if (!hasTimeChanged) {
+      const hasLunchChanged = existingLunchDuration !== newLunchDuration;
+
+      if (!hasTimeChanged && !hasLunchChanged) {
         await client.query("ROLLBACK");
         return res.status(400).json({ error: "Aucune modification détectée" });
       }
@@ -299,24 +322,14 @@ router.patch(
           previous_end_time,
           new_start_time,
           new_end_time,
+          previous_lunch_duration,
+          new_lunch_duration,
           reason,
           edited_by_user_id,
           is_approved
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, true)
-        RETURNING
-          id,
-          work_session_id,
-          previous_start_time,
-          previous_end_time,
-          new_start_time,
-          new_end_time,
-          previous_duration_minutes,
-          new_duration_minutes,
-          reason,
-          edited_by_user_id,
-          created_at,
-          is_approved
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+        RETURNING *
         `,
         [
           blockId,
@@ -324,6 +337,8 @@ router.patch(
           existingEndTime,
           newStartTime,
           newEndTime,
+          existingLunchDuration,
+          newLunchDuration,
           typeof reason === "string" ? reason.trim() || null : null,
           req.user.id,
         ],
@@ -334,11 +349,11 @@ router.patch(
         UPDATE timesheets.work_sessions
         SET start_time = $1,
             end_time = $2,
+            lunch_duration = $3,
             updated_at = NOW(),
             is_modified = true,
             modified_at = NOW()
-            
-        WHERE id = $3
+        WHERE id = $4
         RETURNING
           *,
           CASE
@@ -346,7 +361,7 @@ router.patch(
             ELSE ROUND(EXTRACT(EPOCH FROM (end_time - start_time)) / 60)
           END AS total_minutes
         `,
-        [newStartTime, newEndTime, blockId],
+        [newStartTime, newEndTime, newLunchDuration, blockId],
       );
 
       await client.query("COMMIT");
