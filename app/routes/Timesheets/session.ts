@@ -629,6 +629,8 @@ router.patch("/blocks/:blockId", async (req, res) => {
         previous_end_time,
         new_start_time,
         new_end_time,
+        previous_lunch_duration,
+        new_lunch_duration,
         reason,
         edited_by_user_id
       )
@@ -640,6 +642,8 @@ router.patch("/blocks/:blockId", async (req, res) => {
         existingSession.end_time,
         newStartTime,
         newEndTime,
+        existingSession.lunch_duration ?? 0,
+        newLunchDuration,
         reason?.trim() || null,
         userId,
       ],
