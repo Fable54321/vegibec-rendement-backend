@@ -621,33 +621,33 @@ router.patch("/blocks/:blockId", async (req, res) => {
       return res.status(400).json({ error: "Aucune modification détectée" });
     }
 
-    await client.query(
-      `
-      INSERT INTO timesheets.work_session_edits (
-        work_session_id,
-        previous_start_time,
-        previous_end_time,
-        new_start_time,
-        new_end_time,
-        previous_lunch_duration,
-        new_lunch_duration,
-        reason,
-        edited_by_user_id
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `,
-      [
-        blockId,
-        existingSession.start_time,
-        existingSession.end_time,
-        newStartTime,
-        newEndTime,
-        existingSession.lunch_duration ?? 0,
-        newLunchDuration,
-        reason?.trim() || null,
-        userId,
-      ],
-    );
+   await client.query(
+  `
+  INSERT INTO timesheets.work_session_edits (
+    work_session_id,
+    previous_start_time,
+    previous_end_time,
+    new_start_time,
+    new_end_time,
+    previous_lunch_duration,
+    new_lunch_duration,
+    reason,
+    edited_by_user_id
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  `,
+  [
+    blockId,
+    existingSession.start_time,
+    existingSession.end_time,
+    newStartTime,
+    newEndTime,
+    existingSession.lunch_duration ?? 0,
+    newLunchDuration,
+    reason?.trim() || null,
+    userId,
+  ],
+);
 
     const updateResult = await client.query(
       `
