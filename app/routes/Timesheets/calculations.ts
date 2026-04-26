@@ -40,29 +40,43 @@ router.get("/daily-duration", async (req, res) => {
       );
     }
 
-    const result = await pool.query(
-      `
-      SELECT
-        ( ${dateField} AT TIME ZONE 'America/Toronto')::date AS day,
-        SUM(
-          COALESCE(
-            duration_minutes,
-            ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
-          )
-        ) AS total_minutes,
-        SUM(
-          COALESCE(
-            duration_minutes,
-            ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
-          )
-        ) / 60.0 AS total_hours
-      FROM timesheets.work_sessions ws
-      WHERE ${whereClauses.join(" AND ")}
-      GROUP BY day
-      ORDER BY day DESC
-      `,
-      values,
-    );
+ const result = await pool.query(
+  `
+  SELECT
+    ( ${dateField} AT TIME ZONE 'America/Toronto')::date AS day,
+
+    SUM(
+      COALESCE(
+        duration_minutes,
+        ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
+      )
+    ) AS total_minutes,
+
+    SUM(COALESCE(ws.lunch_duration, 0)) AS lunch_minutes,
+
+    GREATEST(
+      0,
+      SUM(
+        COALESCE(
+          duration_minutes,
+          ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
+        )
+      ) - SUM(COALESCE(ws.lunch_duration, 0))
+    ) AS net_minutes,
+
+    SUM(
+      COALESCE(
+        duration_minutes,
+        ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
+      )
+    ) / 60.0 AS total_hours
+  FROM timesheets.work_sessions ws
+  WHERE ${whereClauses.join(" AND ")}
+  GROUP BY day
+  ORDER BY day DESC
+  `,
+  values,
+);
 
     res.json(result.rows);
   } catch (err) {
