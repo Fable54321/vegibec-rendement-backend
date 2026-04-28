@@ -39,10 +39,10 @@ router.post("/start", async (req, res) => {
       `
       INSERT INTO visitors.visits_details (
         arrival_time,
-        visitor_name,
+        full_name,
         company_name,
         visit_reason,
-        arrival_signature,
+        arrival_signature_key,
         checklist,
         wants_email,
         email,
