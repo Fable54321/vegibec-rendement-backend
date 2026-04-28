@@ -114,7 +114,7 @@ run().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
-export const sendEmail = (subject: string, text: string) => {
+export const sendEmail = (subject: string, text: string, to: string) => {
   return transporter.sendMail({
     from,
     to,

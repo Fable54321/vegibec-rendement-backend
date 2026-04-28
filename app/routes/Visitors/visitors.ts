@@ -37,7 +37,7 @@ router.post("/start", async (req, res) => {
     } = req.body;
 
      if(wants_email && email !== ""){
-        
+        sendEmail("Vegibec - plan du site", "Vous trouverez ci-joint le plan du site", email);
       }
 
     const result = await pool.query(
