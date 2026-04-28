@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../../db";
 import crypto from "crypto";
+import { sendEmail } from "./Utils/testSMTP";
 import {
   uploadVisitorSignatureToS3,
   getSignedUrlForVisitorSignature,
@@ -35,6 +36,10 @@ router.post("/start", async (req, res) => {
       other_content,
     } = req.body;
 
+     if(wants_email && email !== ""){
+        
+      }
+
     const result = await pool.query(
       `
       INSERT INTO visitors.visits_details (
@@ -62,6 +67,8 @@ router.post("/start", async (req, res) => {
         email,
         other_content,
       ]
+
+     
     );
 
     res.status(200).json(result.rows[0]);
