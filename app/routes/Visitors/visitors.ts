@@ -75,7 +75,7 @@ router.post("/start", async (req, res) => {
 router.post("/signature", async (req, res) => {
   try {
 
-    console.log("req.body:", req.body);
+    
 
 
     const { signatureDataUrl } = req.body || {};
@@ -91,6 +91,8 @@ router.post("/signature", async (req, res) => {
     if (!matches) {
       return res.status(400).json({ error: "Format de signature invalide" });
     }
+
+    console.log("getting there");
 
     const buffer = Buffer.from(matches[1], "base64");
 
