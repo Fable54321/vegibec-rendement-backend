@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "dev": "nodemon --watch app --ext ts --exec ts-node app/index.ts",
     "create-admin": "ts-node app/scripts/createAdmin.ts",
+    "test:smtp": "tsx app/routes/Visitors/Utils/testSMTP.ts",
     "test": "tsx --test \"app/**/*.test.ts\""
   },
   "keywords": [],
