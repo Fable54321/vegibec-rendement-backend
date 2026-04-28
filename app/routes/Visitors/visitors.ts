@@ -92,13 +92,15 @@ router.post("/signature", async (req, res) => {
       return res.status(400).json({ error: "Format de signature invalide" });
     }
 
-    console.log("getting there");
+  
 
     const buffer = Buffer.from(matches[1], "base64");
 
     const key = `visitor-signatures/${Date.now()}-${crypto.randomUUID()}.png`;
 
     await uploadVisitorSignatureToS3(key, buffer);
+
+    console.log("getting here");
 
     const signedUrl = await getSignedUrlForVisitorSignature(key);
 
