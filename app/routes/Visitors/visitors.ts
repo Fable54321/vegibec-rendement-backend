@@ -22,19 +22,54 @@ router.get("/", async (req, res) => {
 
 
 router.post("/start", async (req, res) => {
-    try {
-        const {arrival_time, full_name, company_name, visit_reason, arrival_signature_url } = req.body;
-        const result = await pool.query(
-          "INSERT INTO visitors ( arrival_time,visitor_name, company_name, visit_reason, arrival_signature) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-          [ arrival_time,full_name,company_name,visit_reason,arrival_signature_url]
-        );
-        res.status(200).json(result.rows[0]);
-      } catch (error) {
-        console.error("Error creating visitor:", error);
-        res.status(500).json({ error: "Failed to create visitor" });
-      }
-})
+  try {
+    const {
+      arrival_time,
+      full_name,
+      company_name,
+      visit_reason,
+      arrival_signature_key,
+      checklist,
+      wants_email,
+      email,
+      other_content,
+    } = req.body;
 
+    const result = await pool.query(
+      `
+      INSERT INTO visitors (
+        arrival_time,
+        visitor_name,
+        company_name,
+        visit_reason,
+        arrival_signature,
+        checklist,
+        wants_email,
+        email,
+        other_content
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      RETURNING *
+      `,
+      [
+        arrival_time,
+        full_name,
+        company_name,
+        visit_reason,
+        arrival_signature_key,
+        checklist,        // JSON or array
+        wants_email,
+        email,
+        other_content,
+      ]
+    );
+
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error creating visitor:", error);
+    res.status(500).json({ error: "Failed to create visitor" });
+  }
+});
 
 
 router.post("/signature", async (req, res) => {
