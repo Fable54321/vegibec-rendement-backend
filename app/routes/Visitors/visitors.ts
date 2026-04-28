@@ -98,9 +98,11 @@ router.post("/signature", async (req, res) => {
 
     const key = `visitor-signatures/${Date.now()}-${crypto.randomUUID()}.png`;
 
+    console.log("getting here");
+
     await uploadVisitorSignatureToS3(key, buffer);
 
-    console.log("getting here");
+    
 
     const signedUrl = await getSignedUrlForVisitorSignature(key);
 
