@@ -1,10 +1,32 @@
-
 import dotenv from "dotenv";
-dotenv.config();
+import fs from "fs";
 import nodemailer from "nodemailer";
+import path from "path";
 
+const findEnvPath = (startDirectory: string): string | undefined => {
+  let currentDirectory = startDirectory;
 
-console.log(process.env.SMTP_HOST)
+  while (true) {
+    const envPath = path.join(currentDirectory, ".env");
+
+    if (fs.existsSync(envPath)) {
+      return envPath;
+    }
+
+    const parentDirectory = path.dirname(currentDirectory);
+
+    if (parentDirectory === currentDirectory) {
+      return undefined;
+    }
+
+    currentDirectory = parentDirectory;
+  }
+};
+
+dotenv.config({
+  path: findEnvPath(__dirname),
+  quiet: true,
+});
 
 const requiredEnv = (name: string): string => {
   const value = process.env[name]?.trim();
