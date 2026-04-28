@@ -57,7 +57,7 @@ router.post("/start", async (req, res) => {
         company_name,
         visit_reason,
         arrival_signature_key,
-        checklist,        // JSON or array
+        checklist,        
         wants_email,
         email,
         other_content,
