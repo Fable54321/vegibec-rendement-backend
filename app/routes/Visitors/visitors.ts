@@ -37,7 +37,7 @@ router.post("/start", async (req, res) => {
 
     const result = await pool.query(
       `
-      INSERT INTO visitors (
+      INSERT INTO visitors.visits_details (
         arrival_time,
         visitor_name,
         company_name,
