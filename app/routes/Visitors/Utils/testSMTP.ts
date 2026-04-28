@@ -1,5 +1,10 @@
-import "dotenv/config";
+
+import dotenv from "dotenv";
+dotenv.config();
 import nodemailer from "nodemailer";
+
+
+console.log(process.env.SMTP_HOST)
 
 const requiredEnv = (name: string): string => {
   const value = process.env[name]?.trim();
