@@ -74,7 +74,13 @@ router.post("/start", async (req, res) => {
 
 router.post("/signature", async (req, res) => {
   try {
-    const { signatureDataUrl } = req.body;
+
+    console.log("req.body:", req.body);
+
+
+    const { signatureDataUrl } = req.body || {};
+
+    
 
     if (!signatureDataUrl) {
       return res.status(400).json({ error: "Signature manquante" });
