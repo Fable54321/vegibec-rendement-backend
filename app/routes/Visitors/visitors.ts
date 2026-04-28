@@ -1,5 +1,10 @@
 import { Router } from "express";
 import { pool } from "../../db";
+import crypto from "crypto";
+import {
+  uploadVisitorSignatureToS3,
+  getSignedUrlForVisitorSignature,
+} from "./Utils/s3Visitors";
 
 
 const router = Router();
@@ -29,6 +34,40 @@ router.post("/start", async (req, res) => {
         res.status(500).json({ error: "Failed to create visitor" });
       }
 })
+
+
+
+router.post("/signature", async (req, res) => {
+  try {
+    const { signatureDataUrl } = req.body;
+
+    if (!signatureDataUrl) {
+      return res.status(400).json({ error: "Signature manquante" });
+    }
+
+    const matches = signatureDataUrl.match(/^data:image\/png;base64,(.+)$/);
+
+    if (!matches) {
+      return res.status(400).json({ error: "Format de signature invalide" });
+    }
+
+    const buffer = Buffer.from(matches[1], "base64");
+
+    const key = `visitor-signatures/${Date.now()}-${crypto.randomUUID()}.png`;
+
+    await uploadVisitorSignatureToS3(key, buffer);
+
+    const signedUrl = await getSignedUrlForVisitorSignature(key);
+
+    return res.status(200).json({
+      key,
+      url: signedUrl,
+    });
+  } catch (error) {
+    console.error("Error uploading visitor signature:", error);
+    return res.status(500).json({ error: "Failed to upload signature" });
+  }
+});
 
 
 
