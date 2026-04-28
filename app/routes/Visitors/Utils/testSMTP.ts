@@ -1,31 +1,88 @@
-import nodeMailer from "nodemailer";
+import "dotenv/config";
+import nodemailer from "nodemailer";
 
+const requiredEnv = (name: string): string => {
+  const value = process.env[name]?.trim();
 
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
 
+  return value;
+};
 
-const from ="timothebissonnette@gmail.com";
-const to = "programmation@vegibec.com";
+const parsePort = (value: string): number => {
+  const port = Number(value);
 
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(`SMTP_PORT must be a valid TCP port. Received: ${value}`);
+  }
 
-const transporter = nodeMailer.createTransport({
-    host: "smtp-pulse.com",
-    port: 2525,
-    secure: false,
-    auth: {
-        user: "timothebissonnette@gmail.com",
-        pass: "QEEHnYToX6BQmto",
-    },
-    tls : {
-        ciphers: 'SSLv3',
-        rejectUnauthorized: false
-    }
+  return port;
+};
+
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (["true", "1", "yes"].includes(normalized)) {
+    return true;
+  }
+
+  if (["false", "0", "no"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Expected a boolean value, received: ${value}`);
+};
+
+const host = requiredEnv("SMTP_HOST");
+const port = parsePort(process.env.SMTP_PORT?.trim() ?? "587");
+const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
+const user = requiredEnv("SMTP_USER");
+const pass = requiredEnv("SMTP_PASS");
+const from = process.env.SMTP_FROM?.trim() || user;
+const to = requiredEnv("SMTP_TEST_TO");
+
+const transporter = nodemailer.createTransport({
+  host,
+  port,
+  secure,
+  auth: {
+    user,
+    pass,
+  },
+  requireTLS: !secure,
 });
 
+const run = async (): Promise<void> => {
+  console.log(`Testing SMTP relay ${host}:${port} as ${user}`);
 
-transporter.sendMail({
+  await transporter.verify();
+  console.log("SMTP connection and authentication succeeded.");
+
+  const info = await transporter.sendMail({
     from,
     to,
-    subject: "test",
-    text: "test",
-    html: "<b>test</b>",
-}).then(console.log).catch(console.error);
+    subject: `SMTP relay test - ${new Date().toISOString()}`,
+    text: "SMTP relay test message.",
+    html: "<p>SMTP relay test message.</p>",
+  });
+
+  console.log("SMTP test email accepted by relay.");
+  console.log({
+    messageId: info.messageId,
+    accepted: info.accepted,
+    rejected: info.rejected,
+    response: info.response,
+  });
+};
+
+run().catch((error: unknown) => {
+  console.error("SMTP test failed.");
+  console.error(error);
+  process.exitCode = 1;
+});
