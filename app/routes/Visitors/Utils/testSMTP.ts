@@ -72,7 +72,7 @@ const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
 const user = requiredEnv("SMTP_USER");
 const pass = requiredEnv("SMTP_PASS");
 const from = process.env.SMTP_FROM?.trim() || user;
-const to = requiredEnv("SMTP_TEST_TO");
+const to = "programmation@vegibec.com";
 
 const transporter = nodemailer.createTransport({
   host,
@@ -113,3 +113,12 @@ run().catch((error: unknown) => {
   console.error(error);
   process.exitCode = 1;
 });
+
+export const sendEmail = (subject: string, text: string) => {
+  return transporter.sendMail({
+    from,
+    to,
+    subject,
+    text,
+  });
+};
