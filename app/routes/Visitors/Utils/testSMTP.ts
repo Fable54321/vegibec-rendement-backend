@@ -3,9 +3,9 @@ import nodeMailer from "nodemailer";
 
 
 
+const from ="timothebissonnette@gmail.com";
+const to = "programmation@vegibec.com";
 
-const from = "programmation@vegibec.com";
-const to ="timothebissonnette@gmail.com";
 
 const transporter = nodeMailer.createTransport({
     host: "smtp-pulse.com",
