@@ -66,7 +66,8 @@ const allowedOrigins = [
   "https://punch.vegibec-portail.com",
   "https://rendement.vegibec-portail.com",
   "https://agrivision.vegibec-portail.com",
-  "https://signature.vegibec-portail.com"
+  "https://signature.vegibec-portail.com",
+  "http://10.0.0.138:5173",
 ];
 
 app.use(
