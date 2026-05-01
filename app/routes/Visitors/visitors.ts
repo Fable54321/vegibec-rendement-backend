@@ -1,17 +1,18 @@
-import { Router, Request } from "express";
-import { pool } from "../../db";
+import { Request, Router } from "express";
 import crypto from "crypto";
 import jwt, { JwtPayload } from "jsonwebtoken";
+import { pool } from "../../db";
 import { sendEmail } from "./Utils/testSMTP";
 import {
-  uploadVisitorSignatureToS3,
   getSignedUrlForVisitorSignature,
+  uploadVisitorSignatureToS3,
 } from "./Utils/s3Visitors";
-
 
 const router = Router();
 const VISITOR_PLAN_TOKEN_SECRET =
-  process.env.VISITOR_PLAN_TOKEN_SECRET || process.env.JWT_SECRET || "super_secret";
+  process.env.VISITOR_PLAN_TOKEN_SECRET ||
+  process.env.JWT_SECRET ||
+  "super_secret";
 const VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS = 60 * 60 * 12;
 
 const getVisitorPlanPageUrl = (req: Request) => {
@@ -30,42 +31,43 @@ const getVisitorPlanPageUrl = (req: Request) => {
   throw new Error("VISITOR_PLAN_PAGE_URL is not defined");
 };
 
+const generateVisitorPlanUrl = (req: Request) => {
+  const expiresAt = new Date(
+    Date.now() + VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS * 1000,
+  ).toISOString();
+  const token = jwt.sign(
+    {
+      scope: "visitor-plan",
+      jti: crypto.randomUUID(),
+    },
+    VISITOR_PLAN_TOKEN_SECRET,
+    { expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS },
+  );
+  const url = new URL(getVisitorPlanPageUrl(req));
+
+  url.searchParams.set("token", token);
+
+  return {
+    url: url.toString(),
+    token,
+    expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS,
+    expiresAt,
+  };
+};
 
 router.get("/", async (req, res) => {
-    try {
-        const result = await pool.query("SELECT * FROM visitors");
-        res.status(200).json(result.rows);
-      } catch (error) {
-        console.error("Error fetching visitors:", error);
-        res.status(500).json({ error: "Failed to fetch visitors" });
-      }
-})
+  try {
+    const result = await pool.query("SELECT * FROM visitors");
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error fetching visitors:", error);
+    res.status(500).json({ error: "Failed to fetch visitors" });
+  }
+});
 
 router.get("/plan-url", async (req, res) => {
   try {
-    const expiresAt = new Date(
-      Date.now() + VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS * 1000,
-    ).toISOString();
-    const token = jwt.sign(
-      {
-        scope: "visitor-plan",
-        jti: crypto.randomUUID(),
-      },
-      VISITOR_PLAN_TOKEN_SECRET,
-      { expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS },
-    );
-    const planPageUrl = getVisitorPlanPageUrl(req);
-    const url = new URL(planPageUrl);
-
-    url.searchParams.set("token", token);
-
-
-    return res.status(200).json({
-      url: url.toString(),
-      token,
-      expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS,
-      expiresAt,
-    });
+    return res.status(200).json(generateVisitorPlanUrl(req));
   } catch (error) {
     console.error("Error generating visitor plan URL:", error);
     return res.status(500).json({ error: "Failed to generate plan URL" });
@@ -80,12 +82,17 @@ router.get("/plan-access", async (req, res) => {
       return res.status(400).json({ valid: false, error: "Missing token" });
     }
 
-    const decoded = jwt.verify(token, VISITOR_PLAN_TOKEN_SECRET) as JwtPayload & {
+    const decoded = jwt.verify(
+      token,
+      VISITOR_PLAN_TOKEN_SECRET,
+    ) as JwtPayload & {
       scope?: string;
     };
 
     if (decoded.scope !== "visitor-plan") {
-      return res.status(403).json({ valid: false, error: "Invalid token scope" });
+      return res
+        .status(403)
+        .json({ valid: false, error: "Invalid token scope" });
     }
 
     return res.status(200).json({
@@ -103,10 +110,7 @@ router.get("/plan-access", async (req, res) => {
   }
 });
 
-
 router.post("/start", async (req, res) => {
-
-
   try {
     const {
       arrival_time,
@@ -115,27 +119,32 @@ router.post("/start", async (req, res) => {
       visit_reason,
       arrival_signature_key,
       checklist,
+      wants_email,
       email,
       other_content,
-      url
     } = req.body;
 
-     const visitorEmail = typeof email === "string" ? email.trim() : "";
+    const visitorEmail = typeof email === "string" ? email.trim() : "";
+    const shouldSendEmail = Boolean(wants_email) && visitorEmail !== "";
+    let emailSent = false;
 
-     if (visitorEmail) {
-        const emailInfo = await sendEmail(
-          "Vegibec - plan du site",
-          `Vous trouverez le plan du site à l'addresse suivante: ${url} \n\n Cordialement, \n l'équipe de Vegibec`,
-          visitorEmail,
-        );
+    if (shouldSendEmail) {
+      const planUrl = generateVisitorPlanUrl(req).url;
+      const emailInfo = await sendEmail(
+        "Vegibec - plan du site",
+        `Vous trouverez le plan du site a l'adresse suivante: ${planUrl}\n\nCordialement,\nL'equipe de Vegibec`,
+        visitorEmail,
+      );
 
-        console.log("Visitor plan email relay response:", {
-          messageId: emailInfo.messageId,
-          accepted: emailInfo.accepted,
-          rejected: emailInfo.rejected,
-          response: emailInfo.response,
-        });
-      }
+      emailSent = emailInfo.accepted.includes(visitorEmail);
+
+      console.log("Visitor plan email relay response:", {
+        messageId: emailInfo.messageId,
+        accepted: emailInfo.accepted,
+        rejected: emailInfo.rejected,
+        response: emailInfo.response,
+      });
+    }
 
     const result = await pool.query(
       `
@@ -146,10 +155,11 @@ router.post("/start", async (req, res) => {
         visit_reason,
         arrival_signature_key,
         checklist,
+        wants_email,
         email,
-        other_content,
+        other_content
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING *
       `,
       [
@@ -158,31 +168,26 @@ router.post("/start", async (req, res) => {
         company_name,
         visit_reason,
         arrival_signature_key,
-        checklist,        
-        email,
+        checklist,
+        Boolean(wants_email),
+        visitorEmail || null,
         other_content,
-      ]
-
-     
+      ],
     );
 
-    res.status(200).json(result.rows[0]);
+    res.status(200).json({
+      ...result.rows[0],
+      emailSent,
+    });
   } catch (error) {
     console.error("Error creating visitor:", error);
     res.status(500).json({ error: "Failed to create visitor" });
   }
 });
 
-
 router.post("/signature", async (req, res) => {
   try {
-
-    
-
-
     const { signatureDataUrl } = req.body || {};
-
-    
 
     if (!signatureDataUrl) {
       return res.status(400).json({ error: "Signature manquante" });
@@ -194,17 +199,10 @@ router.post("/signature", async (req, res) => {
       return res.status(400).json({ error: "Format de signature invalide" });
     }
 
-  
-
     const buffer = Buffer.from(matches[1], "base64");
-
     const key = `visitor-signatures/${Date.now()}-${crypto.randomUUID()}.png`;
 
-    console.log("getting here");
-
     await uploadVisitorSignatureToS3(key, buffer);
-
-    
 
     const signedUrl = await getSignedUrlForVisitorSignature(key);
 
@@ -217,18 +215,5 @@ router.post("/signature", async (req, res) => {
     return res.status(500).json({ error: "Failed to upload signature" });
   }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export default router;
