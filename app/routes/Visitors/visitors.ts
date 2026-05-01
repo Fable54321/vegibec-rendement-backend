@@ -125,7 +125,7 @@ router.post("/start", async (req, res) => {
      if (visitorEmail) {
         const emailInfo = await sendEmail(
           "Vegibec - plan du site",
-          `Vous trouverez ci-joint le plan du site: ${url}`,
+          `Vous trouverez le plan du site à l'addresse suivante: ${url} \n\n Cordialement, \n l'équipe de Vegibec`,
           visitorEmail,
         );
 
@@ -148,9 +148,8 @@ router.post("/start", async (req, res) => {
         checklist,
         email,
         other_content,
-        url
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING *
       `,
       [
@@ -162,7 +161,6 @@ router.post("/start", async (req, res) => {
         checklist,        
         email,
         other_content,
-        url
       ]
 
      
