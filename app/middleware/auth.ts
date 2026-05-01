@@ -18,7 +18,7 @@ export const authMiddleware = (
   res: Response,
   next: NextFunction,
 ) => {
-  const publicPaths = ["/api/vegReports", "/auth"];
+  const publicPaths = ["/api/vegReports", "/auth", "/visitors/plan-access"];
   if (publicPaths.some((path) => req.originalUrl.startsWith(path))) {
     return next();
   }

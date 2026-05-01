@@ -1,15 +1,34 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import { pool } from "../../db";
 import crypto from "crypto";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import { sendEmail } from "./Utils/testSMTP";
 import {
   uploadVisitorSignatureToS3,
   getSignedUrlForVisitorSignature,
-  getSignedUrlForVisitorPlan,
 } from "./Utils/s3Visitors";
 
 
 const router = Router();
+const VISITOR_PLAN_TOKEN_SECRET =
+  process.env.VISITOR_PLAN_TOKEN_SECRET || process.env.JWT_SECRET || "super_secret";
+const VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS = 60 * 60 * 12;
+
+const getVisitorPlanPageUrl = (req: Request) => {
+  const configuredUrl = process.env.VISITOR_PLAN_PAGE_URL?.trim();
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const origin = req.get("origin");
+
+  if (origin) {
+    return `${origin.replace(/\/$/, "")}/visitors/plan`;
+  }
+
+  throw new Error("VISITOR_PLAN_PAGE_URL is not defined");
+};
 
 
 router.get("/", async (req, res) => {
@@ -24,18 +43,63 @@ router.get("/", async (req, res) => {
 
 router.get("/plan-url", async (req, res) => {
   try {
-    const expiresIn = 60 * 60 * 12;
-    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-    const url = await getSignedUrlForVisitorPlan();
+    const expiresAt = new Date(
+      Date.now() + VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS * 1000,
+    ).toISOString();
+    const token = jwt.sign(
+      {
+        scope: "visitor-plan",
+        jti: crypto.randomUUID(),
+      },
+      VISITOR_PLAN_TOKEN_SECRET,
+      { expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS },
+    );
+    const planPageUrl = getVisitorPlanPageUrl(req);
+    const url = new URL(planPageUrl);
+
+    url.searchParams.set("token", token);
+
 
     return res.status(200).json({
-      url,
-      expiresIn,
+      url: url.toString(),
+      token,
+      expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS,
       expiresAt,
     });
   } catch (error) {
     console.error("Error generating visitor plan URL:", error);
     return res.status(500).json({ error: "Failed to generate plan URL" });
+  }
+});
+
+router.get("/plan-access", async (req, res) => {
+  try {
+    const token = String(req.query.token || "");
+
+    if (!token) {
+      return res.status(400).json({ valid: false, error: "Missing token" });
+    }
+
+    const decoded = jwt.verify(token, VISITOR_PLAN_TOKEN_SECRET) as JwtPayload & {
+      scope?: string;
+    };
+
+    if (decoded.scope !== "visitor-plan") {
+      return res.status(403).json({ valid: false, error: "Invalid token scope" });
+    }
+
+    return res.status(200).json({
+      valid: true,
+      expiresAt: decoded.exp
+        ? new Date(decoded.exp * 1000).toISOString()
+        : undefined,
+    });
+  } catch (error: any) {
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({ valid: false, error: "Token expired" });
+    }
+
+    return res.status(401).json({ valid: false, error: "Invalid token" });
   }
 });
 
