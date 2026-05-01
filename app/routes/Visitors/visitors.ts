@@ -120,10 +120,21 @@ router.post("/start", async (req, res) => {
       other_content,
     } = req.body;
 
-    console.log(email);
+     const visitorEmail = typeof email === "string" ? email.trim() : "";
 
-     if(wants_email && email !== ""){
-        sendEmail("Vegibec - plan du site", "Vous trouverez ci-joint le plan du site", email);
+     if (wants_email && visitorEmail) {
+        const emailInfo = await sendEmail(
+          "Vegibec - plan du site",
+          "Vous trouverez ci-joint le plan du site",
+          visitorEmail,
+        );
+
+        console.log("Visitor plan email relay response:", {
+          messageId: emailInfo.messageId,
+          accepted: emailInfo.accepted,
+          rejected: emailInfo.rejected,
+          response: emailInfo.response,
+        });
       }
 
     const result = await pool.query(
