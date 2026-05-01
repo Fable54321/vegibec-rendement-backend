@@ -5,6 +5,7 @@ import { sendEmail } from "./Utils/testSMTP";
 import {
   uploadVisitorSignatureToS3,
   getSignedUrlForVisitorSignature,
+  getSignedUrlForVisitorPlan,
 } from "./Utils/s3Visitors";
 
 
@@ -20,6 +21,23 @@ router.get("/", async (req, res) => {
         res.status(500).json({ error: "Failed to fetch visitors" });
       }
 })
+
+router.get("/plan-url", async (req, res) => {
+  try {
+    const expiresIn = 60 * 60 * 12;
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    const url = await getSignedUrlForVisitorPlan();
+
+    return res.status(200).json({
+      url,
+      expiresIn,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error("Error generating visitor plan URL:", error);
+    return res.status(500).json({ error: "Failed to generate plan URL" });
+  }
+});
 
 
 router.post("/start", async (req, res) => {

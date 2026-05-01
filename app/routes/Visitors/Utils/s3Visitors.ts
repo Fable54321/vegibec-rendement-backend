@@ -43,3 +43,26 @@ if (!BUCKET) {
     { expiresIn: 60 * 60 },
   );
 };
+
+export const getSignedUrlForVisitorPlan = async () => {
+const BUCKET = process.env.AWS_VISITORS_BUCKET_NAME!;
+const key = process.env.AWS_VISITORS_PLAN_KEY?.trim();
+const expiresIn = 60 * 60 * 12;
+
+if (!BUCKET) {
+  throw new Error("AWS_VISITORS_BUCKET_NAME is not defined");
+}
+
+if (!key) {
+  throw new Error("AWS_VISITORS_PLAN_KEY is not defined");
+}
+
+  return getSignedUrl(
+    s3,
+    new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+    }),
+    { expiresIn },
+  );
+};
