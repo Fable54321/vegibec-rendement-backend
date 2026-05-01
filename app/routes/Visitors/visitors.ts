@@ -114,10 +114,10 @@ router.post("/start", async (req, res) => {
       company_name,
       visit_reason,
       arrival_signature_key,
-      url,
       checklist,
       email,
       other_content,
+      url
     } = req.body;
 
      const visitorEmail = typeof email === "string" ? email.trim() : "";
@@ -145,10 +145,10 @@ router.post("/start", async (req, res) => {
         company_name,
         visit_reason,
         arrival_signature_key,
-        url,
         checklist,
         email,
-        other_content
+        other_content,
+        url
       )
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING *
@@ -159,10 +159,10 @@ router.post("/start", async (req, res) => {
         company_name,
         visit_reason,
         arrival_signature_key,
-        url,
         checklist,        
         email,
         other_content,
+        url
       ]
 
      
