@@ -105,6 +105,8 @@ router.get("/plan-access", async (req, res) => {
 
 
 router.post("/start", async (req, res) => {
+
+
   try {
     const {
       arrival_time,
@@ -117,6 +119,8 @@ router.post("/start", async (req, res) => {
       email,
       other_content,
     } = req.body;
+
+    console.log(email);
 
      if(wants_email && email !== ""){
         sendEmail("Vegibec - plan du site", "Vous trouverez ci-joint le plan du site", email);
