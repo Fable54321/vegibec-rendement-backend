@@ -115,14 +115,13 @@ router.post("/start", async (req, res) => {
       visit_reason,
       arrival_signature_key,
       checklist,
-      wants_email,
       email,
       other_content,
     } = req.body;
 
      const visitorEmail = typeof email === "string" ? email.trim() : "";
 
-     if (wants_email && visitorEmail) {
+     if (visitorEmail) {
         const emailInfo = await sendEmail(
           "Vegibec - plan du site",
           "Vous trouverez ci-joint le plan du site",
@@ -146,7 +145,6 @@ router.post("/start", async (req, res) => {
         visit_reason,
         arrival_signature_key,
         checklist,
-        wants_email,
         email,
         other_content
       )
@@ -160,7 +158,6 @@ router.post("/start", async (req, res) => {
         visit_reason,
         arrival_signature_key,
         checklist,        
-        wants_email,
         email,
         other_content,
       ]
