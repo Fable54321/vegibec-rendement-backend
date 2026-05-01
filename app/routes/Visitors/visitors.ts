@@ -114,6 +114,7 @@ router.post("/start", async (req, res) => {
       company_name,
       visit_reason,
       arrival_signature_key,
+      url,
       checklist,
       email,
       other_content,
@@ -124,7 +125,7 @@ router.post("/start", async (req, res) => {
      if (visitorEmail) {
         const emailInfo = await sendEmail(
           "Vegibec - plan du site",
-          "Vous trouverez ci-joint le plan du site",
+          `Vous trouverez ci-joint le plan du site: ${url}`,
           visitorEmail,
         );
 
@@ -144,11 +145,12 @@ router.post("/start", async (req, res) => {
         company_name,
         visit_reason,
         arrival_signature_key,
+        url,
         checklist,
         email,
         other_content
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING *
       `,
       [
@@ -157,6 +159,7 @@ router.post("/start", async (req, res) => {
         company_name,
         visit_reason,
         arrival_signature_key,
+        url,
         checklist,        
         email,
         other_content,
