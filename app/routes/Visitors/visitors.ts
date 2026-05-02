@@ -15,23 +15,24 @@ const VISITOR_PLAN_TOKEN_SECRET =
   "super_secret";
 const VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS = 60 * 60 * 12;
 
-const getVisitorPlanPageUrl = (req: Request) => {
+const getVisitorPlanBaseUrl = (req: Request) => {
   const configuredUrl = process.env.VISITOR_PLAN_PAGE_URL?.trim();
 
   if (configuredUrl) {
+    // If configured, assume it's the full base URL
     return configuredUrl;
   }
 
   const signatureBase = process.env.SIGNATURE_APP_BASE_URL?.trim();
 
   if (signatureBase) {
-    return `${signatureBase}/visitors/plan`;
+    return signatureBase;
   }
 
   const origin = req.get("origin");
 
   if (origin) {
-    return `${origin.replace(/\/$/, "")}/visitors/plan`;
+    return origin.replace(/\/$/, "");
   }
 
   throw new Error("VISITOR_PLAN_PAGE_URL or SIGNATURE_APP_BASE_URL is not defined");
@@ -49,12 +50,11 @@ const generateVisitorPlanUrl = (req: Request) => {
     VISITOR_PLAN_TOKEN_SECRET,
     { expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS },
   );
-  const url = new URL(getVisitorPlanPageUrl(req));
-
-  url.searchParams.set("token", token);
+  const baseUrl = getVisitorPlanBaseUrl(req);
+  const url = `${baseUrl}/plan-du-site/${token}`;
 
   return {
-    url: url.toString(),
+    url,
     token,
     expiresIn: VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS,
     expiresAt,
