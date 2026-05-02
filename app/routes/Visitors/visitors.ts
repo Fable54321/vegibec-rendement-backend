@@ -22,13 +22,19 @@ const getVisitorPlanPageUrl = (req: Request) => {
     return configuredUrl;
   }
 
+  const signatureBase = process.env.SIGNATURE_APP_BASE_URL?.trim();
+
+  if (signatureBase) {
+    return `${signatureBase}/visitors/plan`;
+  }
+
   const origin = req.get("origin");
 
   if (origin) {
     return `${origin.replace(/\/$/, "")}/visitors/plan`;
   }
 
-  throw new Error("VISITOR_PLAN_PAGE_URL is not defined");
+  throw new Error("VISITOR_PLAN_PAGE_URL or SIGNATURE_APP_BASE_URL is not defined");
 };
 
 const generateVisitorPlanUrl = (req: Request) => {
@@ -128,11 +134,9 @@ router.post("/start", async (req, res) => {
     const shouldSendEmail =  visitorEmail !== "";
     let emailSent = false;
 
-    const appBaseUrl = process.env.SIGNATURE_APP_BASE_URL;
-
     if (shouldSendEmail) {
       const generatedUrl = generateVisitorPlanUrl(req).url;
-      const planUrl = `${appBaseUrl}/${generatedUrl}`
+      const planUrl = generatedUrl;
       const emailInfo = await sendEmail(
         "Vegibec - plan du site",
         `Vous trouverez le plan du site a l'adresse suivante: ${planUrl}\n\nCordialement,\nL'equipe de Vegibec`,
