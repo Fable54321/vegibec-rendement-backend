@@ -142,7 +142,7 @@ router.post("/start", async (req, res) => {
         messageId: emailInfo.messageId,
         accepted: emailInfo.accepted,
         rejected: emailInfo.rejected,
-        response: emailInfo.response,
+        response: emailInfo.response, 
       });
     }
 
