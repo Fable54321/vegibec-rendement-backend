@@ -13,7 +13,7 @@ const VISITOR_PLAN_TOKEN_SECRET =
   process.env.VISITOR_PLAN_TOKEN_SECRET ||
   process.env.JWT_SECRET ||
   "super_secret";
-const VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7;
+const VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS = 30;
 
 const getVisitorPlanBaseUrl = (req: Request) => {
   const configuredUrl = process.env.VISITOR_PLAN_PAGE_URL?.trim();
