@@ -162,11 +162,10 @@ router.post("/start", async (req, res) => {
         visit_reason,
         arrival_signature_key,
         checklist,
-        wants_email,
         email,
         other_content
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING *
       `,
       [
@@ -176,7 +175,6 @@ router.post("/start", async (req, res) => {
         visit_reason,
         arrival_signature_key,
         checklist,
-        Boolean(wants_email),
         visitorEmail || null,
         other_content,
       ],
