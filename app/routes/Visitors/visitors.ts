@@ -125,11 +125,14 @@ router.post("/start", async (req, res) => {
     } = req.body;
 
     const visitorEmail = typeof email === "string" ? email.trim() : "";
-    const shouldSendEmail = Boolean(wants_email) && visitorEmail !== "";
+    const shouldSendEmail =  visitorEmail !== "";
     let emailSent = false;
 
+    const appBaseUrl = process.env.SIGNATURE_APP_BASE_URL;
+
     if (shouldSendEmail) {
-      const planUrl = generateVisitorPlanUrl(req).url;
+      const generatedUrl = generateVisitorPlanUrl(req).url;
+      const planUrl = `${appBaseUrl}/${generatedUrl}`
       const emailInfo = await sendEmail(
         "Vegibec - plan du site",
         `Vous trouverez le plan du site a l'adresse suivante: ${planUrl}\n\nCordialement,\nL'equipe de Vegibec`,
