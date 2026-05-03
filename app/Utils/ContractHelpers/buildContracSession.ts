@@ -59,6 +59,8 @@ type ContractAccessDetails = {
   signedAt?: string | Date | null;
 };
 
+type Queryable = Pick<typeof pool, "query">;
+
 function getStorageKeyForContract(contract: {
   status: WorkerContractStatus;
   draft_pdf_key?: string | null;
@@ -103,13 +105,14 @@ function buildSessionContract(contract: ContractRow, reused: boolean): SessionCo
 
 async function getLatestExistingContractsBySlug(
   workerId: number,
-  contractSlugs: string[]
+  contractSlugs: string[],
+  db: Queryable = pool
 ) {
   if (contractSlugs.length === 0) {
     return new Map<string, ContractRow>();
   }
 
-  const result = await pool.query<ContractRow>(
+  const result = await db.query<ContractRow>(
     `
     SELECT DISTINCT ON (contract_slug)
       id,
@@ -138,16 +141,18 @@ async function getLatestExistingContractsBySlug(
 async function createDraftContractRecord({
   worker,
   contractSlug,
+  db = pool,
 }: {
   worker: Worker;
   contractSlug: string;
+  db?: Queryable;
 }): Promise<ContractRow> {
   const effectiveSlug = normalizeMainContractSlug(worker, contractSlug);
   const templateVersion = getContractTemplateVersion({
     contractSlug: effectiveSlug,
   });
 
-  const result = await pool.query<ContractRow>(
+  const result = await db.query<ContractRow>(
     `
     INSERT INTO worker_contracts (
       user_id,
@@ -208,7 +213,8 @@ async function getStoredContractById(contractId: number) {
 
 async function materializeDraftPdf(
   contract: ContractRow,
-  workerOverride?: Worker
+  workerOverride?: Worker,
+  db: Queryable = pool
 ): Promise<ContractRow> {
   const existingStorageKey = getStorageKeyForContract(contract);
 
@@ -240,7 +246,7 @@ async function materializeDraftPdf(
     contentType: "application/pdf",
   });
 
-  const updateResult = await pool.query<Pick<ContractRow, "draft_pdf_key" | "updated_at">>(
+  const updateResult = await db.query<Pick<ContractRow, "draft_pdf_key" | "updated_at">>(
     `
     UPDATE worker_contracts
     SET draft_pdf_key = $1,
@@ -305,64 +311,96 @@ export async function getAccessUrlForPreparedContract(contract: {
 }
 
 export async function buildContractSession(fullWorker: Worker) {
-  const requiredSlugs = [
-    ...new Set(
-      getRequiredContractSlugsForWorker(fullWorker).map((slug) =>
-        normalizeMainContractSlug(fullWorker, slug)
-      )
-    ),
-  ];
+  const client = await pool.connect();
+  let transactionStarted = false;
 
-  const existingContractsBySlug = await getLatestExistingContractsBySlug(
-    fullWorker.user_id,
-    requiredSlugs
-  );
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
 
-  const contractRows: ContractRow[] = [];
-  const sessionContracts: SessionContract[] = [];
-
-  for (const slug of requiredSlugs) {
-    const existingContract = existingContractsBySlug.get(slug);
-    const contractRow =
-      existingContract ??
-      (await createDraftContractRecord({
-        worker: fullWorker,
-        contractSlug: slug,
-      }));
-
-    contractRows.push(contractRow);
-    sessionContracts.push(buildSessionContract(contractRow, Boolean(existingContract)));
-  }
-
-  const currentIndex = sessionContracts.findIndex(
-    (contract) => contract.status !== "signed"
-  );
-
-  if (currentIndex >= 0) {
-    const currentContractRow = await materializeDraftPdf(
-      contractRows[currentIndex],
-      fullWorker
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('worker_contracts'), $1)",
+      [fullWorker.user_id]
     );
-    const currentContract = sessionContracts[currentIndex];
 
-    currentContract.storageKey = getStorageKeyForContract(currentContractRow);
-    currentContract.isReady = Boolean(currentContract.storageKey);
-    currentContract.accessUrl = currentContract.storageKey
-      ? await getSignedUrlForKey(currentContract.storageKey)
-      : null;
+    const requiredSlugs = [
+      ...new Set(
+        getRequiredContractSlugsForWorker(fullWorker).map((slug) =>
+          normalizeMainContractSlug(fullWorker, slug)
+        )
+      ),
+    ];
+
+    const existingContractsBySlug = await getLatestExistingContractsBySlug(
+      fullWorker.user_id,
+      requiredSlugs,
+      client
+    );
+
+    const contractRows: ContractRow[] = [];
+    const sessionContracts: SessionContract[] = [];
+
+    for (const slug of requiredSlugs) {
+      const existingContract = existingContractsBySlug.get(slug);
+      const contractRow =
+        existingContract ??
+        (await createDraftContractRecord({
+          worker: fullWorker,
+          contractSlug: slug,
+          db: client,
+        }));
+
+      contractRows.push(contractRow);
+      sessionContracts.push(buildSessionContract(contractRow, Boolean(existingContract)));
+    }
+
+    const currentIndex = sessionContracts.findIndex(
+      (contract) => contract.status !== "signed"
+    );
+
+    for (let i = 0; i < contractRows.length; i++) {
+      const contractRow = contractRows[i];
+      const sessionContract = sessionContracts[i];
+
+      if (contractRow.status !== "signed" && !getStorageKeyForContract(contractRow)) {
+        const materializedContract = await materializeDraftPdf(
+          contractRow,
+          fullWorker,
+          client
+        );
+
+        contractRows[i] = materializedContract;
+        sessionContract.storageKey = getStorageKeyForContract(materializedContract);
+        sessionContract.isReady = Boolean(sessionContract.storageKey);
+        sessionContract.accessUrl = sessionContract.storageKey
+          ? await getSignedUrlForKey(sessionContract.storageKey)
+          : null;
+      }
+    }
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    return {
+      worker: {
+        userId: fullWorker.user_id,
+        name: fullWorker.name,
+        surname: fullWorker.surname,
+        contractType: fullWorker.contract_type ?? null,
+        pin: fullWorker.pin ?? null,
+        birth_date: fullWorker.birth_date ?? null,
+      },
+      contracts: sessionContracts.map(({ storageKey, ...contract }) => contract),
+      currentIndex,
+      allSigned: currentIndex === -1,
+    };
+  } catch (err) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
+
+    throw err;
+  } finally {
+    client.release();
   }
-
-  return {
-    worker: {
-      userId: fullWorker.user_id,
-      name: fullWorker.name,
-      surname: fullWorker.surname,
-      contractType: fullWorker.contract_type ?? null,
-      pin: fullWorker.pin ?? null,
-      birth_date: fullWorker.birth_date ?? null,
-    },
-    contracts: sessionContracts.map(({ storageKey, ...contract }) => contract),
-    currentIndex,
-    allSigned: currentIndex === -1,
-  };
 }

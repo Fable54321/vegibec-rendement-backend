@@ -94,8 +94,13 @@ app.use(
 
 
 app.get("/", async (req, res) => {
-  const result = await pool.query("SELECT NOW()");
-  res.json(result.rows);
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Database error:", err);
+    res.status(500).json({ error: "Database error" });
+  }
 });
 
 app.use("/signature", signatureRoute);
@@ -936,6 +941,41 @@ app.use("/visitors", visitorsRoute);
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () =>
+const server = app.listen(PORT, () =>
   console.log("✅ Server running on http://localhost:3000"),
 );
+
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `Port ${PORT} is already in use. Stop the other process or set PORT to a free port.`,
+    );
+  } else {
+    console.error("Server startup error:", err);
+  }
+
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed.');
+    pool.end(() => {
+      console.log('Database pool closed.');
+      process.exit(0);
+    });
+  });
+});
+
+// Prevent crash on unhandled errors (for development)
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});

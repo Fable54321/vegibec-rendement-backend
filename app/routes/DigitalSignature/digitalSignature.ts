@@ -11,6 +11,28 @@ import {
 
 const router = Router();
 
+function normalizePin(pin: unknown): string | null {
+  if (pin === undefined || pin === null) {
+    return null;
+  }
+
+  const normalizedPin = String(pin).trim().replace(/\s+/g, "");
+
+  if (normalizedPin === "" || !/^\d{1,10}$/.test(normalizedPin)) {
+    return null;
+  }
+
+  return normalizedPin;
+}
+
+function getUnsignedSessionContractIds(session: {
+  contracts: Array<{ contractId: number; status: string }>;
+}) {
+  return session.contracts
+    .filter((contract) => contract.status !== "signed")
+    .map((contract) => contract.contractId);
+}
+
 
 
 router.get("/foreign-worker-info", async (req, res) => {
@@ -85,20 +107,14 @@ router.get("/foreign-worker-info", async (req, res) => {
 
 router.post("/foreign-worker-info/by-pin", async (req, res) => {
   try {
-    const { pin } = req.body;
+    const pin = req.body?.pin;
+    const normalizedPin = normalizePin(pin);
 
-    if (pin === undefined || pin === null || pin === "") {
-      return res.status(400).json({ error: "Le PIN est requis" });
-    }
-
-    const normalizedPin = Number(pin);
-
-    if (
-      !Number.isInteger(normalizedPin) ||
-      normalizedPin < 0 ||
-      normalizedPin > 99999
-    ) {
-      return res.status(400).json({ error: "PIN invalide" });
+    if (!normalizedPin) {
+      return res.status(400).json({
+        error: "PIN invalide",
+        details: "Le PIN doit contenir uniquement des chiffres.",
+      });
     }
 
     const result = await pool.query(
@@ -107,7 +123,7 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
       FROM foreign_workers_info
       WHERE pin = $1
       `,
-      [pin]
+      [normalizedPin]
     );
 
     if (parseInt(result.rows[0].count) === 0) {
@@ -123,7 +139,7 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
       SET is_connected = true
       WHERE pin = $1
       `,
-      [pin]
+      [normalizedPin]
     );
 
     return res.status(200).json({
@@ -139,13 +155,15 @@ router.post("/foreign-worker-info/by-pin", async (req, res) => {
 
 router.post("/foreign-worker-info/disconnect", async (req, res) => {
   try {
-    const { pin } = req.body;
+    const pin = req.body?.pin;
+    const normalizedPin = normalizePin(pin);
 
-    if (!pin) {
-      return res.status(400).json({ error: "Le PIN est requis" });
+    if (!normalizedPin) {
+      return res.status(400).json({
+        error: "PIN invalide",
+        details: "Le PIN doit contenir uniquement des chiffres.",
+      });
     }
-
-    const normalizedPin = Number(pin);
 
     await pool.query(
       `
@@ -153,7 +171,7 @@ router.post("/foreign-worker-info/disconnect", async (req, res) => {
       SET is_connected = false
       WHERE pin = $1
       `,
-      [pin]
+      [normalizedPin]
     );
 
     return res.status(200).json({
@@ -251,14 +269,10 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
 
   try {
     const contractId = Number(req.params.id);
-    const { signatureDataUrl, acceptedTerms, signedName } = req.body;
+    const { acceptedTerms, signedName } = req.body;
 
     if (!Number.isInteger(contractId) || contractId <= 0) {
       return res.status(400).json({ error: "ID de contrat invalide" });
-    }
-
-    if (!signatureDataUrl || typeof signatureDataUrl !== "string") {
-      return res.status(400).json({ error: "Signature requise" });
     }
 
     if (!acceptedTerms) {
@@ -277,7 +291,8 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
         contract_slug,
         status,
         draft_pdf_key,
-        final_pdf_key
+        final_pdf_key,
+        session_signature_key
       FROM worker_contracts
       WHERE id = $1
       LIMIT 1
@@ -297,6 +312,11 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
       return res.status(400).json({ error: "Ce contrat est déjà signé" });
     }
 
+    if (!contract.session_signature_key) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Aucune signature de session trouvée pour ce contrat" });
+    }
+
     let draftPdfKey = contract.draft_pdf_key;
 
     if (!draftPdfKey) {
@@ -311,13 +331,7 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
       });
     }
 
-    const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, "");
-    const signatureBuffer = Buffer.from(base64Data, "base64");
-
-    if (!signatureBuffer.length) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({ error: "Signature invalide" });
-    }
+    const signatureBuffer = await getBufferFromS3(contract.session_signature_key);
 
     const draftPdfBuffer = await getBufferFromS3(draftPdfKey);
 
@@ -400,24 +414,56 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
 
 router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
   try {
-    const { pin } = req.body;
+    const { signatureDataUrl } = req.body ?? {};
+    const pin = req.body?.pin;
+    const normalizedPin = normalizePin(pin);
 
-    if (pin === undefined || pin === null || pin === "") {
-      return res.status(400).json({ error: "Le PIN est requis" });
+    if (!normalizedPin) {
+      return res.status(400).json({
+        error: "PIN invalide",
+        details: "Le PIN doit contenir uniquement des chiffres.",
+      });
     }
 
-    const normalizedPin = Number(pin);
-
-    if (
-      !Number.isInteger(normalizedPin) ||
-      normalizedPin < 0 ||
-      normalizedPin > 99999
-    ) {
-      return res.status(400).json({ error: "PIN invalide" });
-    }
-
-    const fullWorker = await getWorkerFullByPin(pin);
+    const fullWorker = await getWorkerFullByPin(normalizedPin);
     const session = await buildContractSession(fullWorker);
+    const unsignedContractIds = getUnsignedSessionContractIds(session);
+
+    // Handle signature upload if provided
+    if (
+      signatureDataUrl &&
+      typeof signatureDataUrl === "string" &&
+      unsignedContractIds.length > 0
+    ) {
+      const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, "");
+      const signatureBuffer = Buffer.from(base64Data, "base64");
+
+      if (!signatureBuffer.length) {
+        return res.status(400).json({ error: "Signature invalide" });
+      }
+
+      const timestamp = Date.now();
+      const sessionSignatureKey = `workers/${fullWorker.user_id}/session_${timestamp}_signature.png`;
+
+      await uploadBufferToS3({
+        key: sessionSignatureKey,
+        buffer: signatureBuffer,
+        contentType: "image/png",
+      });
+
+      // Attach this session signature only to the current contract set.
+      await pool.query(
+        `
+        UPDATE worker_contracts
+        SET session_signature_key = $1,
+            updated_at = NOW()
+        WHERE id = ANY($2::int[])
+          AND user_id = $3
+          AND status != 'signed'
+        `,
+        [sessionSignatureKey, unsignedContractIds, fullWorker.user_id]
+      );
+    }
 
     return res.status(200).json(session);
   } catch (err) {
@@ -449,6 +495,198 @@ router.post("/foreign-worker-contract/session/by-pin", async (req, res) => {
   }
 });
 
+
+router.post("/foreign-worker-contract/session/sign-all/by-pin", async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
+
+  try {
+    const { acceptedTerms, signedName } = req.body ?? {};
+    const pin = req.body?.pin;
+    const normalizedPin = normalizePin(pin);
+
+    if (!normalizedPin) {
+      return res.status(400).json({
+        error: "PIN invalide",
+        details: "Le PIN doit contenir uniquement des chiffres.",
+      });
+    }
+
+    if (!acceptedTerms) {
+      return res.status(400).json({
+        error: "Vous devez accepter les contrats avant de signer",
+      });
+    }
+
+    const signedNameValue =
+      typeof signedName === "string" ? signedName.trim() : "";
+
+    if (!signedNameValue) {
+      return res.status(400).json({
+        error: "Le nom du signataire est requis",
+      });
+    }
+
+    const fullWorker = await getWorkerFullByPin(normalizedPin);
+    const session = await buildContractSession(fullWorker);
+    const unsignedContractIds = getUnsignedSessionContractIds(session);
+
+    if (unsignedContractIds.length === 0) {
+      return res.status(400).json({
+        error: "Aucun contrat Ã  signer",
+      });
+    }
+
+    const contractsResult = await client.query(
+      `
+      SELECT
+        id,
+        user_id,
+        contract_slug,
+        status,
+        draft_pdf_key,
+        session_signature_key
+      FROM worker_contracts
+      WHERE id = ANY($1::int[])
+        AND user_id = $2
+        AND status != 'signed'
+      ORDER BY array_position($1::int[], id)
+      `,
+      [unsignedContractIds, fullWorker.user_id]
+    );
+
+    const contracts = contractsResult.rows;
+
+    if (contracts.length === 0) {
+      return res.status(400).json({
+        error: "Aucun contrat à signer",
+      });
+    }
+
+    const missingSignature = contracts.find(
+      (contract) => !contract.session_signature_key
+    );
+
+    if (missingSignature) {
+      return res.status(400).json({
+        error: "Aucune signature de session trouvée",
+      });
+    }
+
+    const sessionSignatureKey = contracts[0].session_signature_key;
+    const signatureBuffer = await getBufferFromS3(sessionSignatureKey);
+
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    await client.query(
+      `
+      UPDATE worker_contracts
+      SET session_signature_key = $1,
+          updated_at = NOW()
+      WHERE id = ANY($2::int[])
+        AND user_id = $3
+        AND status != 'signed'
+      `,
+      [sessionSignatureKey, unsignedContractIds, fullWorker.user_id]
+    );
+
+    const signedAt = new Date();
+    const signedContracts = [];
+
+    for (const contract of contracts) {
+      if (!contract.draft_pdf_key) {
+        const access = await getContractAccessDetails(contract.id);
+        contract.draft_pdf_key = access.draftPdfKey;
+      }
+
+      if (!contract.draft_pdf_key) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          error: `Aucun PDF brouillon pour le contrat ${contract.contract_slug}`,
+        });
+      }
+
+      const draftPdfBuffer = await getBufferFromS3(contract.draft_pdf_key);
+
+      const finalPdfBuffer = await applySignatureToContract({
+        pdfBuffer: draftPdfBuffer,
+        contractSlug: contract.contract_slug,
+        signatureBuffer,
+        signedAt,
+        signedName: signedNameValue,
+      });
+
+      const signatureImageKey = `contracts/${contract.user_id}/${contract.id}/signature.png`;
+      const finalPdfKey = `contracts/${contract.user_id}/${contract.id}/final.pdf`;
+
+      await uploadBufferToS3({
+        key: signatureImageKey,
+        buffer: signatureBuffer,
+        contentType: "image/png",
+      });
+
+      await uploadBufferToS3({
+        key: finalPdfKey,
+        buffer: finalPdfBuffer,
+        contentType: "application/pdf",
+      });
+
+      await client.query(
+        `
+        UPDATE worker_contracts
+        SET
+          accepted_terms = true,
+          signed_name = $1,
+          signed_at = $2,
+          signature_image_key = $3,
+          final_pdf_key = $4,
+          signer_ip = $5,
+          signer_user_agent = $6,
+          status = 'signed',
+          updated_at = NOW()
+        WHERE id = $7
+        `,
+        [
+          signedNameValue,
+          signedAt,
+          signatureImageKey,
+          finalPdfKey,
+          req.ip ?? null,
+          req.get("user-agent") ?? null,
+          contract.id,
+        ]
+      );
+
+      signedContracts.push({
+        contractId: contract.id,
+        slug: contract.contract_slug,
+        status: "signed",
+        finalPdfKey,
+      });
+    }
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    return res.status(200).json({
+      message: "Tous les contrats ont été signés avec succès",
+      contracts: signedContracts,
+    });
+  } catch (err) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
+    console.error("Error signing all contracts:", err);
+
+    return res.status(500).json({
+      error: "Erreur serveur lors de la signature des contrats",
+    });
+  } finally {
+    client.release();
+  }
+});
 
 router.get("/foreign-worker-contract/:id/access", async (req, res) => {
   try {

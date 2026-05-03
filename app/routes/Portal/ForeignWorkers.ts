@@ -46,18 +46,35 @@ router.get("/foreign-workers/contracts/:id", requireAppRole("main", ["admin"]), 
     const result = await pool.query(
       `
       SELECT
-        wc.id,
-        wc.user_id,
-        wc.status,
-        wc.created_at,
-        wc.updated_at,
-        wc.signed_at,
-        wc.draft_pdf_key,
-        wc.final_pdf_key,
-        wc.contract_slug
-      FROM worker_contracts wc
-      WHERE wc.user_id = $1
-      ORDER BY wc.created_at DESC
+        current_contracts.id,
+        current_contracts.user_id,
+        current_contracts.status,
+        current_contracts.created_at,
+        current_contracts.updated_at,
+        current_contracts.signed_at,
+        current_contracts.draft_pdf_key,
+        current_contracts.final_pdf_key,
+        current_contracts.contract_slug
+      FROM (
+        SELECT DISTINCT ON (wc.contract_slug)
+          wc.id,
+          wc.user_id,
+          wc.status,
+          wc.created_at,
+          wc.updated_at,
+          wc.signed_at,
+          wc.draft_pdf_key,
+          wc.final_pdf_key,
+          wc.contract_slug
+        FROM worker_contracts wc
+        WHERE wc.user_id = $1
+        ORDER BY
+          wc.contract_slug,
+          CASE WHEN wc.status = 'signed' THEN 0 ELSE 1 END,
+          wc.updated_at DESC,
+          wc.id DESC
+      ) current_contracts
+      ORDER BY current_contracts.created_at DESC
       `,
       [userId]
     );
