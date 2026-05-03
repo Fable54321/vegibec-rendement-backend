@@ -37,6 +37,7 @@ import foreignWorkersRoute from "./routes/Portal/ForeignWorkers";
 import agrivisionRoute from "./routes/Agrivision/agrivision";
 import converterRoute from "./routes/Converter/Converter";
 import visitorsRoute from "./routes/Visitors/visitors";
+import planRoute from "./routes/Visitors/plan";
 import path from "path";
 
 
@@ -98,6 +99,7 @@ app.get("/", async (req, res) => {
 });
 
 app.use("/signature", signatureRoute);
+app.use("/plan", planRoute);
 
 app.use("/api/rate-converter", rateConverterRoute);   /// same thing here
 
