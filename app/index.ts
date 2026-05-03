@@ -67,6 +67,7 @@ const allowedOrigins = [
   "https://rendement.vegibec-portail.com",
   "https://agrivision.vegibec-portail.com",
   "https://signature.vegibec-portail.com",
+  "https://plan-du-site-vegibec.netlify.app",
   "http://10.0.0.138:5173",
 ];
 
