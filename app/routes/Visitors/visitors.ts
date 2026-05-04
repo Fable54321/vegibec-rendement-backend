@@ -16,7 +16,9 @@ const VISITOR_PLAN_TOKEN_SECRET =
 const VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS = 60 * 60 * 12;
 
 const getVisitorPlanBaseUrl = (req: Request) => {
-  const configuredUrl = process.env.VISITOR_PLAN_PAGE_URL?.trim();
+  const configuredUrl =
+  process.env.VISITOR_PLAN_PAGE_URL?.trim() ||
+  (process.env.NODE_ENV !== "production" ? "http://localhost:5173" : "");
 
   if (configuredUrl) {
     // If configured, assume it's the full base URL
