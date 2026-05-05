@@ -124,6 +124,27 @@ router.post("/start", async (req, res) => {
       });
     }
 
+
+    router.get("/active", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        arrival_time,
+        full_name,
+        company_name,
+        visit_reason
+      FROM visitors.visits_details
+      WHERE departure_time IS NULL
+      ORDER BY arrival_time DESC
+    `);
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error fetching active visits:", error);
+    res.status(500).json({ error: "Failed to fetch active visits" });
+  }
+});
+
     const result = await pool.query(
       `
       INSERT INTO visitors.visits_details (
