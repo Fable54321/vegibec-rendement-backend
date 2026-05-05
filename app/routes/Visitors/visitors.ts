@@ -169,6 +169,7 @@ router.post("/start", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
+        id,
         arrival_time,
         full_name,
         company_name,
