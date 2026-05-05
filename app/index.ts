@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import { authMiddleware, requireAppRole } from "./middleware/auth";
-import { uploadBufferToS3 } from "./services/s3.services";
+
 
 
 import express from "express";
@@ -38,6 +38,7 @@ import agrivisionRoute from "./routes/Agrivision/agrivision";
 import converterRoute from "./routes/Converter/Converter";
 import visitorsRoute from "./routes/Visitors/visitors";
 import planRoute from "./routes/Visitors/plan";
+import toolboxesRoute from "./routes/ToolBoxes/toolboxes";
 import path from "path";
 
 
@@ -934,6 +935,8 @@ app.use("/timesheets/user", userDailyDurationRoute);
 app.use("/timesheets/admin", adminRoute);
 
 app.use("/agrivision", agrivisionRoute);
+
+app.use("/toolboxes", toolboxesRoute);
 
 app.use("/converter", converterRoute);
 

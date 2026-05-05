@@ -1,6 +1,7 @@
 // backend/src/routes/vegReports.ts
 import express from "express";
 import fetch from "node-fetch";
+import { pool } from "../db";
 
 const router = express.Router();
 
@@ -49,6 +50,81 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch vegetable reports" });
+  }
+});
+
+router.get("/two-day-comparative", async (req, res) => {
+  const { date } = req.query as {
+    date?: string;
+  };
+
+  try {
+    if (!date) {
+      return res.status(400).json({ error: "Missing date" });
+    }
+
+    const dailyQuery = `
+      WITH current_report AS (
+        SELECT
+          report_date,
+          vegetable_id,
+          organic,
+          pkg,
+          item_size,
+          AVG(low_price::numeric)::float AS avg_low_price,
+          AVG(high_price::numeric)::float AS avg_high_price,
+          AVG(mostly_low_price::numeric)::float AS avg_mostly_low_price,
+          AVG(mostly_high_price::numeric)::float AS avg_mostly_high_price
+        FROM usda_reports
+        WHERE report_date = $1
+          AND vegetable_id IS NOT NULL
+        GROUP BY report_date, vegetable_id, organic, pkg, item_size
+      ),
+
+      previous_report_date AS (
+        SELECT MAX(report_date) AS report_date
+        FROM usda_reports
+        WHERE report_date < $1
+          AND vegetable_id IS NOT NULL
+          AND EXTRACT(ISODOW FROM report_date) < 6
+      ),
+
+      previous_report AS (
+        SELECT
+          report_date,
+          vegetable_id,
+          organic,
+          pkg,
+          item_size,
+          AVG(low_price::numeric)::float AS previous_avg_low_price,
+          AVG(high_price::numeric)::float AS previous_avg_high_price,
+          AVG(mostly_low_price::numeric)::float AS previous_avg_mostly_low_price,
+          AVG(mostly_high_price::numeric)::float AS previous_avg_mostly_high_price
+        FROM usda_reports
+        WHERE report_date = (SELECT report_date FROM previous_report_date)
+          AND vegetable_id IS NOT NULL
+        GROUP BY report_date, vegetable_id, organic, pkg, item_size
+      )
+
+      SELECT
+        c.*,
+        p.previous_avg_low_price,
+        p.previous_avg_high_price,
+        p.previous_avg_mostly_low_price,
+        p.previous_avg_mostly_high_price
+      FROM current_report c
+      LEFT JOIN previous_report p
+        ON p.vegetable_id = c.vegetable_id
+       AND p.organic IS NOT DISTINCT FROM c.organic
+       AND p.pkg IS NOT DISTINCT FROM c.pkg
+       AND p.item_size IS NOT DISTINCT FROM c.item_size
+    `;
+
+    const result = await pool.query(dailyQuery, [date]);
+    return res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
