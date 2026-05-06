@@ -48,6 +48,7 @@ router.get('/:toolboxId/items', async (req, res) => {
         ti.status,
         ti.status_note,
         ti.position_order AS item_order,
+        ti.is_checked,
 
         tv.id AS tool_variant_id,
         tv.variant_name,
