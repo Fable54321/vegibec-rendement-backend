@@ -71,6 +71,7 @@ const allowedOrigins = [
   "https://signature.vegibec-portail.com",
   "https://plan-du-site-vegibec.netlify.app",
   "http://10.0.0.126:5173",
+  "https://inventario-de-cofres.netlify.app",
 ];
 
 app.use(
