@@ -16,6 +16,42 @@ router.get('/', async (req, res) => {
   }
 });
 
+
+router.patch('/:toolboxId', async (req, res) => {
+  try {
+    const toolboxId = Number(req.params.toolboxId);
+
+    const {
+      inventory_done,
+      verified_at,
+    } = req.body;
+
+    if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
+      return res.status(400).json({ error: 'Invalid toolbox id' });
+    }
+
+    await pool.query(
+      `
+      UPDATE toolboxes_inventory.toolboxes
+      SET
+        inventory_done = $1,
+        verified_at = $2
+      WHERE id = $3
+      `,
+      [inventory_done, verified_at, toolboxId]
+    );
+
+    res.status(200).json({
+      message: 'Toolbox updated successfully',
+    });
+  } catch (error) {
+    console.error('Error updating toolbox:', error);
+    res.status(500).json({
+      error: 'Failed to update toolbox',
+    });
+  }
+});
+
 // Get full toolbox inventory by toolbox id
 router.get('/:toolboxId/items', async (req, res) => {
   try {
