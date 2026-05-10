@@ -24,6 +24,7 @@ router.patch('/:toolboxId', async (req, res) => {
     const {
       inventory_done,
       verified_at,
+      signature_key,
     } = req.body;
 
     if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
@@ -35,10 +36,11 @@ router.patch('/:toolboxId', async (req, res) => {
       UPDATE toolboxes_inventory.toolboxes
       SET
         inventory_done = $1,
-        verified_at = $2
-      WHERE id = $3
+        verified_at = $2,
+        signature_key = $3
+      WHERE id = $4
       `,
-      [inventory_done, verified_at, toolboxId]
+      [inventory_done, verified_at, signature_key, toolboxId]
     );
 
     res.status(200).json({
@@ -158,6 +160,9 @@ router.patch('/:toolboxId/items/:itemId', async (req, res) => {
     res.status(500).json({ error: 'Failed to update item' });
   }
 });
+
+
+
 
 
 
