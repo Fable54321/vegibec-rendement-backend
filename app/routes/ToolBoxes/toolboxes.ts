@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../../db';
+import { uploadBufferToS3 } from '../../services/s3.services';
 
 
 
@@ -164,6 +165,38 @@ router.patch('/:toolboxId/items/:itemId', async (req, res) => {
 
 
 
+router.post("/:toolboxId/signature", async (req, res) => {
+  try {
+    const toolboxId = Number(req.params.toolboxId);
+    const { signatureBase64 } = req.body;
+
+    if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
+      return res.status(400).json({ error: "Invalid toolbox id" });
+    }
+
+    if (!signatureBase64) {
+      return res.status(400).json({ error: "Signature is required" });
+    }
+
+    const base64Data = signatureBase64.replace(/^data:image\/\w+;base64,/, "");
+    const signatureBuffer = Buffer.from(base64Data, "base64");
+
+    const signatureKey = `toolboxes/${toolboxId}/signatures/${Date.now()}.png`;
+
+    await uploadBufferToS3({
+      key: signatureKey,
+      buffer: signatureBuffer,
+      contentType: "image/png",
+    });
+
+    res.status(200).json({
+      signature_key: signatureKey,
+    });
+  } catch (error) {
+    console.error("Error uploading toolbox signature:", error);
+    res.status(500).json({ error: "Failed to upload signature" });
+  }
+});
 
 
 
