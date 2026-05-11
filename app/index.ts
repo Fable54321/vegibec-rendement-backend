@@ -118,7 +118,7 @@ app.use(
   express.static(path.join(process.cwd(), "public", "generated-contracts"))
 );
 
-
+app.use("/picture-transfer", pictureTransferRoute);
 
 app.use("/auth", authRoute);
 
@@ -940,7 +940,7 @@ app.use("/agrivision", agrivisionRoute);
 
 app.use("/toolboxes", toolboxesRoute);
 
-app.use("/picture-transfer", pictureTransferRoute);
+
 
 app.use("/converter", converterRoute);
 
