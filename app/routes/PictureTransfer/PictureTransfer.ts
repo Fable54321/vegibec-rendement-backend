@@ -1,4 +1,8 @@
-import { GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import express from "express";
 import multer from "multer";
@@ -114,6 +118,22 @@ const getBucketName = () => {
   }
 
   return bucket;
+};
+
+const getPictureKeyFromRequest = (req: express.Request) => {
+  if (typeof req.query.key === "string") {
+    return req.query.key;
+  }
+
+  if (
+    req.body &&
+    typeof req.body === "object" &&
+    typeof req.body.key === "string"
+  ) {
+    return req.body.key;
+  }
+
+  return "";
 };
 
 const getSignedPictureUrl = async ({
@@ -269,6 +289,31 @@ router.get("/download-url", async (req, res) => {
   } catch (error) {
     console.error("Error creating picture download URL:", error);
     return res.status(500).json({ error: "Failed to create download URL" });
+  }
+});
+
+router.delete("/", async (req, res) => {
+  const key = getPictureKeyFromRequest(req);
+
+  if (!key.startsWith(`${PICTURE_PREFIX}/`)) {
+    return res.status(400).json({ error: "Invalid picture key" });
+  }
+
+  try {
+    await s3.send(
+      new DeleteObjectCommand({
+        Bucket: getBucketName(),
+        Key: key,
+      }),
+    );
+
+    return res.status(200).json({
+      message: "Picture deleted successfully",
+      key,
+    });
+  } catch (error) {
+    console.error("Error deleting picture:", error);
+    return res.status(500).json({ error: "Failed to delete picture" });
   }
 });
 
