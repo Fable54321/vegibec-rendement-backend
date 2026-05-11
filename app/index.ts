@@ -39,6 +39,7 @@ import converterRoute from "./routes/Converter/Converter";
 import visitorsRoute from "./routes/Visitors/visitors";
 import planRoute from "./routes/Visitors/plan";
 import toolboxesRoute from "./routes/ToolBoxes/toolboxes";
+import pictureTransferRoute from "./routes/PictureTransfer/PictureTransfer";
 import path from "path";
 
 
@@ -938,6 +939,8 @@ app.use("/timesheets/admin", adminRoute);
 app.use("/agrivision", agrivisionRoute);
 
 app.use("/toolboxes", toolboxesRoute);
+
+app.use("/picture-transfer", pictureTransferRoute);
 
 app.use("/converter", converterRoute);
 
