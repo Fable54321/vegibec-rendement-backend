@@ -206,7 +206,7 @@ router.get('/:toolboxId/verification', async (req, res) => {
       return res.status(400).json({ error: 'Invalid toolbox id' });
     }
 
-    const result = await pool.query(
+    const toolboxResult = await pool.query(
       `
       SELECT
         id,
@@ -218,11 +218,27 @@ router.get('/:toolboxId/verification', async (req, res) => {
       [toolboxId]
     );
 
-    if (result.rowCount === 0) {
+    if (toolboxResult.rowCount === 0) {
       return res.status(404).json({ error: 'Toolbox not found' });
     }
 
-    const toolbox = result.rows[0];
+    const countsResult = await pool.query(
+      `
+      SELECT
+        COUNT(*)::int AS total_items,
+
+        COUNT(*) FILTER (
+          WHERE is_checked = true
+        )::int AS checked_items
+
+      FROM toolboxes_inventory.toolbox_items
+      WHERE toolbox_id = $1
+      `,
+      [toolboxId]
+    );
+
+    const toolbox = toolboxResult.rows[0];
+    const counts = countsResult.rows[0];
 
     let signature_url: string | null = null;
 
@@ -232,12 +248,26 @@ router.get('/:toolboxId/verification', async (req, res) => {
 
     res.status(200).json({
       toolbox_id: toolbox.id,
+
       verified_at: toolbox.verified_at,
+
       signature_key: toolbox.signature_key,
+
       signature_url,
+
+      checked_items: counts.checked_items,
+      total_items: counts.total_items,
+
+      completion_percentage:
+        counts.total_items > 0
+          ? Math.round(
+              (counts.checked_items / counts.total_items) * 100
+            )
+          : 0,
     });
   } catch (error) {
     console.error('Error fetching toolbox verification:', error);
+
     res.status(500).json({
       error: 'Failed to fetch toolbox verification',
     });
