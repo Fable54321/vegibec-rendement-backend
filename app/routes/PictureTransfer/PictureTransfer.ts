@@ -9,6 +9,7 @@ import multer from "multer";
 import path from "path";
 import { s3 } from "../../s3";
 import { uploadBufferToS3 } from "../../services/s3.services";
+import { pool } from "../../db";
 
 const router = express.Router();
 
@@ -171,6 +172,11 @@ router.post("/", uploadPictures, async (req, res) => {
     return res.status(400).json({ error: "No pictures were uploaded" });
   }
 
+  const description =
+    typeof req.body.description === "string"
+      ? req.body.description.trim()
+      : null;
+
   try {
     const pictures = await Promise.all(
       files.map(async (file) => {
@@ -182,10 +188,25 @@ router.post("/", uploadPictures, async (req, res) => {
           contentType: file.mimetype || "application/octet-stream",
         });
 
+        const insertResult = await pool.query(
+          `
+          INSERT INTO toolboxes_inventory.pictures (
+            s3_key,
+            description
+          )
+          VALUES ($1, $2)
+          RETURNING id, s3_key, description, created_at
+          `,
+          [key, description],
+        );
+
+        const dbPicture = insertResult.rows[0];
+
         const view_url = await getSignedPictureUrl({
           key,
           contentType: file.mimetype,
         });
+
         const download_url = await getSignedPictureUrl({
           key,
           download: true,
@@ -194,7 +215,10 @@ router.post("/", uploadPictures, async (req, res) => {
         });
 
         return {
-          key,
+          id: dbPicture.id,
+          key: dbPicture.s3_key,
+          description: dbPicture.description,
+          created_at: dbPicture.created_at,
           file_name: file.originalname,
           content_type: file.mimetype,
           size_bytes: file.size,
@@ -218,53 +242,42 @@ router.get("/", async (req, res) => {
   try {
     const requestedLimit = Number(req.query.limit) || 100;
     const limit = Math.min(Math.max(requestedLimit, 1), 1000);
-    const continuationToken =
-      typeof req.query.continuationToken === "string"
-        ? req.query.continuationToken
-        : undefined;
 
-    const result = await s3.send(
-      new ListObjectsV2Command({
-        Bucket: getBucketName(),
-        Prefix: `${PICTURE_PREFIX}/`,
-        MaxKeys: limit,
-        ContinuationToken: continuationToken,
-      }),
+    const result = await pool.query(
+      `
+      SELECT id, s3_key, description, created_at
+      FROM toolboxes_inventory.pictures
+      ORDER BY created_at DESC
+      LIMIT $1
+      `,
+      [limit],
     );
 
     const pictures = await Promise.all(
-      (result.Contents || [])
-        .filter((item) => item.Key && !item.Key.endsWith("/"))
-        .map(async (item) => {
-          const key = item.Key as string;
-          const fileName = path.basename(key).replace(
-            /^\d+-[a-z0-9]+-/,
-            "",
-          );
+      result.rows.map(async (row) => {
+        const key = row.s3_key;
+        const fileName = path.basename(key).replace(/^\d+-[a-z0-9]+-/, "");
 
-          const view_url = await getSignedPictureUrl({ key });
-          const download_url = await getSignedPictureUrl({
-            key,
-            download: true,
-            fileName,
-          });
+        const view_url = await getSignedPictureUrl({ key });
+        const download_url = await getSignedPictureUrl({
+          key,
+          download: true,
+          fileName,
+        });
 
-          return {
-            key,
-            file_name: fileName,
-            size_bytes: item.Size || 0,
-            uploaded_at: item.LastModified,
-            view_url,
-            download_url,
-          };
-        }),
+        return {
+          id: row.id,
+          key,
+          description: row.description,
+          created_at: row.created_at,
+          file_name: fileName,
+          view_url,
+          download_url,
+        };
+      }),
     );
 
-    return res.status(200).json({
-      pictures,
-      next_continuation_token: result.NextContinuationToken || null,
-      is_truncated: Boolean(result.IsTruncated),
-    });
+    return res.status(200).json({ pictures });
   } catch (error) {
     console.error("Error listing pictures:", error);
     return res.status(500).json({ error: "Failed to list pictures" });
@@ -300,12 +313,20 @@ router.delete("/", async (req, res) => {
   }
 
   try {
-    await s3.send(
-      new DeleteObjectCommand({
-        Bucket: getBucketName(),
-        Key: key,
-      }),
-    );
+ await s3.send(
+  new DeleteObjectCommand({
+    Bucket: getBucketName(),
+    Key: key,
+  }),
+);
+
+await pool.query(
+  `
+  DELETE FROM toolboxes_inventory.pictures
+  WHERE s3_key = $1
+  `,
+  [key],
+);
 
     return res.status(200).json({
       message: "Picture deleted successfully",
