@@ -398,6 +398,50 @@ router.get("/me", async (req, res) => {
   }
 });
 
+router.get("/persistent/me", authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+
+  const userResult = await pool.query(
+    `
+    SELECT id, username, email, name, surname
+    FROM users
+    WHERE id = $1
+    `,
+    [req.user.id],
+  );
+
+  if (userResult.rows.length === 0) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const appAccessResult = await pool.query(
+    `
+    SELECT a.slug, uar.role
+    FROM user_app_roles uar
+    JOIN apps a ON a.id = uar.app_id
+    WHERE uar.user_id = $1
+    ORDER BY a.slug
+    `,
+    [req.user.id],
+  );
+
+  const user = userResult.rows[0];
+
+  return res.json({
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      name: user.name,
+      surname: user.surname,
+      full_name: `${user.name ?? ""} ${user.surname ?? ""}`.trim(),
+      appAccess: appAccessResult.rows,
+    },
+  });
+});
+
 router.post(
   "/create-toolbox-device-session",
   authMiddleware,
