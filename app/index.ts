@@ -40,6 +40,7 @@ import visitorsRoute from "./routes/Visitors/visitors";
 import planRoute from "./routes/Visitors/plan";
 import toolboxesRoute from "./routes/ToolBoxes/toolboxes";
 import pictureTransferRoute from "./routes/PictureTransfer/PictureTransfer";
+import alternativeAuthRoute from "./routes/alternativeAuth";
 import path from "path";
 
 
@@ -126,6 +127,8 @@ app.use("/auth", authRoute);
 
 
 app.use(authMiddleware);
+
+app.use("/alternative-auth", alternativeAuthRoute);
 
 
 
