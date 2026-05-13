@@ -477,7 +477,7 @@ router.post(
         `,
         [
           req.user.id,
-          "QR",
+          "toolbox",
           tokenHash,
           "Toolbox Tablet",
           expiresAt,
