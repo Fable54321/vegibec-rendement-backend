@@ -41,6 +41,7 @@ import planRoute from "./routes/Visitors/plan";
 import toolboxesRoute from "./routes/ToolBoxes/toolboxes";
 import pictureTransferRoute from "./routes/PictureTransfer/PictureTransfer";
 import alternativeAuthRoute from "./routes/alternativeAuth";
+import visitorsInfoRoute from "./routes/Portal/VisitorsInfo";
 import path from "path";
 
 
@@ -927,6 +928,8 @@ app.use("/losses-tracking", lossesTrackingRoute);
 app.use("/portal", portalRoute);
 
 app.use("/portal/foreign-workers", foreignWorkersRoute);
+
+app.use("/portal/visitors-info", visitorsInfoRoute);
 
 app.use("/warehouse", warehouseProductsRoute);
 
