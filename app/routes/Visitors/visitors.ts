@@ -164,6 +164,48 @@ router.post("/start", async (req, res) => {
   }
 });
 
+router.post("/end", async (req, res) => {
+  try {
+    const { id, departure_time, departure_signature_key } = req.body || {};
+
+    if (!id) {
+      return res.status(400).json({ error: "Missing visitor visit id" });
+    }
+
+    if (!departure_time) {
+      return res.status(400).json({ error: "Missing departure_time" });
+    }
+
+    if (!departure_signature_key) {
+      return res
+        .status(400)
+        .json({ error: "Missing departure_signature_key" });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE visitors.visits_details
+      SET
+        departure_time = $1,
+        departure_signature_key = $2
+      WHERE id = $3
+        AND departure_time IS NULL
+      RETURNING *
+      `,
+      [departure_time, departure_signature_key, id],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Active visitor visit not found" });
+    }
+
+    return res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error ending visitor visit:", error);
+    return res.status(500).json({ error: "Failed to end visitor visit" });
+  }
+});
+
 
     router.get("/active", async (req, res) => {
   try {
