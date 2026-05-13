@@ -3,6 +3,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { pool } from "../db";
 import type { CookieOptions } from "express";
+import crypto from "crypto";
+import { authMiddleware } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -395,5 +397,67 @@ router.get("/me", async (req, res) => {
     return res.status(401).json({ error: "Invalid token" });
   }
 });
+
+router.post(
+  "/create-toolbox-device-session",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: "Not authenticated",
+        });
+      }
+
+      const rawToken = crypto.randomBytes(64).toString("hex");
+
+      const tokenHash = 
+        crypto.createHash("sha256")
+        .update(rawToken)
+        .digest("hex");
+
+      const expiresAt = new Date(
+        Date.now() + 1000 * 60 * 60 * 24 * 180, // 180 days
+      );
+
+      await pool.query(
+        `
+        INSERT INTO auth.device_sessions (
+          user_id,
+          app_slug,
+          token_hash,
+          device_name,
+          expires_at
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          req.user.id,
+          "QR",
+          tokenHash,
+          "Toolbox Tablet",
+          expiresAt,
+        ],
+      );
+
+      res.cookie("toolboxDeviceToken", rawToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none",
+        maxAge: 1000 * 60 * 60 * 24 * 180,
+      });
+
+      return res.json({
+        success: true,
+      });
+    } catch (error) {
+      console.error("create-toolbox-device-session error:", error);
+
+      return res.status(500).json({
+        message: "Server error",
+      });
+    }
+  },
+);
 
 export default router;

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { pool } from "../db";
+import crypto from "crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret";
 
@@ -13,12 +14,13 @@ declare global {
   }
 }
 
-export const authMiddleware = (
+export const authMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   const publicPaths = ["/api/vegReports", "/auth", "/visitors/plan-access"];
+
   if (publicPaths.some((path) => req.originalUrl.startsWith(path))) {
     return next();
   }
@@ -27,32 +29,99 @@ export const authMiddleware = (
     return next();
   }
 
-  const token = req.cookies.accessToken;
+  // =========================
+  // 1. NORMAL ACCESS TOKEN
+  // =========================
 
-  if (!token) {
+  const accessToken = req.cookies.accessToken;
+
+  if (accessToken) {
+    try {
+      const decoded = jwt.verify(accessToken, JWT_SECRET) as JwtPayload & {
+        id: number;
+        username: string;
+        role?: string;
+      };
+
+      req.user = {
+        id: decoded.id,
+        username: decoded.username,
+        role: decoded.role,
+      };
+
+      return next();
+    } catch (err: any) {
+      // Ignore expired/invalid token
+      // We will try the device token fallback
+    }
+  }
+
+  // =========================
+  // 2. TOOLBOX DEVICE TOKEN
+  // =========================
+
+  const deviceToken = req.cookies.toolboxDeviceToken;
+
+  if (!deviceToken) {
     return res.status(401).json({ message: "Missing token" });
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload & {
-      id: number;
-      username: string;
-      role?: string;
-    };
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(deviceToken)
+      .digest("hex");
 
-    req.user = {
-      id: decoded.id,
-      username: decoded.username,
-      role: decoded.role, // optional legacy field
-    };
+    const result = await pool.query(
+      `
+      SELECT
+        ds.user_id,
+        ds.expires_at,
+        ds.revoked_at,
+        u.username
+      FROM device_sessions ds
+      JOIN users u ON u.id = ds.user_id
+      WHERE ds.token_hash = $1
+      LIMIT 1
+      `,
+      [tokenHash],
+    );
 
-    next();
-  } catch (err: any) {
-    if (err.name === "TokenExpiredError") {
-      return res.status(401).json({ message: "Token expired" });
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: "Invalid device token" });
     }
 
-    return res.status(401).json({ message: "Invalid token" });
+    const session = result.rows[0];
+
+    if (session.revoked_at) {
+      return res.status(401).json({ message: "Device session revoked" });
+    }
+
+    if (new Date(session.expires_at) < new Date()) {
+      return res.status(401).json({ message: "Device session expired" });
+    }
+
+    req.user = {
+      id: session.user_id,
+      username: session.username,
+    };
+
+    await pool.query(
+      `
+      UPDATE device_sessions
+      SET last_used_at = NOW()
+      WHERE token_hash = $1
+      `,
+      [tokenHash],
+    );
+
+    return next();
+  } catch (error) {
+    console.error("authMiddleware device session error:", error);
+
+    return res.status(500).json({
+      message: "Server error",
+    });
   }
 };
 
