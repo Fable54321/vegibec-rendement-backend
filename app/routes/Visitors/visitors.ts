@@ -96,7 +96,6 @@ router.post("/start", async (req, res) => {
       visit_reason,
       arrival_signature_key,
       checklist,
-      wants_email,
       email,
       other_content,
     } = req.body;
