@@ -79,7 +79,7 @@ export const authMiddleware = async (
         ds.expires_at,
         ds.revoked_at,
         u.username
-      FROM device_sessions ds
+      FROM auth.device_sessions ds
       JOIN users u ON u.id = ds.user_id
       WHERE ds.token_hash = $1
       LIMIT 1
@@ -108,7 +108,7 @@ export const authMiddleware = async (
 
     await pool.query(
       `
-      UPDATE device_sessions
+      UPDATE auth.device_sessions
       SET last_used_at = NOW()
       WHERE token_hash = $1
       `,
