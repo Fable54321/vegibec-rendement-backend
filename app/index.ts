@@ -925,6 +925,8 @@ app.use("/task-categories", taskCateogriesRoute);
 
 app.use("/losses-tracking", lossesTrackingRoute);
 
+app.use("/portal/visitors-info", visitorsInfoRoute);
+
 app.use("/portal", portalRoute);
 
 app.use("/portal/foreign-workers", foreignWorkersRoute);
@@ -953,7 +955,7 @@ app.use("/converter", converterRoute);
 
 app.use("/visitors", visitorsRoute);
 
-app.use("/portal/visitors-info", visitorsInfoRoute);
+
 
 const PORT = process.env.PORT || 3000;
 
