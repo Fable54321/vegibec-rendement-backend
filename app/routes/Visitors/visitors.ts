@@ -206,8 +206,17 @@ router.post("/end", async (req, res) => {
 });
 
 
-    router.get("/active", async (req, res) => {
+router.get("/active", async (req, res) => {
   try {
+    await pool.query(`
+      UPDATE visitors.visits_details
+      SET
+        departure_time = arrival_time + INTERVAL '18 hours',
+        departure_auto_closed = true
+      WHERE departure_time IS NULL
+        AND arrival_time < NOW() - INTERVAL '18 hours'
+    `);
+
     const result = await pool.query(`
       SELECT 
         id,
