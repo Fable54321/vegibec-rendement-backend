@@ -63,6 +63,18 @@ router.post(
         });
       }
 
+      const requestedAppSlug = req.body?.appSlug ?? req.body?.app_slug;
+      const appSlug =
+        typeof requestedAppSlug === "string" && requestedAppSlug.trim()
+          ? requestedAppSlug.trim().toLowerCase()
+          : "toolbox";
+
+      if (!/^[a-z0-9_-]+$/.test(appSlug)) {
+        return res.status(400).json({
+          message: "Invalid app slug",
+        });
+      }
+
       const rawToken = crypto.randomBytes(64).toString("hex");
 
       const tokenHash = 
@@ -87,7 +99,7 @@ router.post(
         `,
         [
           req.user.id,
-          "toolbox",
+          appSlug,
           tokenHash,
           "Toolbox Tablet",
           expiresAt,
@@ -103,6 +115,7 @@ router.post(
 
       return res.json({
         success: true,
+        app_slug: appSlug,
       });
     } catch (error) {
       console.error("create-toolbox-device-session error:", error);
