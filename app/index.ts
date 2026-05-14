@@ -42,6 +42,7 @@ import toolboxesRoute from "./routes/ToolBoxes/toolboxes";
 import pictureTransferRoute from "./routes/PictureTransfer/PictureTransfer";
 import alternativeAuthRoute from "./routes/alternativeAuth";
 import visitorsInfoRoute from "./routes/Portal/VisitorsInfo";
+import workersScheduleRoute from "./routes/WorkersSchedule/WorkersSchedule";
 import path from "path";
 
 
@@ -949,7 +950,7 @@ app.use("/agrivision", agrivisionRoute);
 
 app.use("/toolboxes", toolboxesRoute);
 
-
+app.use("/schedule", workersScheduleRoute);
 
 app.use("/converter", converterRoute);
 
