@@ -14,10 +14,12 @@ router.get("/", requireAppRole("rendement", ["admin", "user", "guest"]), async (
                 u.surname AS user_surname,
                 u.username AS username,
                 u.email AS user_email,
-                u.matricula AS user_matricula
+                fwi.matricula AS user_matricula
             FROM foreign_workers_schedule.foreign_workers_details fwd
             LEFT JOIN public.users u
                 ON u.id = fwd.user_id
+            LEFT JOIN public.foreign_workers_info fwi
+                ON fwi.user_id = fwd.user_id
             ORDER BY u.surname ASC, u.name ASC
         `);
         res.status(200).json(result.rows);
