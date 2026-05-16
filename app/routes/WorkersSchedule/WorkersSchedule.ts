@@ -5,7 +5,7 @@ import { requireAppRole } from "../../middleware/auth";
 const router = Router();
 
 
-router.get("/", requireAppRole("rendement", ["admin", "user", "guest"]), async (req, res) => {
+router.get("/", requireAppRole("schedule", ["admin", "user", "guest"]), async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT
@@ -28,6 +28,20 @@ router.get("/", requireAppRole("rendement", ["admin", "user", "guest"]), async (
         res.status(500).json({ error: "Failed to fetch workers schedule" });
     }
 });
+
+
+router.get("/job-list", requireAppRole("schedule", ["admin", "user", "guest"]), async (req, res) => {
+    try {
+        const result = await pool.query(`
+            djl.*
+            FROM foreign_workers_schedule.detailed_job_list djl
+        `);
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("Error fetching job list:", error);
+        res.status(500).json({ error: "Failed to fetch job list" });
+    }
+})
 
 
 
