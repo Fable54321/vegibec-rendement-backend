@@ -33,7 +33,8 @@ router.get("/", requireAppRole("schedule", ["admin", "user", "guest"]), async (r
 router.get("/job-list", requireAppRole("schedule", ["admin", "user", "guest"]), async (req, res) => {
     try {
         const result = await pool.query(`
-            djl.*
+            SELECT
+              djl.*
             FROM foreign_workers_schedule.detailed_job_list djl
         `);
         res.status(200).json(result.rows);
