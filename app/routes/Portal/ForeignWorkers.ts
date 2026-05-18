@@ -2,9 +2,21 @@ import express from "express";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 import { getContractAccessDetails } from "../../Utils/ContractHelpers/buildContracSession";
+import multer from "multer";
+import path from "path";
+import { uploadBufferToS3, getSignedUrlForKey } from "../../services/s3.services";
 
 
 const router = express.Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5 MB
+  },
+});
+
+const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
 
 
 router.get("/foreign-workers", requireAppRole("main", ["admin"]), async (_req, res) => {
@@ -86,6 +98,104 @@ router.get("/foreign-workers/contracts/:id", requireAppRole("main", ["admin"]), 
   }
 });
 
+// Post picture to s3 storage in order ot get a signed url
+
+router.patch(
+  "/foreign-workers/:id/personal-picture",
+  requireAppRole("main", ["admin"]),
+  upload.single("picture"),
+  async (req, res) => {
+    try {
+      const userId = Number(req.params.id);
+
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ error: "ID invalide" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "Aucune image envoyée" });
+      }
+
+      if (!allowedImageMimeTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({
+          error: "Seules les images JPEG, PNG et WEBP sont acceptées",
+        });
+      }
+
+      const existingWorker = await pool.query(
+        `
+        SELECT u.id
+        FROM users u
+        INNER JOIN foreign_workers_info fwi
+          ON fwi.user_id = u.id
+        WHERE u.id = $1
+        `,
+        [userId]
+      );
+
+      if (existingWorker.rows.length === 0) {
+        return res.status(404).json({ error: "Travailleur introuvable" });
+      }
+
+      const extensionFromMime: Record<string, string> = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+      };
+
+      const extension =
+        extensionFromMime[req.file.mimetype] ||
+        path.extname(req.file.originalname).toLowerCase() ||
+        ".jpg";
+
+      const personalPictureKey = `foreign-workers/personal-pictures/user-${userId}-${Date.now()}${extension}`;
+
+      await uploadBufferToS3({
+        key: personalPictureKey,
+        buffer: req.file.buffer,
+        contentType: req.file.mimetype,
+      });
+
+      const updateResult = await pool.query(
+        `
+        UPDATE foreign_workers_schedule.foreign_workers_details
+        SET personal_picture_key = $1
+        WHERE user_id = $2
+        RETURNING
+          id,
+          user_id,
+          personal_picture_key
+        `,
+        [personalPictureKey, userId]
+      );
+
+      if (updateResult.rows.length === 0) {
+        return res.status(404).json({
+          error: "Détails du travailleur introuvables",
+        });
+      }
+
+      const personalPictureUrl = await getSignedUrlForKey(personalPictureKey);
+
+      return res.status(200).json({
+        message: "Photo mise à jour avec succès",
+        detailsId: updateResult.rows[0].id,
+        userId: updateResult.rows[0].user_id,
+        personalPictureKey: updateResult.rows[0].personal_picture_key,
+        personalPictureUrl,
+      });
+    } catch (err) {
+      console.error("Error uploading worker personal picture:", err);
+      return res.status(500).json({
+        error: "Erreur lors du téléversement de la photo",
+      });
+    }
+  }
+);
+
+
+//Get all info from foreign_workers_info + picture url
+
 router.get("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
@@ -147,10 +257,21 @@ router.get("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (req
         fwi.contract_type,
         fwi.nas,
         fwi.ramq,
-        fwi.folio_number
+        fwi.folio_number,
+
+        fwd.id AS foreign_workers_details_id,
+fwd.has_license,
+fwd.personal_picture_key,
+fwd.day_off,
+fwd.job_id_1,
+fwd.job_id_2,
+fwd.job_id_3
+
       FROM users u
       INNER JOIN foreign_workers_info fwi
         ON fwi.user_id = u.id
+        LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
+  ON fwd.user_id = u.id
       WHERE u.id = $1
       `,
       [userId]
@@ -160,7 +281,17 @@ router.get("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (req
       return res.status(404).json({ error: "Travailleur introuvable" });
     }
 
-    return res.status(200).json(result.rows[0]);
+    const worker = result.rows[0];
+
+const personalPictureUrl = worker.personal_picture_key
+  ? await getSignedUrlForKey(worker.personal_picture_key)
+  : null;
+
+return res.status(200).json({
+  ...worker,
+  personal_picture_url: personalPictureUrl,
+});
+
   } catch (err) {
     console.error("Error fetching foreign worker:", err);
     return res.status(500).json({ error: "Erreur lors de la récupération du travailleur" });
