@@ -141,6 +141,7 @@ router.patch(
         "image/jpeg": ".jpg",
         "image/png": ".png",
         "image/webp": ".webp",
+        "image/svg+xml": ".svg",
       };
 
       const extension =
