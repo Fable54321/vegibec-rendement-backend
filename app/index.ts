@@ -43,6 +43,7 @@ import pictureTransferRoute from "./routes/PictureTransfer/PictureTransfer";
 import alternativeAuthRoute from "./routes/alternativeAuth";
 import visitorsInfoRoute from "./routes/Portal/VisitorsInfo";
 import workersScheduleRoute from "./routes/WorkersSchedule/WorkersSchedule";
+import temperatureRoute from "./routes/Temperature/Temperature"
 import path from "path";
 
 
@@ -956,6 +957,8 @@ app.use("/schedule", workersScheduleRoute);
 app.use("/converter", converterRoute);
 
 app.use("/visitors", visitorsRoute);
+
+app.use("/temperature", temperatureRoute);
 
 
 
