@@ -3,10 +3,42 @@ import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 import crypto from "crypto";
 import path from "path";
-import { uploadBufferToS3 } from "../../services/s3.services";
+import { getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services";
 import multer from "multer";
 
 const router = Router();
+
+const PICTURE_URL_CACHE_TTL_MS = 4 * 60 * 1000;
+
+const pictureUrlCache = new Map<
+  string,
+  {
+    url: string;
+    expiresAt: number;
+  }
+>();
+
+const getCachedPersonalPictureUrl = async (key: string | null | undefined) => {
+  if (!key) {
+    return null;
+  }
+
+  const now = Date.now();
+  const cachedUrl = pictureUrlCache.get(key);
+
+  if (cachedUrl && cachedUrl.expiresAt > now) {
+    return cachedUrl.url;
+  }
+
+  const url = await getSignedUrlForKey(key);
+
+  pictureUrlCache.set(key, {
+    url,
+    expiresAt: now + PICTURE_URL_CACHE_TTL_MS,
+  });
+
+  return url;
+};
 
 
 router.get("/", requireAppRole("schedule", ["admin", "user", "guest"]), async (req, res) => {
@@ -26,7 +58,15 @@ router.get("/", requireAppRole("schedule", ["admin", "user", "guest"]), async (r
                 ON fwi.user_id = fwd.user_id
             ORDER BY u.surname ASC, u.name ASC
         `);
-        res.status(200).json(result.rows);
+
+        const rowsWithPictureUrls = await Promise.all(
+          result.rows.map(async (row) => ({
+            ...row,
+            personal_picture_url: await getCachedPersonalPictureUrl(row.personal_picture_key),
+          }))
+        );
+
+        res.status(200).json(rowsWithPictureUrls);
     } catch (error) {
         console.error("Error fetching workers schedule:", error);
         res.status(500).json({ error: "Failed to fetch workers schedule" });
