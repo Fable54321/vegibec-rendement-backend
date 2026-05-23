@@ -10,6 +10,7 @@
     "temperatures": "ts-node app/routes/Temperature/Temperature.ts",
     "create-admin": "ts-node app/scripts/createAdmin.ts",
     "scrape:website": "ts-node app/Utils/WebsiteScraper.ts",
+    "scrape:weather": "ts-node app/Utils/Weather/runWeatherScrape.ts",
     "test:smtp": "tsx app/routes/Visitors/Utils/testSMTP.ts",
     "test": "tsx --test \"app/**/*.test.ts\""
   },
