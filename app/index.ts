@@ -45,6 +45,7 @@ import visitorsInfoRoute from "./routes/Portal/VisitorsInfo";
 import workersScheduleRoute from "./routes/WorkersSchedule/WorkersSchedule";
 import weatherRoute from "./routes/Weather/WeatherRoutes";
 import path from "path";
+import testContractRoute from "./Utils/testContract/testContract";
 
 
 
@@ -125,6 +126,10 @@ app.use(
 );
 
 app.use("/picture-transfer", pictureTransferRoute);
+
+if (process.env.NODE_ENV !== "production") {
+  app.use("/test", testContractRoute);
+}
 
 app.use("/auth", authRoute);
 

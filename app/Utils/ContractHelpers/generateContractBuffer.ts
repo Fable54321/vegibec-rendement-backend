@@ -7,6 +7,7 @@ import {
 } from "../GenerateContracts";
 import { generate0LoContract } from "../Generate0LoContract";
 import { generateAutdedContract } from "../GenerateAutDed";
+import { generateAutlavContract } from "../GenerateAutLav";
 import { generateAutretContract } from "../generateAutretContract";
 import { generateImpAutContract } from "../GenerateImpAut";
 import { generateImpCons } from "../GenerateImpCons";
@@ -50,6 +51,10 @@ export function getContractTemplateVersion({
 
   if (contractSlug === "Aut-ret") {
     return "2026-autret-v1";
+  }
+
+  if (contractSlug === "Aut-lav") {
+    return "2026-autlav-v1";
   }
 
   if (contractSlug === "Imp-aut") {
@@ -130,6 +135,12 @@ export async function generateContractBuffer({
     });
   } else if (contractSlug === "Aut-ret") {
     pdfBuffer = await generateAutretContract({
+      worker,
+      employer,
+      getJobDescription,
+    });
+  } else if (contractSlug === "Aut-lav") {
+    pdfBuffer = await generateAutlavContract({
       worker,
       employer,
       getJobDescription,

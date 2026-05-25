@@ -49,7 +49,7 @@ type Worker = {
   holiday_duration: number | null;
 };
 
-type ContractSlug = "PTAS" | "PTET" | "0Au" | "0Av" | "0Lo" | "Aut-ded" | "Aut-ret" | "Imp-aut" | "Imp-con" | "Pol-bris" | "Pol-harc" | "Pol-prot" | "Pol-vio";
+type ContractSlug = "PTAS" | "PTET" | "0Au" | "0Av" | "0Lo" | "Aut-ded" | "Aut-ret" | "Aut-lav" | "Imp-aut" | "Imp-con" | "Pol-bris" | "Pol-harc" | "Pol-prot" | "Pol-vio";
 
 type SignaturePlacement = {
   signaturePageIndex: number;
@@ -1033,6 +1033,18 @@ export const getSignaturePlacement = (
       dateX: 288,
       dateY: 180,
     }
+  }
+
+  if (contractSlug === "Aut-lav") {
+    return {
+      signaturePageIndex: 0,
+      signatureX: 268,
+      signatureY: 142,
+      signatureWidth: 150,
+      signatureHeight: 26,
+      dateX: 138,
+      dateY: 75,
+    };
   }
 
   if (contractSlug === "Imp-aut") {

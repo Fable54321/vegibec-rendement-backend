@@ -1,3 +1,5 @@
+import { rgb } from "pdf-lib";
+
 type PdfPage = any;
 type PDFFont = any;
 
@@ -120,8 +122,11 @@ export function drawField(
       y,
       width,
       height,
+      color: rgb(1, 1, 1),
+      opacity: 0,
+      borderColor: rgb(1, 0, 0),
       borderWidth: 0.8,
-      opacity: 0.8,
+      borderOpacity: 0.8,
     });
 
     // Crosshair at anchor point
