@@ -1039,11 +1039,11 @@ export const getSignaturePlacement = (
     return {
       signaturePageIndex: 0,
       signatureX: 268,
-      signatureY: 142,
+      signatureY: 143,
       signatureWidth: 150,
       signatureHeight: 26,
       dateX: 138,
-      dateY: 75,
+      dateY: 78,
     };
   }
 
@@ -1138,6 +1138,25 @@ export const getSignaturePlacement = (
   throw new Error("Type de contrat invalide");
 };
 
+const getAdditionalSignaturePlacements = (
+  contractSlug: ContractSlug
+): SignaturePlacement[] => {
+  if (contractSlug === "Imp-aut") {
+    return [
+      {
+        signaturePageIndex: 0,
+        signatureX: 24,
+        signatureY: 130,
+        signatureWidth: 220,
+        signatureHeight: 50,
+        dateX: 24,
+        dateY: 105,
+      },
+    ];
+  }
+
+  return [];
+};
 
 type ApplySignatureParams = {
   pdfBuffer: Buffer;
@@ -1162,36 +1181,39 @@ export const applySignatureToContract = async ({
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const signatureImage = await pdfDoc.embedPng(signatureBuffer);
 
-  const placement = getSignaturePlacement(contractSlug);
-  const page = pdfDoc.getPages()[placement.signaturePageIndex];
-
-  page.drawImage(signatureImage, {
-    x: placement.signatureX,
-    y: placement.signatureY,
-    width: placement.signatureWidth,
-    height: placement.signatureHeight,
-  });
-
   const formattedDate = (signedAt ?? new Date()).toLocaleDateString("fr-CA");
+  const placements = [
+    getSignaturePlacement(contractSlug),
+    ...getAdditionalSignaturePlacements(contractSlug),
+  ];
 
+  for (const placement of placements) {
+    const page = pdfDoc.getPages()[placement.signaturePageIndex];
 
+    page.drawImage(signatureImage, {
+      x: placement.signatureX,
+      y: placement.signatureY,
+      width: placement.signatureWidth,
+      height: placement.signatureHeight,
+    });
 
-  page.drawText(formattedDate, {
-    x: placement.dateX,
-    y: placement.dateY,
-    size: 10,
-    font,
-    color: rgb(0, 0, 0),
-  });
-
-  if (signedName && placement.nameX !== undefined && placement.nameY !== undefined) {
-    page.drawText(signedName, {
-      x: placement.nameX,
-      y: placement.nameY,
+    page.drawText(formattedDate, {
+      x: placement.dateX,
+      y: placement.dateY,
       size: 10,
-      font: boldFont,
+      font,
       color: rgb(0, 0, 0),
     });
+
+    if (signedName && placement.nameX !== undefined && placement.nameY !== undefined) {
+      page.drawText(signedName, {
+        x: placement.nameX,
+        y: placement.nameY,
+        size: 10,
+        font: boldFont,
+        color: rgb(0, 0, 0),
+      });
+    }
   }
 
   const finalPdfBytes = await pdfDoc.save();

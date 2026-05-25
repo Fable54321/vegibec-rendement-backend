@@ -83,14 +83,14 @@ export const generateAutlavContract = async ({
 
   firstPage.drawText(`${worker.matricula ?? ""}`, {
     x: 255,
-    y: 593,
+    y: 595,
     size: 11,
     font: boldFont,
   });
 
   firstPage.drawText(`${worker.surname ?? ""} ${worker.name ?? ""}`, {
     x: 215,
-    y: 549,
+    y: 551,
     size: 11,
     font: boldFont,
   });

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCanvas } from "@napi-rs/canvas";
 import express from "express";
 import request from "supertest";
 import { generateContractBuffer } from "../ContractHelpers/generateContractBuffer";
+import { applySignatureToContract } from "../GenerateContracts";
 import testContractRouter from "./testContract";
 
 type BinaryParserCallback = (error: Error | null, body: Buffer) => void;
@@ -80,4 +82,32 @@ test("generateContractBuffer can generate Aut-lav", async () => {
   assert.equal(templateVersion, "2026-autlav-v1");
   assert.equal(pdfBuffer.subarray(0, 5).toString("utf8"), "%PDF-");
   assert.ok(pdfBuffer.length > 1_000);
+});
+
+test("applySignatureToContract signs Imp-aut with all required placements", async () => {
+  const { pdfBuffer } = await generateContractBuffer({
+    contractSlug: "Imp-aut",
+    worker: {
+      user_id: 1,
+      name: "JUAN",
+      surname: "PEREZ",
+      nas: "111111111",
+    },
+  });
+
+  const canvas = createCanvas(240, 60);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "black";
+  context.font = "28px sans-serif";
+  context.fillText("Signature", 12, 38);
+
+  const signedPdfBuffer = await applySignatureToContract({
+    pdfBuffer,
+    contractSlug: "Imp-aut",
+    signatureBuffer: canvas.toBuffer("image/png"),
+    signedAt: new Date("2026-05-25T12:00:00Z"),
+  });
+
+  assert.equal(signedPdfBuffer.subarray(0, 5).toString("utf8"), "%PDF-");
+  assert.ok(signedPdfBuffer.length > pdfBuffer.length);
 });
