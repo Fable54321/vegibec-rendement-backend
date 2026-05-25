@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { scrapePage } from "./scrapePage";
+import { scrapePage } from "../WebsiteScraper";
 import { saveWeatherForecast } from "./saveWeatherForecast";
 
 export async function runWeatherScrape() {
