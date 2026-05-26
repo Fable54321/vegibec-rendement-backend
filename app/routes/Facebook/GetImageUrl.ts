@@ -17,6 +17,11 @@ router.post(
         return res.status(400).json({ error: "Missing PNG image data" });
       }
 
+      const publicBaseUrl = process.env.PUBLIC_BACKEND_URL;
+      if (!publicBaseUrl) {
+        return res.status(500).json({ error: "PUBLIC_BACKEND_URL is not configured" });
+      }
+
       const base64 = imageDataUrl.replace("data:image/png;base64,", "");
       const buffer = Buffer.from(base64, "base64");
 
@@ -24,13 +29,16 @@ router.post(
       const outputDir = path.join(process.cwd(), "public", "generated");
       const outputPath = path.join(outputDir, fileName);
 
+      console.log("Generated image write target:", {
+        cwd: process.cwd(),
+        outputDir,
+        outputPath,
+        sizeBytes: buffer.length,
+      });
+
       await fs.mkdir(outputDir, { recursive: true });
       await fs.writeFile(outputPath, buffer);
-
-      const publicBaseUrl = process.env.PUBLIC_BACKEND_URL;
-      if (!publicBaseUrl) {
-        return res.status(500).json({ error: "PUBLIC_BACKEND_URL is not configured" });
-      }
+      console.log("Generated image saved:", outputPath);
 
       const generatedUrl = `${publicBaseUrl}/generated/${fileName}`;
       console.log("Generated Facebook image URL:", generatedUrl);
