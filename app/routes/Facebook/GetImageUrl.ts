@@ -32,8 +32,11 @@ router.post(
         return res.status(500).json({ error: "PUBLIC_BACKEND_URL is not configured" });
       }
 
+      const generatedUrl = `${publicBaseUrl}/generated/${fileName}`;
+      console.log("Generated Facebook image URL:", generatedUrl);
+
       return res.status(201).json({
-        url: `${publicBaseUrl}/generated/${fileName}`,
+        url: generatedUrl,
       });
     } catch (error) {
       console.error("Error saving generated image:", error);
