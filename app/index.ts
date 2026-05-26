@@ -135,6 +135,11 @@ app.get("/", async (req, res) => {
 app.use("/signature", signatureRoute);
 app.use("/plan", planRoute);
 
+app.use(
+  "/generated",
+  express.static(path.join(process.cwd(), "public", "generated"))
+);
+
 app.use("/api/rate-converter", rateConverterRoute);   /// same thing here
 
 app.use("/api/vegReports", vegReportsRouter); //// Eventually check for these they can be uinside the auth
