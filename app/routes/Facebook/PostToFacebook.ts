@@ -34,3 +34,6 @@ Date: ${date || "N/A"}
     });
   }
 });
+
+
+export default router;

@@ -46,7 +46,7 @@ import workersScheduleRoute from "./routes/WorkersSchedule/WorkersSchedule";
 import weatherRoute from "./routes/Weather/WeatherRoutes";
 import path from "path";
 import testContractRoute from "./Utils/testContract/testContract";
-
+import facebookRoute from "./routes/Facebook/PostToFacebook";
 
 
 
@@ -964,6 +964,8 @@ app.use("/converter", converterRoute);
 app.use("/visitors", visitorsRoute);
 
 app.use("/weather", weatherRoute);
+
+app.use("/facebook", facebookRoute);
 
 
 
