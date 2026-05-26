@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 
 const DEFAULT_URL = "https://www.meteomedia.com/fr/ville/ca/quebec/oka/7-jours";
-const DAYS_TO_SCRAPE = 7;
+const DAYS_TO_SCRAPE = 8;
 const PERIODS_PER_DAY = 4;
 
 export async function scrapePage(url = DEFAULT_URL) {

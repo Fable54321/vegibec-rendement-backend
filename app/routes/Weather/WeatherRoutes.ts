@@ -8,6 +8,12 @@ const router = express.Router();
 router.get("/forecast", async (req, res) => {
   try {
     const result = await pool.query(`
+      WITH latest_forecast_days AS (
+        SELECT *
+        FROM weather.forecast_days
+        ORDER BY forecast_date DESC
+        LIMIT 14
+      )
       SELECT
         fd.id AS forecast_day_id,
         fd.forecast_date,
@@ -26,10 +32,9 @@ router.get("/forecast", async (req, res) => {
         fp.raw_rain_probability,
         fp.raw_winds,
         fp.raw_wind_gusts
-      FROM weather.forecast_days fd
+      FROM latest_forecast_days fd
       LEFT JOIN weather.forecast_periods fp
         ON fp.forecast_day_id = fd.id
-      WHERE fd.forecast_date >= CURRENT_DATE
       ORDER BY
         fd.forecast_date ASC,
         CASE fp.time_of_day
