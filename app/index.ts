@@ -47,7 +47,7 @@ import weatherRoute from "./routes/Weather/WeatherRoutes";
 import path from "path";
 import testContractRoute from "./Utils/testContract/testContract";
 import facebookRoute from "./routes/Facebook/PostToFacebook";
-
+import getURlRoute from "./routes/Facebook/GetImageUrl";
 
 
 
@@ -966,6 +966,8 @@ app.use("/visitors", visitorsRoute);
 app.use("/weather", weatherRoute);
 
 app.use("/facebook", facebookRoute);
+
+app.use("get-url", getURlRoute);
 
 
 
