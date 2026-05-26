@@ -1,6 +1,6 @@
 import Router from "express";
 import { requireAppRole } from "../../middleware/auth";
-import { postMessageToFacebook } from "../../Utils/Facebook/postMessageToFacebook";
+import { postMessageToFacebook, postPictureToFacebook } from "../../Utils/Facebook/postMessageToFacebook";
 
 
 const router = Router();
@@ -34,6 +34,30 @@ ${description}
     });
   }
 });
+
+
+router.post("/facebook-page-pictures", requireAppRole("rendement", ["admin"]), async (req, res) => {
+  try {
+    const { url } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: "Missing url" });
+    }
+
+    const facebookResult = await postPictureToFacebook(url);
+
+    return res.status(201).json({
+      success: true,
+      facebookPostId: facebookResult.id,
+    });
+  } catch (error) {
+    console.error("Error creating Facebook post:", error);
+    return res.status(500).json({
+      error: "Failed to create Facebook post",
+    });
+  }
+});
+
 
 
 export default router;
