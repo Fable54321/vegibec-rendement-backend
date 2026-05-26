@@ -59,15 +59,23 @@ dotenv.config();
 const app = express();
 
 const defaultJsonParser = express.json();
-const generatedImageJsonParser = express.json({ limit: "15mb" });
+const generatedImageJsonParser = express.json({ limit: "50mb" });
 
 app.use((req, res, next) => {
-  if (req.path === "/get-url/generated-images") {
+  if (req.path.endsWith("/get-url/generated-images")) {
     return generatedImageJsonParser(req, res, next);
   }
 
   return defaultJsonParser(req, res, next);
 });
+
+app.use(((error, req, res, next) => {
+  if (error?.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body is too large" });
+  }
+
+  return next(error);
+}) as express.ErrorRequestHandler);
 
 app.use(cookieParser());
 
