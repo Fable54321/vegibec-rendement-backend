@@ -7,7 +7,7 @@ const router = Router();
 
 router.post("/facebook-page-posts", requireAppRole("rendement", ["admin"]), async (req, res) => {
   try {
-    const { title, description, date } = req.body;
+    const { title, description } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({ error: "Missing title or description" });
@@ -18,7 +18,7 @@ ${title}
 
 ${description}
 
-Date: ${date || "N/A"}
+}
     `.trim();
 
     const facebookResult = await postMessageToFacebook(message);
