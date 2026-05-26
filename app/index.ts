@@ -57,7 +57,18 @@ import getURlRoute from "./routes/Facebook/GetImageUrl";
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+
+const defaultJsonParser = express.json();
+const generatedImageJsonParser = express.json({ limit: "15mb" });
+
+app.use((req, res, next) => {
+  if (req.path === "/get-url/generated-images") {
+    return generatedImageJsonParser(req, res, next);
+  }
+
+  return defaultJsonParser(req, res, next);
+});
+
 app.use(cookieParser());
 
 const allowedOrigins = [
@@ -967,7 +978,7 @@ app.use("/weather", weatherRoute);
 
 app.use("/facebook", facebookRoute);
 
-app.use("get-url", getURlRoute);
+app.use("/get-url", getURlRoute);
 
 
 
