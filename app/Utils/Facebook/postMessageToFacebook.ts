@@ -23,11 +23,12 @@ export async function postMessageToFacebook(message: string) {
     {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-      },
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${pageAccessToken}`,
+},
+
       body: JSON.stringify({
         message,
-        access_token: pageAccessToken,
       }),
     }
   );
