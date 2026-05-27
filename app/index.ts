@@ -46,7 +46,7 @@ import workersScheduleRoute from "./routes/WorkersSchedule/WorkersSchedule";
 import weatherRoute from "./routes/Weather/WeatherRoutes";
 import path from "path";
 import testContractRoute from "./Utils/testContract/testContract";
-import facebookRoute from "./routes/Facebook/PostToFacebook";
+import facebookRoute, { publicFacebookRouter } from "./routes/Facebook/PostToFacebook";
 import getURlRoute from "./routes/Facebook/GetImageUrl";
 
 
@@ -150,6 +150,8 @@ app.use(
 );
 
 app.use("/picture-transfer", pictureTransferRoute);
+
+app.use("/facebook", publicFacebookRouter);
 
 if (process.env.NODE_ENV !== "production") {
   app.use("/test", testContractRoute);
