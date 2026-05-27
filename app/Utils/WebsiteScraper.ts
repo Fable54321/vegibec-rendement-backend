@@ -90,6 +90,7 @@ export async function scrapePage(url = DEFAULT_URL) {
   const windSpeeds = getForecastColumnValues("windSpeed");
   const windDirections = getForecastColumnValues("windDirection");
   const windGusts = getForecastColumnValues("windGust");
+  const weatherComments = getForecastColumnValues("condition");
 
   const getDay = (dayIndex: number) =>
     $('[data-testid="period-section-heading"]')
@@ -128,14 +129,21 @@ export async function scrapePage(url = DEFAULT_URL) {
     return temperatureMatches?.at(-1) ?? "";
   };
 
-  const getWeatherComment = (rowIndex: number) =>
-    $('[data-testid="forecast-module-row"]')
+  const getWeatherComment = (rowIndex: number) => {
+    const forecastColumnComment = weatherComments[rowIndex];
+
+    if (forecastColumnComment) {
+      return forecastColumnComment;
+    }
+
+    return $('[data-testid="forecast-module-row"]')
       .eq(rowIndex)
       .find('[data-testid="expanded-row-weather-text"]')
       .first()
       .text()
       .replace(/\s+/g, " ")
       .trim();
+  };
 
   const getRainProbabilities = (rowIndex: number) => {
     const row = $('[data-testid="forecast-module-row"]').eq(rowIndex);
