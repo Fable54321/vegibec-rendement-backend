@@ -115,6 +115,28 @@ export async function scrapePage(url = DEFAULT_URL) {
       .text()
       .trim();
 
+  const getTemperatureFelt = (rowIndex: number) => {
+    const feelsLikeText = $('[data-testid="forecast-module-row"]')
+      .eq(rowIndex)
+      .find('[data-testid="row-feels-like"]')
+      .first()
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const temperatureMatches = feelsLikeText.match(/-?\d+/g);
+    return temperatureMatches?.at(-1) ?? "";
+  };
+
+  const getWeatherComment = (rowIndex: number) =>
+    $('[data-testid="forecast-module-row"]')
+      .eq(rowIndex)
+      .find('[data-testid="expanded-row-weather-text"]')
+      .first()
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+
   const getRainProbabilities = (rowIndex: number) => {
     const row = $('[data-testid="forecast-module-row"]').eq(rowIndex);
     const expandedRainProbability = row
@@ -153,9 +175,11 @@ export async function scrapePage(url = DEFAULT_URL) {
       return {
         timeOfDay: getTimeOfDay(rowIndex),
         temperature: getForecastRowTemperature(rowIndex),
+        temperatureFelt: getTemperatureFelt(rowIndex),
         rainProbabilities: getRainProbabilities(rowIndex),
         winds: getWinds(rowIndex),
         windGusts: getWindGusts(rowIndex),
+        weatherComment: getWeatherComment(rowIndex),
       };
     });
 
@@ -170,9 +194,11 @@ export async function scrapePage(url = DEFAULT_URL) {
       const fields = [
         ["timeOfDay", period.timeOfDay],
         ["temperature", period.temperature],
+        ["temperatureFelt", period.temperatureFelt],
         ["rainProbabilities", period.rainProbabilities],
         ["winds", period.winds],
         ["windGusts", period.windGusts],
+        ["weatherComment", period.weatherComment],
       ];
 
       return fields
@@ -199,8 +225,8 @@ export async function scrapePage(url = DEFAULT_URL) {
     .map(({ day, periods }) => {
       const periodLines = periods
         .map(
-          ({ timeOfDay, temperature, rainProbabilities, winds, windGusts }) =>
-            `  ${timeOfDay} ${temperature} P.D.P. ${rainProbabilities} Vents ${winds} Rafales ${windGusts}`
+          ({ timeOfDay, temperature, temperatureFelt, rainProbabilities, winds, windGusts, weatherComment }) =>
+            `  ${timeOfDay} ${temperature} T. ress ${temperatureFelt} P.D.P. ${rainProbabilities} Vents ${winds} Rafales ${windGusts} ${weatherComment}`
         )
         .join("\n");
 

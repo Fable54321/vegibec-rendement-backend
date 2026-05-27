@@ -12,9 +12,11 @@ import {
 type ScrapedWeatherPeriod = {
   timeOfDay: string;
   temperature: string;
+  temperatureFelt: string;
   rainProbabilities: string;
   winds: string;
   windGusts: string;
+  weatherComment: string;
 };
 
 type ScrapedWeatherDay = {
@@ -100,6 +102,7 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
       for (const [periodIndex, period] of day.periods.entries()) {
         const { windSpeedKmh, windDirection } = parseWind(period.winds);
         const temperatureC = parseTemperature(period.temperature);
+        const temperatureFelt = parseTemperature(period.temperatureFelt);
         const rainProbabilityPercent = parsePercent(period.rainProbabilities);
         const windGustKmh = parseWindGust(period.windGusts);
 
@@ -111,10 +114,12 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
           raw: period,
           parsed: {
             temperatureC,
+            temperatureFelt,
             rainProbabilityPercent,
             windSpeedKmh,
             windDirection,
             windGustKmh,
+            weatherComment: period.weatherComment,
           },
         });
 
@@ -124,10 +129,12 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
             forecast_day_id,
             time_of_day,
             temperature_c,
+            temperature_felt,
             rain_probability_percent,
             wind_speed_kmh,
             wind_direction,
             wind_gust_kmh,
+            weather_comment,
             raw_temperature,
             raw_rain_probability,
             raw_winds,
@@ -137,7 +144,7 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
           )
           VALUES (
             $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11,
+            $8, $9, $10, $11, $12, $13,
             now(), now()
           )
           `,
@@ -145,10 +152,12 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
             forecastDayId,
             period.timeOfDay,
             temperatureC,
+            temperatureFelt,
             rainProbabilityPercent,
             windSpeedKmh,
             windDirection,
             windGustKmh,
+            period.weatherComment,
             period.temperature,
             period.rainProbabilities,
             period.winds,
