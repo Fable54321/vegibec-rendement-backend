@@ -19,6 +19,12 @@ const frenchMonths: Record<string, number> = {
 };
 
 export function parseForecastDate(rawDayLabel: string, referenceDate = new Date()) {
+  console.log("[weather-parser] Parsing forecast date", {
+    rawDayLabel,
+    referenceDate: referenceDate.toISOString(),
+    referenceTimezoneOffsetMinutes: referenceDate.getTimezoneOffset(),
+  });
+
   // Example: "23 mai sam."
   const match = rawDayLabel
     .toLowerCase()
@@ -26,6 +32,9 @@ export function parseForecastDate(rawDayLabel: string, referenceDate = new Date(
     .match(/(\d{1,2})\s+([a-zéûôîàèù]+)/i);
 
   if (!match) {
+    console.warn("[weather-parser] Forecast day label did not match expected format", {
+      rawDayLabel,
+    });
     throw new Error(`Could not parse forecast day label: ${rawDayLabel}`);
   }
 
@@ -34,6 +43,11 @@ export function parseForecastDate(rawDayLabel: string, referenceDate = new Date(
   const month = frenchMonths[monthText];
 
   if (month === undefined) {
+    console.warn("[weather-parser] Unknown French month", {
+      rawDayLabel,
+      monthText,
+      knownMonths: Object.keys(frenchMonths),
+    });
     throw new Error(`Unknown French month in label: ${rawDayLabel}`);
   }
 
@@ -46,18 +60,39 @@ export function parseForecastDate(rawDayLabel: string, referenceDate = new Date(
   }
 
   const date = new Date(Date.UTC(year, month, day));
+  const parsedDate = date.toISOString().slice(0, 10);
 
-  return date.toISOString().slice(0, 10); // YYYY-MM-DD
+  console.log("[weather-parser] Forecast date parsed", {
+    rawDayLabel,
+    parsedDate,
+    year,
+    month,
+    day,
+  });
+
+  return parsedDate; // YYYY-MM-DD
 }
 
 export function parseTemperature(value: string) {
   const match = value.match(/-?\d+/);
-  return match ? Number(match[0]) : null;
+  const parsed = match ? Number(match[0]) : null;
+
+  if (parsed === null && value) {
+    console.warn("[weather-parser] Temperature could not be parsed", { value });
+  }
+
+  return parsed;
 }
 
 export function parsePercent(value: string) {
   const match = value.match(/\d+/);
-  return match ? Number(match[0]) : null;
+  const parsed = match ? Number(match[0]) : null;
+
+  if (parsed === null && value) {
+    console.warn("[weather-parser] Percent could not be parsed", { value });
+  }
+
+  return parsed;
 }
 
 export function parseWind(value: string) {
@@ -65,13 +100,28 @@ export function parseWind(value: string) {
   const speedMatch = value.match(/(\d+)\s*km\/h/i);
   const directionMatch = value.match(/km\/h\s+([A-ZÀ-ÿ]+)/i);
 
-  return {
+  const parsed = {
     windSpeedKmh: speedMatch ? Number(speedMatch[1]) : null,
     windDirection: directionMatch ? directionMatch[1] : null,
   };
+
+  if (value && (parsed.windSpeedKmh === null || parsed.windDirection === null)) {
+    console.warn("[weather-parser] Wind could not be fully parsed", {
+      value,
+      parsed,
+    });
+  }
+
+  return parsed;
 }
 
 export function parseWindGust(value: string) {
   const match = value.match(/\d+/);
-  return match ? Number(match[0]) : null;
+  const parsed = match ? Number(match[0]) : null;
+
+  if (parsed === null && value) {
+    console.warn("[weather-parser] Wind gust could not be parsed", { value });
+  }
+
+  return parsed;
 }

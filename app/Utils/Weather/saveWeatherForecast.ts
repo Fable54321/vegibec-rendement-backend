@@ -28,13 +28,28 @@ type ScrapedWeatherResult = {
 };
 
 export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
+  console.log("[weather-save] Connecting to database", {
+    days: scraped.days.length,
+    url: scraped.url,
+    databaseUrlLoaded: Boolean(process.env.DATABASE_URL),
+  });
+
   const client = await pool.connect();
 
   try {
+    console.log("[weather-save] Database connection acquired");
     await client.query("BEGIN");
+    console.log("[weather-save] Transaction started");
 
-    for (const day of scraped.days) {
+    for (const [dayIndex, day] of scraped.days.entries()) {
       const forecastDate = parseForecastDate(day.day);
+
+      console.log("[weather-save] Saving forecast day", {
+        dayIndex,
+        rawDayLabel: day.day,
+        forecastDate,
+        periodCount: day.periods.length,
+      });
 
       const dayResult = await client.query(
         `
@@ -59,8 +74,15 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
 
       const forecastDayId = dayResult.rows[0].id;
 
+      console.log("[weather-save] Forecast day upserted", {
+        dayIndex,
+        forecastDate,
+        forecastDayId,
+        rowCount: dayResult.rowCount,
+      });
+
       // Since you always expect 4 periods, this guarantees a clean replacement.
-      await client.query(
+      const deleteResult = await client.query(
         `
         DELETE FROM weather.forecast_periods
         WHERE forecast_day_id = $1
@@ -68,10 +90,35 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
         [forecastDayId]
       );
 
-      for (const period of day.periods) {
-        const { windSpeedKmh, windDirection } = parseWind(period.winds);
+      console.log("[weather-save] Existing forecast periods deleted", {
+        dayIndex,
+        forecastDate,
+        forecastDayId,
+        deletedRows: deleteResult.rowCount,
+      });
 
-        await client.query(
+      for (const [periodIndex, period] of day.periods.entries()) {
+        const { windSpeedKmh, windDirection } = parseWind(period.winds);
+        const temperatureC = parseTemperature(period.temperature);
+        const rainProbabilityPercent = parsePercent(period.rainProbabilities);
+        const windGustKmh = parseWindGust(period.windGusts);
+
+        console.log("[weather-save] Inserting forecast period", {
+          dayIndex,
+          periodIndex,
+          forecastDate,
+          forecastDayId,
+          raw: period,
+          parsed: {
+            temperatureC,
+            rainProbabilityPercent,
+            windSpeedKmh,
+            windDirection,
+            windGustKmh,
+          },
+        });
+
+        const periodResult = await client.query(
           `
           INSERT INTO weather.forecast_periods (
             forecast_day_id,
@@ -97,25 +144,42 @@ export async function saveWeatherForecast(scraped: ScrapedWeatherResult) {
           [
             forecastDayId,
             period.timeOfDay,
-            parseTemperature(period.temperature),
-            parsePercent(period.rainProbabilities),
+            temperatureC,
+            rainProbabilityPercent,
             windSpeedKmh,
             windDirection,
-            parseWindGust(period.windGusts),
+            windGustKmh,
             period.temperature,
             period.rainProbabilities,
             period.winds,
             period.windGusts,
           ]
         );
+
+        console.log("[weather-save] Forecast period inserted", {
+          dayIndex,
+          periodIndex,
+          forecastDate,
+          forecastDayId,
+          rowCount: periodResult.rowCount,
+        });
       }
     }
 
     await client.query("COMMIT");
+    console.log("[weather-save] Transaction committed", {
+      days: scraped.days.length,
+      periods: scraped.days.reduce((total, day) => total + day.periods.length, 0),
+    });
   } catch (error) {
+    console.error("[weather-save] Error while saving forecast, rolling back", {
+      error: error instanceof Error ? error.message : error,
+    });
     await client.query("ROLLBACK");
+    console.log("[weather-save] Transaction rolled back");
     throw error;
   } finally {
     client.release();
+    console.log("[weather-save] Database connection released");
   }
 }

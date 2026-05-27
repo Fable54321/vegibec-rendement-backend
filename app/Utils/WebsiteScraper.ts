@@ -5,7 +5,21 @@ const DAYS_TO_SCRAPE = 8;
 const PERIODS_PER_DAY = 4;
 
 export async function scrapePage(url = DEFAULT_URL) {
+  const startedAt = Date.now();
+  console.log("[weather-scraper] Fetch started", {
+    url,
+    startedAt: new Date(startedAt).toISOString(),
+  });
+
   const response = await fetch(url);
+
+  console.log("[weather-scraper] Fetch response received", {
+    url,
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    contentType: response.headers.get("content-type"),
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
@@ -13,15 +27,36 @@ export async function scrapePage(url = DEFAULT_URL) {
 
   const html = await response.text();
 
+  console.log("[weather-scraper] HTML downloaded", {
+    url,
+    bytes: Buffer.byteLength(html, "utf8"),
+    characters: html.length,
+    elapsedMs: Date.now() - startedAt,
+  });
+
   const $ = cheerio.load(html);
+  const datasetScripts = $('script[type="application/ld+json"]').toArray();
+  const headings = $('[data-testid="period-section-heading"]');
+  const rows = $('[data-testid="forecast-module-row"]');
+
+  console.log("[weather-scraper] DOM selector counts", {
+    datasetScripts: datasetScripts.length,
+    periodSectionHeadings: headings.length,
+    forecastRows: rows.length,
+    expectedDays: DAYS_TO_SCRAPE,
+    expectedRows: DAYS_TO_SCRAPE * PERIODS_PER_DAY,
+  });
 
   const getForecastColumnValues = (columnName: string) => {
-    const datasetScript = $('script[type="application/ld+json"]')
-      .toArray()
+    const datasetScript = datasetScripts
       .map((script) => $(script).text())
       .find((scriptText) => scriptText.includes('"csvw:columns"') && scriptText.includes(columnName));
 
     if (!datasetScript) {
+      console.warn("[weather-scraper] JSON-LD forecast column script not found", {
+        columnName,
+        datasetScripts: datasetScripts.length,
+      });
       return [];
     }
 
@@ -32,10 +67,22 @@ export async function scrapePage(url = DEFAULT_URL) {
         ? columns.find((item) => item?.["csvw:name"] === columnName)
         : undefined;
 
-      return Array.isArray(column?.["csvw:cells"])
+      const values = Array.isArray(column?.["csvw:cells"])
         ? column["csvw:cells"].map((cell) => String(cell?.["csvw:value"] ?? "").trim())
         : [];
-    } catch {
+
+      console.log("[weather-scraper] JSON-LD forecast column extracted", {
+        columnName,
+        valueCount: values.length,
+        sample: values.slice(0, 4),
+      });
+
+      return values;
+    } catch (error) {
+      console.warn("[weather-scraper] Failed to parse JSON-LD forecast column", {
+        columnName,
+        error: error instanceof Error ? error.message : error,
+      });
       return [];
     }
   };
@@ -116,6 +163,36 @@ export async function scrapePage(url = DEFAULT_URL) {
       day: getDay(dayIndex),
       periods,
     };
+  });
+
+  days.forEach((day, dayIndex) => {
+    const missingFields = day.periods.flatMap((period, periodIndex) => {
+      const fields = [
+        ["timeOfDay", period.timeOfDay],
+        ["temperature", period.temperature],
+        ["rainProbabilities", period.rainProbabilities],
+        ["winds", period.winds],
+        ["windGusts", period.windGusts],
+      ];
+
+      return fields
+        .filter(([, value]) => !value)
+        .map(([field]) => `period ${periodIndex + 1} ${field}`);
+    });
+
+    const logPayload = {
+      dayIndex,
+      day: day.day,
+      periodCount: day.periods.length,
+      periods: day.periods,
+      missingFields,
+    };
+
+    if (!day.day || missingFields.length > 0) {
+      console.warn("[weather-scraper] Parsed day has missing values", logPayload);
+    } else {
+      console.log("[weather-scraper] Parsed day summary", logPayload);
+    }
   });
 
   const forecastInfo = days

@@ -3,24 +3,55 @@ import { scrapePage } from "../WebsiteScraper";
 import { saveWeatherForecast } from "./saveWeatherForecast";
 
 export async function runWeatherScrape() {
-  console.log("=== WEATHER SCRAPE START ===");
-  console.log("Started at:", new Date().toISOString());
-  console.log("DATABASE_URL loaded?", Boolean(process.env.DATABASE_URL));
+  const runId = `weather-${Date.now()}`;
+  const startedAt = Date.now();
 
+  console.log("=== WEATHER SCRAPE START ===");
+  console.log("[weather-run] Runtime context", {
+    runId,
+    startedAt: new Date(startedAt).toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+    nodeEnv: process.env.NODE_ENV,
+    nodeVersion: process.version,
+    platform: process.platform,
+    cwd: process.cwd(),
+    argv: process.argv,
+    databaseUrlLoaded: Boolean(process.env.DATABASE_URL),
+  });
+
+  console.log("[weather-run] Starting page scrape", { runId });
   const scraped = await scrapePage();
 
-  console.log("Scrape completed.");
-  console.log("URL:", scraped.url);
-  console.log("Days scraped:", scraped.days.length);
-  console.log(
-    "Day labels:",
-    scraped.days.map((d) => d.day).join(", ")
-  );
+  console.log("[weather-run] Scrape completed", {
+    runId,
+    url: scraped.url,
+    daysScraped: scraped.days.length,
+    periodCounts: scraped.days.map((day) => day.periods.length),
+    dayLabels: scraped.days.map((day) => day.day),
+    emptyDayLabels: scraped.days.filter((day) => !day.day).length,
+    emptyPeriodFields: scraped.days.reduce(
+      (total, day) =>
+        total +
+        day.periods.reduce(
+          (dayTotal, period) =>
+            dayTotal +
+            Object.values(period).filter((value) => !value).length,
+          0
+        ),
+      0
+    ),
+  });
 
+  console.log("[weather-run] Starting DB save", { runId });
   await saveWeatherForecast(scraped);
 
-  console.log("DB save completed.");
-  console.log("Finished at:", new Date().toISOString());
+  console.log("[weather-run] DB save completed", { runId });
+  console.log("[weather-run] Finished", {
+    runId,
+    finishedAt: new Date().toISOString(),
+    elapsedMs: Date.now() - startedAt,
+  });
   console.log("=== WEATHER SCRAPE END ===");
 }
 
