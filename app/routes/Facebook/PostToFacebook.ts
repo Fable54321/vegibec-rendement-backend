@@ -18,7 +18,6 @@ ${title}
 
 ${description}
 
-}
     `.trim();
 
     const facebookResult = await postMessageToFacebook(message);
