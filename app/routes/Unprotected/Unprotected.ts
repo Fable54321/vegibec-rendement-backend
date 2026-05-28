@@ -10,10 +10,7 @@ router.get(
   async (req, res) => {
     try {
       const result = await pool.query(`
-      SELECT 
-        vegetable,
-        is_generic,
-        generic_group
+      SELECT *
       FROM vegetables
       ORDER BY vegetable
     `);
