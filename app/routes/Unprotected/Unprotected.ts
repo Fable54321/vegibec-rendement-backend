@@ -101,9 +101,9 @@ router.post("/quotations", async (req, res) => {
 
 router.patch("/quotations/:id", async (req, res) => {
   try {
-    const quotationId = Number(req.params.id);
+    const quotationId = String(req.params.id ?? "").trim();
 
-    if (!Number.isInteger(quotationId)) {
+    if (!quotationId) {
       return res.status(400).json({ error: "Invalid quotation id" });
     }
 
@@ -189,9 +189,9 @@ router.patch("/quotations/:id", async (req, res) => {
 
 router.delete("/quotations/:id", async (req, res) => {
   try {
-    const quotationId = Number(req.params.id);
+    const quotationId = String(req.params.id ?? "").trim();
 
-    if (!Number.isInteger(quotationId)) {
+    if (!quotationId) {
       return res.status(400).json({ error: "Invalid quotation id" });
     }
 
