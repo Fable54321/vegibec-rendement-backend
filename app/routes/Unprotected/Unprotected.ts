@@ -33,6 +33,16 @@ router.get("/clients", async (req, res) => {
   }
 });
 
+router.get("/quotations", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM sales.quotations");
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error fetching quotations:", error);
+    res.status(500).json({ error: "Failed to fetch quotations" });
+  }
+});
+
 router.post("/quotations", async (req, res) => {
   try {
     const { quotation_date, price, vegetable_id, client_id } = req.body;
