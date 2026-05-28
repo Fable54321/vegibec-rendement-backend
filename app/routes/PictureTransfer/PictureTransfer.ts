@@ -14,8 +14,9 @@ import { pool } from "../../db";
 const router = express.Router();
 
 const PICTURE_PREFIX = "picture-transfer";
-const MAX_FILES_PER_UPLOAD = 50;
+const MAX_FILES_PER_UPLOAD = 1000;
 const MAX_FILE_SIZE_BYTES = 250 * 1024 * 1024;
+const UPLOAD_PROCESSING_CONCURRENCY = 10;
 const SIGNED_URL_EXPIRES_SECONDS = 60 * 60;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
@@ -121,6 +122,22 @@ const getBucketName = () => {
   return bucket;
 };
 
+const mapInBatches = async <T, R>(
+  items: T[],
+  batchSize: number,
+  mapper: (item: T) => Promise<R>,
+) => {
+  const results: R[] = [];
+
+  for (let index = 0; index < items.length; index += batchSize) {
+    const batch = items.slice(index, index + batchSize);
+    const batchResults = await Promise.all(batch.map(mapper));
+    results.push(...batchResults);
+  }
+
+  return results;
+};
+
 const getPictureKeyFromRequest = (req: express.Request) => {
   if (typeof req.query.key === "string") {
     return req.query.key;
@@ -178,8 +195,10 @@ router.post("/", uploadPictures, async (req, res) => {
       : null;
 
   try {
-    const pictures = await Promise.all(
-      files.map(async (file) => {
+    const pictures = await mapInBatches(
+      files,
+      UPLOAD_PROCESSING_CONCURRENCY,
+      async (file) => {
         const key = getPictureKey(file.originalname);
 
         await uploadBufferToS3({
@@ -225,7 +244,7 @@ router.post("/", uploadPictures, async (req, res) => {
           view_url,
           download_url,
         };
-      }),
+      },
     );
 
     return res.status(201).json({
