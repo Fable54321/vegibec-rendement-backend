@@ -48,6 +48,7 @@ import path from "path";
 import testContractRoute from "./Utils/testContract/testContract";
 import facebookRoute, { publicFacebookRouter } from "./routes/Facebook/PostToFacebook";
 import getURlRoute from "./routes/Facebook/GetImageUrl";
+import unprotectedRoute from "./routes/Unprotected/Unprotected"
 
 
 
@@ -132,6 +133,9 @@ app.get("/", async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 });
+
+app.use("/unprotected", unprotectedRoute);
+
 
 app.use("/signature", signatureRoute);
 app.use("/plan", planRoute);
