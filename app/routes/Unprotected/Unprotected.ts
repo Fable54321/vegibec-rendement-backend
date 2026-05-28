@@ -49,7 +49,7 @@ router.post("/quotations", async (req, res) => {
 
     const normalizedPrice = Number(price);
     const normalizedVegetableId = Number(vegetable_id);
-    const normalizedClientId = Number(client_id);
+    const normalizedClientId = String(client_id ?? "").trim();
 
     if (!Number.isFinite(normalizedPrice)) {
       return res.status(400).json({ error: "price is required" });
@@ -59,7 +59,7 @@ router.post("/quotations", async (req, res) => {
       return res.status(400).json({ error: "vegetable_id is required" });
     }
 
-    if (!Number.isInteger(normalizedClientId)) {
+    if (!normalizedClientId) {
       return res.status(400).json({ error: "client_id is required" });
     }
 
@@ -141,9 +141,9 @@ router.patch("/quotations/:id", async (req, res) => {
     }
 
     if (client_id !== undefined) {
-      const normalizedClientId = Number(client_id);
+      const normalizedClientId = String(client_id).trim();
 
-      if (!Number.isInteger(normalizedClientId)) {
+      if (!normalizedClientId) {
         return res.status(400).json({ error: "client_id is invalid" });
       }
 
