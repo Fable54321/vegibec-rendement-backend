@@ -98,7 +98,8 @@ const allowedOrigins = [
   "http://10.0.0.126:5173",
   "https://inventario-de-cofres.netlify.app",
   "https://picture-transfer.netlify.app",
-  "https://horaire-tet.netlify.app"
+  "https://horaire-tet.netlify.app",
+  "https://horario.vegibec-portail.com"
 ];
 
 app.use(
