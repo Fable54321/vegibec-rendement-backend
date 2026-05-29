@@ -32,6 +32,7 @@ router.get("/foreign-workers", requireAppRole("main", ["admin"]), async (_req, r
         fwi.pin,
         fwi.contract_type,
         fwi.residence_country
+        fwi.debut_date
       FROM users u
       INNER JOIN foreign_workers_info fwi
         ON fwi.user_id = u.id
