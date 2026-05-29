@@ -50,6 +50,7 @@ router.get("/", requireAppRole("schedule", ["admin", "user", "guest"]), async (r
                 u.surname AS user_surname,
                 u.username AS username,
                 u.email AS user_email,
+                fwi.debut_date AS user_debut_date,
                 fwi.matricula AS user_matricula
             FROM foreign_workers_schedule.foreign_workers_details fwd
             LEFT JOIN public.users u
