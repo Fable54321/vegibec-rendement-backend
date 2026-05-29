@@ -267,7 +267,7 @@ fwd.personal_picture_key,
 fwd.day_off,
 fwd.job_id_1,
 fwd.job_id_2,
-fwd.job_id_3
+fwd.job_notes
 
       FROM users u
       INNER JOIN foreign_workers_info fwi
