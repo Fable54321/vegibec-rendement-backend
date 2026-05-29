@@ -19,7 +19,7 @@ const upload = multer({
 const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
 
 
-router.get("/foreign-workers", requireAppRole("main", ["admin"]), async (_req, res) => {
+router.get("/foreign-workers", requireAppRole("main", ["admin", "user", "guest"]), async (_req, res) => {
   try {
     const result = await pool.query(
       `
