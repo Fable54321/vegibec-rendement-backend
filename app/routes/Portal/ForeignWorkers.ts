@@ -31,7 +31,7 @@ router.get("/foreign-workers", requireAppRole("main", ["admin", "user", "guest"]
         fwi.matricula,
         fwi.pin,
         fwi.contract_type,
-        fwi.residence_country
+        fwi.residence_country,
         fwi.debut_date
       FROM users u
       INNER JOIN foreign_workers_info fwi
