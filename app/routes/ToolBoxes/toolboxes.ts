@@ -132,13 +132,23 @@ router.get('/:toolboxId/items', async (req, res) => {
 });
 
 
-router.post('/:toolboxId/sections/:sectionId/groups/:groupId/items', async (req, res) => {
+router.post([
+  '/:toolboxId/sections/:sectionId/groups/:groupId/items',
+  '/:toolboxId/sections/:sectionId/items',
+], async (req, res) => {
   const client = await pool.connect();
 
   try {
     const toolboxId = Number(req.params.toolboxId);
     const sectionId = Number(req.params.sectionId);
-    const groupId = Number(req.params.groupId);
+    const groupIdParam = req.params.groupId?.trim().toLowerCase();
+    const groupId =
+      groupIdParam === undefined ||
+      groupIdParam === 'null' ||
+      groupIdParam === 'none' ||
+      groupIdParam === 'undefined'
+        ? null
+        : Number(req.params.groupId);
 
     const {
       tool_variant_id,
@@ -179,7 +189,7 @@ router.post('/:toolboxId/sections/:sectionId/groups/:groupId/items', async (req,
       return res.status(400).json({ error: 'Invalid section id' });
     }
 
-    if (!Number.isInteger(groupId) || groupId <= 0) {
+    if (groupId !== null && (!Number.isInteger(groupId) || groupId <= 0)) {
       return res.status(400).json({ error: 'Invalid group id' });
     }
 
@@ -211,20 +221,31 @@ router.post('/:toolboxId/sections/:sectionId/groups/:groupId/items', async (req,
     await client.query('BEGIN');
 
     const locationResult = await client.query(
-      `
-      SELECT
-        tb.id AS toolbox_id,
-        s.id AS section_id,
-        g.id AS group_id
-      FROM toolboxes_inventory.toolboxes tb
-      JOIN toolboxes_inventory.toolbox_sections s
-        ON s.id = $2
-      JOIN toolboxes_inventory.toolbox_groups g
-        ON g.id = $3
-       AND g.section_id = s.id
-      WHERE tb.id = $1
-      `,
-      [toolboxId, sectionId, groupId]
+      groupId === null
+        ? `
+        SELECT
+          tb.id AS toolbox_id,
+          s.id AS section_id,
+          NULL::int AS group_id
+        FROM toolboxes_inventory.toolboxes tb
+        JOIN toolboxes_inventory.toolbox_sections s
+          ON s.id = $2
+        WHERE tb.id = $1
+        `
+        : `
+        SELECT
+          tb.id AS toolbox_id,
+          s.id AS section_id,
+          g.id AS group_id
+        FROM toolboxes_inventory.toolboxes tb
+        JOIN toolboxes_inventory.toolbox_sections s
+          ON s.id = $2
+        JOIN toolboxes_inventory.toolbox_groups g
+          ON g.id = $3
+         AND g.section_id = s.id
+        WHERE tb.id = $1
+        `,
+      groupId === null ? [toolboxId, sectionId] : [toolboxId, sectionId, groupId]
     );
 
     if (locationResult.rowCount === 0) {
@@ -260,7 +281,7 @@ router.post('/:toolboxId/sections/:sectionId/groups/:groupId/items', async (req,
       FROM toolboxes_inventory.toolbox_items
       WHERE toolbox_id = $1
         AND section_id = $2
-        AND group_id = $3
+        AND group_id IS NOT DISTINCT FROM $3
       `,
       [toolboxId, sectionId, groupId]
     );
@@ -314,6 +335,103 @@ router.post('/:toolboxId/sections/:sectionId/groups/:groupId/items', async (req,
 
     res.status(500).json({
       error: 'Failed to add toolbox item',
+    });
+  } finally {
+    client.release();
+  }
+});
+
+
+router.post('/:toolboxId/sections/:sectionId/groups', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const toolboxId = Number(req.params.toolboxId);
+    const sectionId = Number(req.params.sectionId);
+    const { name, position_order } = req.body;
+
+    const positionOrder =
+      position_order === undefined || position_order === null
+        ? null
+        : Number(position_order);
+
+    if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
+      return res.status(400).json({ error: 'Invalid toolbox id' });
+    }
+
+    if (!Number.isInteger(sectionId) || sectionId <= 0) {
+      return res.status(400).json({ error: 'Invalid section id' });
+    }
+
+    if (typeof name !== 'string' || name.trim() === '') {
+      return res.status(400).json({ error: 'Group name is required' });
+    }
+
+    if (positionOrder !== null && (!Number.isInteger(positionOrder) || positionOrder <= 0)) {
+      return res.status(400).json({ error: 'Invalid position order' });
+    }
+
+    await client.query('BEGIN');
+
+    const locationResult = await client.query(
+      `
+      SELECT
+        tb.id AS toolbox_id,
+        s.id AS section_id
+      FROM toolboxes_inventory.toolboxes tb
+      JOIN toolboxes_inventory.toolbox_sections s
+        ON s.id = $2
+      WHERE tb.id = $1
+      `,
+      [toolboxId, sectionId]
+    );
+
+    if (locationResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        error: 'Toolbox or section not found',
+      });
+    }
+
+    const nextPositionResult = await client.query(
+      `
+      SELECT COALESCE(MAX(position_order), 0) + 1 AS next_position_order
+      FROM toolboxes_inventory.toolbox_groups
+      WHERE section_id = $1
+      `,
+      [sectionId]
+    );
+
+    const groupPositionOrder =
+      positionOrder ?? nextPositionResult.rows[0].next_position_order;
+
+    const insertedGroupResult = await client.query(
+      `
+      INSERT INTO toolboxes_inventory.toolbox_groups (
+        section_id,
+        name,
+        position_order
+      )
+      VALUES ($1, $2, $3)
+      RETURNING *
+      `,
+      [sectionId, name.trim(), groupPositionOrder]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      message: 'Toolbox group added successfully',
+      group: insertedGroupResult.rows[0],
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+
+    console.error('Error adding toolbox group:', error);
+
+    res.status(500).json({
+      error: 'Failed to add toolbox group',
     });
   } finally {
     client.release();
