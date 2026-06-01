@@ -132,6 +132,195 @@ router.get('/:toolboxId/items', async (req, res) => {
 });
 
 
+router.post('/:toolboxId/sections/:sectionId/groups/:groupId/items', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const toolboxId = Number(req.params.toolboxId);
+    const sectionId = Number(req.params.sectionId);
+    const groupId = Number(req.params.groupId);
+
+    const {
+      tool_variant_id,
+      raw_description,
+      expected_quantity,
+      actual_quantity,
+      status,
+      status_note,
+      position_order,
+      is_checked,
+    } = req.body;
+
+    const toolVariantId =
+      tool_variant_id === undefined || tool_variant_id === null
+        ? null
+        : Number(tool_variant_id);
+
+    const expectedQuantity =
+      expected_quantity === undefined || expected_quantity === null
+        ? 1
+        : Number(expected_quantity);
+
+    const actualQuantity =
+      actual_quantity === undefined || actual_quantity === null
+        ? null
+        : Number(actual_quantity);
+
+    const positionOrder =
+      position_order === undefined || position_order === null
+        ? null
+        : Number(position_order);
+
+    if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
+      return res.status(400).json({ error: 'Invalid toolbox id' });
+    }
+
+    if (!Number.isInteger(sectionId) || sectionId <= 0) {
+      return res.status(400).json({ error: 'Invalid section id' });
+    }
+
+    if (!Number.isInteger(groupId) || groupId <= 0) {
+      return res.status(400).json({ error: 'Invalid group id' });
+    }
+
+    if (toolVariantId !== null && (!Number.isInteger(toolVariantId) || toolVariantId <= 0)) {
+      return res.status(400).json({ error: 'Invalid tool variant id' });
+    }
+
+    if (!Number.isFinite(expectedQuantity) || expectedQuantity < 0) {
+      return res.status(400).json({ error: 'Invalid expected quantity' });
+    }
+
+    if (actualQuantity !== null && (!Number.isFinite(actualQuantity) || actualQuantity < 0)) {
+      return res.status(400).json({ error: 'Invalid actual quantity' });
+    }
+
+    if (positionOrder !== null && (!Number.isInteger(positionOrder) || positionOrder <= 0)) {
+      return res.status(400).json({ error: 'Invalid position order' });
+    }
+
+    if (
+      toolVariantId === null &&
+      (typeof raw_description !== 'string' || raw_description.trim() === '')
+    ) {
+      return res.status(400).json({
+        error: 'tool_variant_id or raw_description is required',
+      });
+    }
+
+    await client.query('BEGIN');
+
+    const locationResult = await client.query(
+      `
+      SELECT
+        tb.id AS toolbox_id,
+        s.id AS section_id,
+        g.id AS group_id
+      FROM toolboxes_inventory.toolboxes tb
+      JOIN toolboxes_inventory.toolbox_sections s
+        ON s.id = $2
+      JOIN toolboxes_inventory.toolbox_groups g
+        ON g.id = $3
+       AND g.section_id = s.id
+      WHERE tb.id = $1
+      `,
+      [toolboxId, sectionId, groupId]
+    );
+
+    if (locationResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        error: 'Toolbox, section, or group not found',
+      });
+    }
+
+    if (toolVariantId !== null) {
+      const toolVariantResult = await client.query(
+        `
+        SELECT id
+        FROM toolboxes_inventory.tool_variants
+        WHERE id = $1
+        `,
+        [toolVariantId]
+      );
+
+      if (toolVariantResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+
+        return res.status(404).json({
+          error: 'Tool variant not found',
+        });
+      }
+    }
+
+    const nextPositionResult = await client.query(
+      `
+      SELECT COALESCE(MAX(position_order), 0) + 1 AS next_position_order
+      FROM toolboxes_inventory.toolbox_items
+      WHERE toolbox_id = $1
+        AND section_id = $2
+        AND group_id = $3
+      `,
+      [toolboxId, sectionId, groupId]
+    );
+
+    const itemPositionOrder =
+      positionOrder ?? nextPositionResult.rows[0].next_position_order;
+
+    const insertedItemResult = await client.query(
+      `
+      INSERT INTO toolboxes_inventory.toolbox_items (
+        toolbox_id,
+        section_id,
+        group_id,
+        tool_variant_id,
+        raw_description,
+        expected_quantity,
+        actual_quantity,
+        status,
+        status_note,
+        position_order,
+        is_checked
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING *
+      `,
+      [
+        toolboxId,
+        sectionId,
+        groupId,
+        toolVariantId,
+        typeof raw_description === 'string' ? raw_description.trim() : null,
+        expectedQuantity,
+        actualQuantity,
+        status ?? null,
+        status_note ?? null,
+        itemPositionOrder,
+        is_checked ?? false,
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      message: 'Tool added to toolbox group successfully',
+      item: insertedItemResult.rows[0],
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+
+    console.error('Error adding toolbox item:', error);
+
+    res.status(500).json({
+      error: 'Failed to add toolbox item',
+    });
+  } finally {
+    client.release();
+  }
+});
+
+
 router.patch('/:toolboxId/items/:itemId', async (req, res) => {
   try {
     const toolboxId = Number(req.params.toolboxId);
