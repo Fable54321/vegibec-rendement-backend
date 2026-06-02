@@ -439,6 +439,87 @@ router.post('/:toolboxId/sections/:sectionId/groups', async (req, res) => {
 });
 
 
+router.patch('/:toolboxId/items/reorder', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const toolboxId = Number(req.params.toolboxId);
+    const { item_ids } = req.body;
+
+    if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
+      return res.status(400).json({ error: 'Invalid toolbox id' });
+    }
+
+    if (!Array.isArray(item_ids) || item_ids.length === 0) {
+      return res.status(400).json({ error: 'Item ids are required' });
+    }
+
+    const itemIds = item_ids.map(Number);
+    const uniqueItemIds = new Set(itemIds);
+
+    if (
+      itemIds.some((itemId) => !Number.isInteger(itemId) || itemId <= 0) ||
+      uniqueItemIds.size !== itemIds.length
+    ) {
+      return res.status(400).json({ error: 'Invalid item ids' });
+    }
+
+    await client.query('BEGIN');
+
+    const existingItemsResult = await client.query(
+      `
+      SELECT id, section_id, group_id
+      FROM toolboxes_inventory.toolbox_items
+      WHERE toolbox_id = $1
+        AND id = ANY($2::int[])
+      `,
+      [toolboxId, itemIds]
+    );
+
+    if (existingItemsResult.rowCount !== itemIds.length) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({ error: 'One or more items were not found' });
+    }
+
+    const firstItem = existingItemsResult.rows[0];
+    const allSameGroup = existingItemsResult.rows.every(
+      (item) =>
+        item.section_id === firstItem.section_id &&
+        item.group_id === firstItem.group_id
+    );
+
+    if (!allSameGroup) {
+      await client.query('ROLLBACK');
+
+      return res.status(400).json({ error: 'Items must belong to the same group' });
+    }
+
+    await client.query(
+      `
+      UPDATE toolboxes_inventory.toolbox_items
+      SET position_order = ordered_items.position_order
+      FROM unnest($1::int[]) WITH ORDINALITY AS ordered_items(id, position_order)
+      WHERE toolbox_items.id = ordered_items.id
+        AND toolbox_items.toolbox_id = $2
+      `,
+      [itemIds, toolboxId]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(200).json({ message: 'Items reordered successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+
+    console.error('Error reordering toolbox items:', error);
+    res.status(500).json({ error: 'Failed to reorder toolbox items' });
+  } finally {
+    client.release();
+  }
+});
+
+
 router.patch('/:toolboxId/items/:itemId', async (req, res) => {
   try {
     const toolboxId = Number(req.params.toolboxId);
