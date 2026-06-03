@@ -45,6 +45,186 @@ router.get("/vegetables", async (_req, res) => {
   }
 });
 
+router.get("/vegetables/:vegetableId/packaging", async (req, res) => {
+  try {
+    const vegetableId = Number(req.params.vegetableId);
+
+    if (!Number.isInteger(vegetableId) || vegetableId <= 0) {
+      return res.status(400).json({ error: "Invalid vegetableId" });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        vegetable_id,
+        pkg,
+        item_size
+      FROM agrivision.vegetables_packaging
+      WHERE vegetable_id = $1
+      ORDER BY
+        pkg ASC NULLS LAST,
+        item_size ASC NULLS LAST
+      `,
+      [vegetableId]
+    );
+
+    return res.status(200).json(result.rows);
+  } catch (err) {
+    console.error("Error fetching agrivision vegetable packaging:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+router.get("/preferences/vegetables/:vegetableId/packaging", async (req, res) => {
+  const userId = getUserIdFromCookie(req);
+
+  if (!userId) {
+    return res.status(401).json({ error: "Missing or invalid token" });
+  }
+
+  try {
+    const vegetableId = Number(req.params.vegetableId);
+
+    if (!Number.isInteger(vegetableId) || vegetableId <= 0) {
+      return res.status(400).json({ error: "Invalid vegetableId" });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        vp.id,
+        vp.vegetable_id,
+        vp.pkg,
+        vp.item_size,
+        CASE
+          WHEN pvp.vegetables_packaging_id IS NULL THEN false
+          ELSE true
+        END AS selected
+      FROM agrivision.vegetables_packaging vp
+      LEFT JOIN agrivision.preference_vegetable_packaging pvp
+        ON pvp.vegetables_packaging_id = vp.id
+       AND pvp.user_id = $1
+       AND pvp.vegetable_id = $2
+      WHERE vp.vegetable_id = $2
+      ORDER BY
+        vp.pkg ASC NULLS LAST,
+        vp.item_size ASC NULLS LAST
+      `,
+      [userId, vegetableId]
+    );
+
+    return res.status(200).json(result.rows);
+  } catch (err) {
+    console.error("Error fetching agrivision packaging preferences:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+router.patch("/preferences/vegetables/:vegetableId/packaging", async (req, res) => {
+  const userId = getUserIdFromCookie(req);
+
+  if (!userId) {
+    return res.status(401).json({ error: "Missing or invalid token" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    const vegetableId = Number(req.params.vegetableId);
+    const { packagingIds } = req.body;
+
+    if (!Number.isInteger(vegetableId) || vegetableId <= 0) {
+      return res.status(400).json({ error: "Invalid vegetableId" });
+    }
+
+    if (
+      !Array.isArray(packagingIds) ||
+      packagingIds.some(
+        (id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0
+      )
+    ) {
+      return res.status(400).json({ error: "Invalid packagingIds" });
+    }
+
+    await client.query("BEGIN");
+
+    const vegetableExists = await client.query(
+      `
+      SELECT id
+      FROM agrivision.vegetables
+      WHERE id = $1
+      `,
+      [vegetableId]
+    );
+
+    if (vegetableExists.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Invalid vegetableId" });
+    }
+
+    if (packagingIds.length > 0) {
+      const validPackaging = await client.query(
+        `
+        SELECT id
+        FROM agrivision.vegetables_packaging
+        WHERE vegetable_id = $1
+          AND id = ANY($2::int[])
+        `,
+        [vegetableId, packagingIds]
+      );
+
+      if (validPackaging.rows.length !== packagingIds.length) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "One or more packagingIds are invalid for this vegetable",
+        });
+      }
+    }
+
+    await client.query(
+      `
+      DELETE FROM agrivision.preference_vegetable_packaging
+      WHERE user_id = $1
+        AND vegetable_id = $2
+      `,
+      [userId, vegetableId]
+    );
+
+    if (packagingIds.length > 0) {
+      const values = packagingIds
+        .map((_, i) => `($1, $2, $${i + 3})`)
+        .join(",");
+
+      await client.query(
+        `
+        INSERT INTO agrivision.preference_vegetable_packaging (
+          user_id,
+          vegetable_id,
+          vegetables_packaging_id
+        )
+        VALUES ${values}
+        `,
+        [userId, vegetableId, ...packagingIds]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      message: "Packaging preferences updated successfully",
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error updating agrivision packaging preferences:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+});
+
 
 router.get("/preferences", async (req, res) => {
   const userId = getUserIdFromCookie(req);
