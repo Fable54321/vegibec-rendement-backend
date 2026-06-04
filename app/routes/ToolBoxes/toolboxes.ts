@@ -524,7 +524,13 @@ router.patch('/:toolboxId/items/:itemId', async (req, res) => {
   try {
     const toolboxId = Number(req.params.toolboxId);
     const itemId = Number(req.params.itemId);
-    const { actual_quantity, status, status_note, is_checked } = req.body;
+    const {
+      expected_quantity,
+      actual_quantity,
+      status,
+      status_note,
+      is_checked,
+    } = req.body;
 
     if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
       return res.status(400).json({ error: 'Invalid toolbox id' });
@@ -537,10 +543,24 @@ router.patch('/:toolboxId/items/:itemId', async (req, res) => {
     await pool.query(
       `
       UPDATE toolboxes_inventory.toolbox_items
-      SET actual_quantity = $1, status = $2, status_note = $3, is_checked = $4
-      WHERE id = $5
+      SET
+        expected_quantity = $1,
+        actual_quantity = $2,
+        status = $3,
+        status_note = $4,
+        is_checked = $5
+      WHERE id = $6
+        AND toolbox_id = $7
       `,
-      [actual_quantity, status, status_note, is_checked, itemId]
+      [
+        expected_quantity,
+        actual_quantity,
+        status,
+        status_note,
+        is_checked,
+        itemId,
+        toolboxId,
+      ]
     );
 
     res.status(200).json({ message: 'Item updated successfully' });
@@ -665,3 +685,4 @@ router.get('/:toolboxId/verification', async (req, res) => {
 
 
 export default router;
+
