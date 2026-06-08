@@ -49,6 +49,7 @@ import testContractRoute from "./Utils/testContract/testContract";
 import facebookRoute, { publicFacebookRouter } from "./routes/Facebook/PostToFacebook";
 import getURlRoute from "./routes/Facebook/GetImageUrl";
 import unprotectedRoute from "./routes/Unprotected/Unprotected"
+import purchaseRequest from "./routes/Portal/PurchaseRequest";
 
 
 
@@ -156,6 +157,8 @@ app.use(
 );
 
 app.use("/picture-transfer", pictureTransferRoute);
+
+app.use("/purchase-request", purchaseRequest);
 
 app.use("/facebook", publicFacebookRouter);
 
