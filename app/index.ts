@@ -103,6 +103,7 @@ const allowedOrigins = [
   "https://horaire-tet.netlify.app",
   "https://horario.vegibec-portail.com",
   "https://devis.vegibec-portail.com",
+  "https://achats.vegibec-portail.com",
 ];
 
 app.use(
