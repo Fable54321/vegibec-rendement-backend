@@ -39,6 +39,7 @@ import converterRoute from "./routes/Converter/Converter";
 import visitorsRoute from "./routes/Visitors/visitors";
 import planRoute from "./routes/Visitors/plan";
 import toolboxesRoute from "./routes/ToolBoxes/toolboxes";
+import vehiclesRoute from "./routes/ToolBoxes/vehicles";
 import pictureTransferRoute from "./routes/PictureTransfer/PictureTransfer";
 import alternativeAuthRoute from "./routes/alternativeAuth";
 import visitorsInfoRoute from "./routes/Portal/VisitorsInfo";
@@ -992,6 +993,8 @@ app.use("/timesheets/admin", adminRoute);
 app.use("/agrivision", agrivisionRoute);
 
 app.use("/toolboxes", toolboxesRoute);
+
+app.use("/vehicles", vehiclesRoute);
 
 app.use("/schedule", workersScheduleRoute);
 
