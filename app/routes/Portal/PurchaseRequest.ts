@@ -149,7 +149,7 @@ const formatPictureLinksForEmail = (pictureLinks: PictureEmailLink[]) => {
         pictureLink.url
       }`
     })
-    .join("\n \n")
+    .join("\n \n \n \n")
 }
 
 const buildNewPurchaseRequestEmail = (
