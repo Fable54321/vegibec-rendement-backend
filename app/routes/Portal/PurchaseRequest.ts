@@ -134,7 +134,7 @@ const formatMoney = (value: number | string | null | undefined) => {
   }
 
   return `${numberValue.toFixed(2)} $`
-}
+} 
 
 const buildNewPurchaseRequestEmail = (request: any) => {
   return `

@@ -24,4 +24,4 @@ export const createPurchaseRequestPictureKey = (
   const extension = getPictureExtension(file);
 
   return `purchase-requests/${purchaseRequestId}/pictures/${index + 1}-${randomId}${extension}`;
-};
+}; 
