@@ -220,11 +220,12 @@ const sendPurchaseRequestEmailSafely = async (
   if (!to) return
 
   try {
-    await sendEmail({
-      to,
-      subject,
-      text,
-    })
+   await sendEmail({
+  to,
+  fromLabel: "Vegibec - Demandes d'achat",
+  subject,
+  text,
+});
   } catch (error) {
     console.error("Purchase request email failed:", error)
   }

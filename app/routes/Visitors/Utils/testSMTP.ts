@@ -66,7 +66,7 @@ const port = parsePort(process.env.SMTP_PORT?.trim() ?? "587");
 const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
 const user = requiredEnv("SMTP_USER");
 const pass = requiredEnv("SMTP_PASS");
-const from = process.env.SMTP_FROM?.trim() || user;
+
 
 const transporter = nodemailer.createTransport({
   host,
@@ -84,11 +84,26 @@ type SendEmailParams = {
   subject: string;
   text: string;
   html?: string;
+  fromLabel?: string;
 };
 
-export const sendEmail = ({ to, subject, text, html }: SendEmailParams) => {
+const fromEmail = process.env.SMTP_FROM?.trim() || user;
+
+const buildFrom = (fromLabel?: string) => {
+  if (!fromLabel) return fromEmail;
+
+  return `"${fromLabel.replace(/"/g, "")}" <${fromEmail}>`;
+};
+
+export const sendEmail = ({
+  to,
+  subject,
+  text,
+  html,
+  fromLabel,
+}: SendEmailParams) => {
   return transporter.sendMail({
-    from,
+    from: buildFrom(fromLabel),
     to,
     subject,
     text,
