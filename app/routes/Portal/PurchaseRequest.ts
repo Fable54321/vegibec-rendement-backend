@@ -497,41 +497,41 @@ const {
       })
     }
 
-    const result = await client.query(
-      `
-      INSERT INTO portal.purchase_requests (
-        requested_by,
-        description,
-        quantity,
-        reason,
-        urgency,
-        requested_unit_price,
-        requested_total_price,
-        requested_supplier,
-        product_link,
-        expected_date,
-        status
-      )
-      VALUES (
-        $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10,
-        'pending_buyer_validation'
-      )
-      RETURNING *
-      `,
-      [
-        requested_by.trim(),
-        description.trim(),
-        cleanQuantity,
-        reason || null,
-        urgency,
-        cleanUnitPrice,
-        requestedTotalPrice,
-        requested_supplier || null,
-        product_link || null,
-        expected_date || null,
-      ]
-    )
+const result = await client.query(
+  `
+  INSERT INTO portal.purchase_requests (
+    requested_by,
+    description,
+    quantity,
+    reason,
+    urgency,
+    requested_unit_price,
+    requested_total_price,
+    requested_supplier,
+    product_link,
+    expected_date,
+    status
+  )
+  VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    'pending_buyer_validation'
+  )
+  RETURNING *
+  `,
+  [
+    requested_by.trim(),
+    description.trim(),
+    cleanQuantity,
+    reason || null,
+    urgency,
+    cleanUnitPrice,
+    requestedTotalPrice,
+    requested_supplier || null,
+    product_link || null,
+    expected_date || null,
+  ]
+)
 
 let createdRequest = result.rows[0]
 
