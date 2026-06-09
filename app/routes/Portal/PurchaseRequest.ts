@@ -1,5 +1,6 @@
 import express from "express"
 import { pool } from "../../db"
+import crypto from "crypto"
 
 const router = express.Router()
 
@@ -107,7 +108,47 @@ router.get("/:id", async (req, res) => {
 })
 
 
-router.post("/", async (req, res) => {
+const requireValidFormToken = async (req : any, res : any, next : any) => {
+  try {
+    const token = req.headers["x-purchase-request-form-token"]
+
+    if (!token || typeof token !== "string") {
+      return res.status(403).json({
+        message: "Jeton de formulaire manquant",
+      })
+    }
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM portal.purchase_request_form_tokens
+      WHERE token = $1
+        AND used_at IS NULL
+        AND expires_at > now()
+      `,
+      [token]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(403).json({
+        message: "Jeton de formulaire invalide ou expiré",
+      })
+    }
+
+    req.purchaseRequestFormToken = token
+
+    next()
+  } catch (error) {
+    console.error("Error validating form token:", error)
+    res.status(500).json({
+      message: "Error validating form token",
+    })
+  }
+}
+
+router.post("/", requireValidFormToken, async (req, res) => {
+  const client = await pool.connect()
+
   try {
     const {
       requested_by,
@@ -118,26 +159,73 @@ router.post("/", async (req, res) => {
       requested_supplier,
       product_link,
       expected_date,
+      companyWebsite,
     } = req.body
 
-    if (!requested_by || !description || !quantity) {
+    // Honeypot field, optional but useful
+    if (companyWebsite) {
+      return res.status(400).json({ message: "Invalid request" })
+    }
+
+    if (!requested_by || !description) {
       return res.status(400).json({
-        message: "Le nom du demandeur, la description du produit et la quantité sont requises",
+        message: "Le demandeur et la description du produit sont requis",
       })
     }
 
     const cleanQuantity = Number(quantity || 1)
+
+    if (!Number.isFinite(cleanQuantity) || cleanQuantity <= 0) {
+      return res.status(400).json({
+        message: "La quantité doit être un nombre supérieur à 0",
+      })
+    }
+
     const cleanUnitPrice =
-      requested_unit_price === "" || requested_unit_price === undefined
+      requested_unit_price === "" ||
+      requested_unit_price === undefined ||
+      requested_unit_price === null
         ? null
         : Number(requested_unit_price)
+
+    if (
+      cleanUnitPrice !== null &&
+      (!Number.isFinite(cleanUnitPrice) || cleanUnitPrice < 0)
+    ) {
+      return res.status(400).json({
+        message: "Le prix doit être un nombre valide",
+      })
+    }
 
     const requestedTotalPrice =
       cleanUnitPrice !== null ? cleanUnitPrice * cleanQuantity : null
 
     const urgency = getUrgencyFromExpectedDate(expected_date || null)
+    const formToken = (req as any).purchaseRequestFormToken
 
-    const result = await pool.query(
+    await client.query("BEGIN")
+
+    const tokenResult = await client.query(
+      `
+      UPDATE portal.purchase_request_form_tokens
+      SET used_at = now()
+      WHERE token = $1
+        AND used_at IS NULL
+        AND expires_at > now()
+      RETURNING id
+      `,
+      [formToken]
+    )
+
+    if (tokenResult.rows.length === 0) {
+      await client.query("ROLLBACK")
+
+      return res.status(403).json({
+        message: "Jeton de formulaire invalide ou expiré",
+      })
+    }
+
+    const result = await client.query(
       `
       INSERT INTO portal.purchase_requests (
         requested_by,
@@ -160,8 +248,8 @@ router.post("/", async (req, res) => {
       RETURNING *
       `,
       [
-        requested_by,
-        description || null,
+        requested_by.trim(),
+        description.trim(),
         cleanQuantity,
         reason || null,
         urgency,
@@ -173,10 +261,19 @@ router.post("/", async (req, res) => {
       ]
     )
 
+    await client.query("COMMIT")
+
     res.status(201).json(result.rows[0])
   } catch (error) {
+    await client.query("ROLLBACK")
+
     console.error("Error creating purchase request:", error)
-    res.status(500).json({ message: "Error creating purchase request" })
+
+    res.status(500).json({
+      message: "Error creating purchase request",
+    })
+  } finally {
+    client.release()
   }
 })
 
@@ -438,6 +535,37 @@ router.patch("/:id/cancel", async (req, res) => {
   } catch (error) {
     console.error("Error cancelling purchase request:", error)
     res.status(500).json({ message: "Error cancelling purchase request" })
+  }
+})
+
+
+
+
+router.get("/form-token", async (req, res) => {
+  try {
+    const token = crypto.randomBytes(32).toString("hex")
+
+    const result = await pool.query(
+      `
+      INSERT INTO portal.purchase_request_form_tokens (
+        token,
+        expires_at
+      )
+      VALUES (
+        $1,
+        now() + interval '30 minutes'
+      )
+      RETURNING token, expires_at
+      `,
+      [token]
+    )
+
+    res.json(result.rows[0])
+  } catch (error) {
+    console.error("Error creating purchase request form token:", error)
+    res.status(500).json({
+      message: "Error creating form token",
+    })
   }
 })
 

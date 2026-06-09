@@ -151,7 +151,7 @@ app.use(
 
 app.use("/api/rate-converter", rateConverterRoute);   /// same thing here
 
-app.use("/api/vegReports", vegReportsRouter); //// Eventually check for these they can be uinside the auth
+app.use("/api/vegReports", vegReportsRouter); 
 
 app.use(
   "/generated-contracts",
