@@ -2,7 +2,7 @@ import express from "express"
 import { pool } from "../../db"
 import crypto from "crypto"
 import rateLimit from "express-rate-limit"
-import { sendEmail } from "../../Utils/testSMTP"
+import { sendEmail } from "../../routes/Visitors/Utils/testSMTP"
 
 const router = express.Router()
 
@@ -71,11 +71,10 @@ const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
 
   if (differenceInDays <= 1) return "au_plus_vite"
   if (differenceInDays <= 7) return "urgent"
-  if (differenceInDays <= 14) return "urgence medium"
+  if (differenceInDays <= 14) return "moyen"
 
   return "normal"
 }
-
 const getEmailRecipients = (...envNames: string[]) => {
   return envNames
     .map((name) => process.env[name]?.trim())
@@ -221,7 +220,11 @@ const sendPurchaseRequestEmailSafely = async (
   if (!to) return
 
   try {
-    await sendEmail(subject, text, to)
+    await sendEmail({
+      to,
+      subject,
+      text,
+    })
   } catch (error) {
     console.error("Purchase request email failed:", error)
   }
@@ -493,9 +496,7 @@ const {
       ]
     )
 
-    await client.query("COMMIT")
-
-    const createdRequest = result.rows[0]
+const createdRequest = result.rows[0]
 
 await client.query("COMMIT")
 
@@ -610,7 +611,22 @@ router.patch("/:id/buyer-validation", actionPurchaseRequestLimiter, async (req, 
       ]
     )
 
-    res.json(result.rows[0])
+    const updatedRequest = result.rows[0]
+
+if (updatedRequest.status === "pending_admin_approval") {
+  const adminRecipients = getEmailRecipients(
+    "PURCHASE_ADMIN_EMAIL",
+    "PURCHASE_EMAIL_COPY"
+  )
+
+  await sendPurchaseRequestEmailSafely(
+    adminRecipients,
+    `Demande d'achat #${updatedRequest.id} à approuver`,
+    buildAdminApprovalEmail(updatedRequest)
+  )
+}
+
+res.json(updatedRequest)
   } catch (error) {
     console.error("Error validating purchase request:", error)
     res.status(500).json({ message: "Error validating purchase request" })
@@ -673,7 +689,20 @@ router.patch("/:id/admin-decision", actionPurchaseRequestLimiter, async (req, re
       ]
     )
 
-    res.json(result.rows[0])
+    const updatedRequest = result.rows[0]
+
+const buyerRecipients = getEmailRecipients(
+  "PURCHASE_BUYER_EMAIL",
+  "PURCHASE_EMAIL_COPY"
+)
+
+await sendPurchaseRequestEmailSafely(
+  buyerRecipients,
+  `Décision pour la demande d'achat #${updatedRequest.id}`,
+  buildBuyerDecisionEmail(updatedRequest)
+)
+
+res.json(updatedRequest)
   } catch (error) {
     console.error("Error saving admin decision:", error)
     res.status(500).json({ message: "Error saving admin decision" })
