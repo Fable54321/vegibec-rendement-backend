@@ -55,13 +55,8 @@ const parseBoolean = (value: string | undefined, fallback: boolean): boolean => 
 
   const normalized = value.trim().toLowerCase();
 
-  if (["true", "1", "yes"].includes(normalized)) {
-    return true;
-  }
-
-  if (["false", "0", "no"].includes(normalized)) {
-    return false;
-  }
+  if (["true", "1", "yes"].includes(normalized)) return true;
+  if (["false", "0", "no"].includes(normalized)) return false;
 
   throw new Error(`Expected a boolean value, received: ${value}`);
 };
@@ -72,7 +67,6 @@ const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
 const user = requiredEnv("SMTP_USER");
 const pass = requiredEnv("SMTP_PASS");
 const from = process.env.SMTP_FROM?.trim() || user;
-const to = "programmation@vegibec.com";
 
 const transporter = nodemailer.createTransport({
   host,
@@ -85,12 +79,19 @@ const transporter = nodemailer.createTransport({
   requireTLS: !secure,
 });
 
+type SendEmailParams = {
+  to: string | string[];
+  subject: string;
+  text: string;
+  html?: string;
+};
 
-export const sendEmail = (subject: string, text: string, to: string) => {
+export const sendEmail = ({ to, subject, text, html }: SendEmailParams) => {
   return transporter.sendMail({
     from,
     to,
     subject,
     text,
+    html,
   });
 };

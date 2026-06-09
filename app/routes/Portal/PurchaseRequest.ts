@@ -2,6 +2,7 @@ import express from "express"
 import { pool } from "../../db"
 import crypto from "crypto"
 import rateLimit from "express-rate-limit"
+import { sendEmail } from "../../Utils/testSMTP"
 
 const router = express.Router()
 
@@ -73,6 +74,157 @@ const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
   if (differenceInDays <= 14) return "urgence medium"
 
   return "normal"
+}
+
+const getEmailRecipients = (...envNames: string[]) => {
+  return envNames
+    .map((name) => process.env[name]?.trim())
+    .filter(Boolean)
+    .join(",")
+}
+
+const formatMoney = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === "") {
+    return "Non indiqué"
+  }
+
+  const numberValue = Number(value)
+
+  if (!Number.isFinite(numberValue)) {
+    return "Non indiqué"
+  }
+
+  return `${numberValue.toFixed(2)} $`
+}
+
+const buildNewPurchaseRequestEmail = (request: any) => {
+  return `
+Une nouvelle demande d'achat a été créée.
+
+Numéro de demande: #${request.id}
+
+Demandeur:
+${request.requested_by}
+
+Description:
+${request.description}
+
+Quantité:
+${request.quantity}
+
+Prix unitaire estimé:
+${formatMoney(request.requested_unit_price)}
+
+Prix total estimé:
+${formatMoney(request.requested_total_price)}
+
+Fournisseur demandé:
+${request.requested_supplier || "Non indiqué"}
+
+Lien produit:
+${request.product_link || "Aucun lien indiqué"}
+
+Date requise:
+${request.expected_date || "Non indiquée"}
+
+Urgence:
+${request.urgency || "Normal"}
+
+Justification:
+${request.reason || "Aucune justification indiquée"}
+
+Prochaine étape:
+Validation du prix par l'acheteur.
+  `.trim()
+}
+
+const buildAdminApprovalEmail = (request: any) => {
+  return `
+Une demande d'achat est prête pour approbation administrative.
+
+Numéro de demande: #${request.id}
+
+Demandeur:
+${request.requested_by}
+
+Description:
+${request.description}
+
+Quantité:
+${request.quantity}
+
+Prix unitaire confirmé:
+${formatMoney(request.buyer_confirmed_unit_price)}
+
+Prix total confirmé:
+${formatMoney(request.buyer_confirmed_total_price)}
+
+Fournisseur confirmé:
+${request.buyer_confirmed_supplier || "Non indiqué"}
+
+Note de l'acheteur:
+${request.buyer_note || "Aucune note"}
+
+Date requise:
+${request.expected_date || "Non indiquée"}
+
+Urgence:
+${request.urgency || "Normal"}
+
+Prochaine étape:
+Approbation ou refus par l'administration.
+  `.trim()
+}
+
+const buildBuyerDecisionEmail = (request: any) => {
+  const approved = request.status === "ready_to_purchase"
+
+  return `
+La demande d'achat #${request.id} a été ${
+    approved ? "approuvée" : "refusée"
+  } par l'administration.
+
+Demandeur:
+${request.requested_by}
+
+Description:
+${request.description}
+
+Quantité:
+${request.quantity}
+
+Prix total confirmé:
+${formatMoney(request.buyer_confirmed_total_price)}
+
+Décision:
+${approved ? "Approuvée pour achat" : "Refusée"}
+
+Note de l'administration:
+${request.admin_note || "Aucune note"}
+
+Raison du refus:
+${request.rejection_reason || "Non applicable"}
+
+${
+  approved
+    ? "Prochaine étape:\nL'acheteur peut procéder à l'achat."
+    : "Aucune action d'achat ne doit être effectuée."
+}
+  `.trim()
+}
+
+const sendPurchaseRequestEmailSafely = async (
+  to: string,
+  subject: string,
+  text: string
+) => {
+  if (!to) return
+
+  try {
+    await sendEmail(subject, text, to)
+  } catch (error) {
+    console.error("Purchase request email failed:", error)
+  }
 }
 
 router.get("/form-token", formTokenLimiter, async (req, res) => {
@@ -343,7 +495,22 @@ const {
 
     await client.query("COMMIT")
 
-    res.status(201).json(result.rows[0])
+    const createdRequest = result.rows[0]
+
+await client.query("COMMIT")
+
+const buyerRecipients = getEmailRecipients(
+  "PURCHASE_BUYER_EMAIL",
+  "PURCHASE_EMAIL_COPY"
+)
+
+await sendPurchaseRequestEmailSafely(
+  buyerRecipients,
+  `Nouvelle demande d'achat #${createdRequest.id}`,
+  buildNewPurchaseRequestEmail(createdRequest)
+)
+
+res.status(201).json(createdRequest)
   } catch (error) {
     await client.query("ROLLBACK")
 
