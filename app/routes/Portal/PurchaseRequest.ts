@@ -81,8 +81,6 @@ router.get("/:id", async (req, res) => {
       `
       SELECT 
         pr.*,
-        requester.surname AS requester_surname,
-        buyer.name AS buyer_name,
         buyer.surname AS buyer_surname,
         admin.name AS admin_name,
         admin.surname AS admin_surname,
