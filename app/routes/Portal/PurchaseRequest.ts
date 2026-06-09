@@ -138,7 +138,7 @@ const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
 type PictureEmailLink = {
   label: string
   url: string
-} 
+}  
 
 const formatPictureLinksForEmail = (pictureLinks: PictureEmailLink[]) => {
   if (pictureLinks.length === 0) return "Aucune photo jointe"
