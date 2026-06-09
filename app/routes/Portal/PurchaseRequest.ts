@@ -133,6 +133,31 @@ const formatMoney = (value: number | string | null | undefined) => {
   return `${numberValue.toFixed(2)} $`
 } 
 
+const escapeHtml = (value: unknown) => {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
+const getSafeHttpUrl = (value: unknown) => {
+  if (typeof value !== "string" || value.trim() === "") return null
+
+  try {
+    const url = new URL(value.trim())
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null
+    }
+
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
 
 type PictureEmailLink = {
@@ -150,6 +175,38 @@ const formatPictureLinksForEmail = (pictureLinks: PictureEmailLink[]) => {
       }`
     })
     .join("\n \n \n \n")
+}
+
+const formatPictureLinksForEmailHtml = (pictureLinks: PictureEmailLink[]) => {
+  if (pictureLinks.length === 0) {
+    return `<p>Aucune photo jointe</p>`
+  }
+
+  return `
+    <ul>
+      ${pictureLinks
+        .map(
+          (pictureLink, index) => `
+            <li>
+              <a href="${escapeHtml(pictureLink.url)}" target="_blank" rel="noopener noreferrer">
+                Photo ${index + 1}
+              </a>
+              ${
+                pictureLink.label
+                  ? `<span style="color:#64748b;"> - ${escapeHtml(
+                      pictureLink.label
+                    )}</span>`
+                  : ""
+              }
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+    <p style="color:#64748b;font-size:13px;">
+      Les liens des photos expirent dans 7 jours.
+    </p>
+  `
 }
 
 const buildNewPurchaseRequestEmail = (
@@ -197,6 +254,64 @@ ${request.reason || "Aucune justification indiquée"}
 Prochaine étape:
 Validation du prix par l'acheteur.
   `.trim() 
+}
+
+const buildNewPurchaseRequestEmailHtml = (
+  request: any,
+  pictureLinks: PictureEmailLink[] = []
+) => {
+  const productLinkUrl = getSafeHttpUrl(request.product_link)
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h2>Nouvelle demande d'achat #${escapeHtml(request.id)}</h2>
+
+      <p>Une nouvelle demande d'achat a été créée.</p>
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+
+      <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
+
+      <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
+
+      <p><strong>Prix unitaire estimé:</strong><br />${formatMoney(
+        request.requested_unit_price
+      )}</p>
+
+      <p><strong>Prix total estimé:</strong><br />${formatMoney(
+        request.requested_total_price
+      )}</p>
+
+      <p>
+        <strong>Lien produit:</strong><br />
+        ${
+          productLinkUrl
+            ? `<a href="${escapeHtml(
+                productLinkUrl
+              )}" target="_blank" rel="noopener noreferrer">Voir le produit</a>`
+            : "Aucun lien indiqué"
+        }
+      </p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_date
+      )}</p>
+
+      <p><strong>Urgence:</strong><br />${escapeHtml(request.urgency || "Normal")}</p>
+
+      <p><strong>Photos:</strong></p>
+      ${formatPictureLinksForEmailHtml(pictureLinks)}
+
+      <p><strong>Justification:</strong><br />${
+        request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
+      }</p>
+
+      <hr />
+
+      <p><strong>Prochaine étape:</strong><br />
+      Validation du prix par l'acheteur.</p>
+    </div>
+  `.trim()
 }
 
 const buildAdminApprovalEmail = (request: any) => {
@@ -277,17 +392,19 @@ ${
 const sendPurchaseRequestEmailSafely = async (
   to: string,
   subject: string,
-  text: string
+  text: string,
+  html?: string
 ) => {
   if (!to) return
 
   try {
-   await sendEmail({
-  to,
-  fromLabel: "Vegibec - Demandes d'achat",
-  subject,
-  text,
-});
+    await sendEmail({
+      to,
+      fromLabel: "Vegibec - Demandes d'achat",
+      subject,
+      text,
+      html,
+    })
   } catch (error) {
     console.error("Purchase request email failed:", error)
   }
@@ -603,7 +720,7 @@ if (pictureKeys.length > 0) {
     `,
     [pictureKeys, createdRequest.id]
   )
-
+ 
   createdRequest = updatedRequestResult.rows[0]
 }
 
@@ -614,13 +731,13 @@ const buyerRecipients = getEmailRecipients(
   "PURCHASE_EMAIL_COPY"
 )
 
+const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
+
 await sendPurchaseRequestEmailSafely(
   buyerRecipients,
   `Nouvelle demande d'achat #${createdRequest.id}`,
-  buildNewPurchaseRequestEmail(
-    createdRequest,
-    await buildPictureEmailLinks(pictureKeys, pictures)
-  )
+  buildNewPurchaseRequestEmail(createdRequest, pictureLinks),
+  buildNewPurchaseRequestEmailHtml(createdRequest, pictureLinks)
 )
 
 res.status(201).json(createdRequest)
