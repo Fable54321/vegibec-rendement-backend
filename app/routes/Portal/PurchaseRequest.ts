@@ -353,7 +353,7 @@ const {
 })
 
 
-router.patch("/:id/buyer-validation", async (req, res) => {
+router.patch("/:id/buyer-validation", actionPurchaseRequestLimiter, async (req, res) => {
   try {
     const { id } = req.params
 
@@ -446,7 +446,7 @@ router.patch("/:id/buyer-validation", async (req, res) => {
 })
 
 
-router.patch("/:id/admin-decision", async (req, res) => {
+router.patch("/:id/admin-decision", actionPurchaseRequestLimiter, async (req, res) => {
   try {
     const { id } = req.params
     const { admin_user_id, approved, admin_note, rejection_reason } = req.body
@@ -508,7 +508,7 @@ router.patch("/:id/admin-decision", async (req, res) => {
   }
 })
 
-router.patch("/:id/mark-purchased", async (req, res) => {
+router.patch("/:id/mark-purchased", actionPurchaseRequestLimiter, async (req, res) => {
   try {
     const { id } = req.params
 
@@ -584,7 +584,7 @@ router.patch("/:id/mark-purchased", async (req, res) => {
 })
 
 
-router.patch("/:id/cancel", async (req, res) => {
+router.patch("/:id/cancel", actionPurchaseRequestLimiter, async (req, res) => {
   try {
     const { id } = req.params
     const { rejection_reason } = req.body
