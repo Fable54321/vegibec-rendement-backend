@@ -174,7 +174,7 @@ ${request.reason || "Aucune justification indiquée"}
 
 Prochaine étape:
 Validation du prix par l'acheteur.
-  `.trim()
+  `.trim() 
 }
 
 const buildAdminApprovalEmail = (request: any) => {
