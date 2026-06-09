@@ -156,14 +156,13 @@ router.post("/", async (req, res) => {
       )
       VALUES (
         $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11,
+        $7, $8, $9, $10,
         'pending_buyer_validation'
       )
       RETURNING *
       `,
       [
-        requested_by_user_id,
-        item_name,
+        requested_by,
         description || null,
         cleanQuantity,
         reason || null,
