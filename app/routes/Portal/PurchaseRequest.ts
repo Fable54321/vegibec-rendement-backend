@@ -225,7 +225,7 @@ const buildBuyerValidationUrl = (
       ? "https://achats.vegibec-portail.com"
       : `${req.protocol}://${req.get("host") || "localhost:3000"}`)
 
-  return `${baseUrl.replace(/\/$/, "")}/purchase-request/${purchaseRequestId}/buyer-validation/${token}`
+  return `${baseUrl.replace(/\/$/, "")}/requete/${purchaseRequestId}/validation-prix/${token}`
 }
 
 const formatDateFr = (value: string | Date | null | undefined) => {
