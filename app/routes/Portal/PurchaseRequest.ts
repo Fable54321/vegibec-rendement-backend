@@ -120,9 +120,9 @@ router.post("/", async (req, res) => {
       expected_date,
     } = req.body
 
-    if (!requested_by || !quantity) {
+    if (!requested_by || !description || !quantity) {
       return res.status(400).json({
-        message: "La description du produit et la quantité sont requises",
+        message: "Le nom du demandeur, la description du produit et la quantité sont requises",
       })
     }
 
