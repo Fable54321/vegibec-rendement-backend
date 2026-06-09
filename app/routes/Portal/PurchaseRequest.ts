@@ -2,13 +2,10 @@ import express from "express"
 import { pool } from "../../db"
 import crypto from "crypto"
 import rateLimit from "express-rate-limit"
-import {
-  EmailAttachment,
-  sendEmail,
-} from "../../routes/Visitors/Utils/testSMTP"
+import { sendEmail } from "../../routes/Visitors/Utils/testSMTP"
 import multer from "multer"
 import { createPurchaseRequestPictureKey } from "../../routes/Portal/Utils/PurchaseHelper"
-import { uploadBufferToS3 } from "../../services/s3.services"
+import { getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services"
 
 const router = express.Router()
 
@@ -136,7 +133,32 @@ const formatMoney = (value: number | string | null | undefined) => {
   return `${numberValue.toFixed(2)} $`
 } 
 
-const buildNewPurchaseRequestEmail = (request: any) => {
+const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
+
+type PictureEmailLink = {
+  label: string
+  url: string
+} 
+
+const formatPictureLinksForEmail = (pictureLinks: PictureEmailLink[]) => {
+  if (pictureLinks.length === 0) return "Aucune photo jointe"
+
+  return pictureLinks
+    .map((pictureLink, index) => {
+      return `Photo ${index + 1}${pictureLink.label ? ` (${pictureLink.label})` : ""}: ${
+        pictureLink.url
+      }`
+    })
+    .join("\n")
+}
+
+const buildNewPurchaseRequestEmail = (
+  request: any,
+  pictureLinks: PictureEmailLink[] = []
+) => {
+  const pictureExpiryText =
+    pictureLinks.length > 0 ? "\n\nLes liens des photos expirent dans 7 jours." : ""
+
   return `
 Une nouvelle demande d'achat a été créée.
 
@@ -167,7 +189,7 @@ Urgence:
 ${request.urgency || "Normal"}
 
 Photos:
-${request.picture_keys?.length ? `${request.picture_keys.length} photo(s) jointe(s)` : "Aucune photo jointe"}
+${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
 
 Justification:
 ${request.reason || "Aucune justification indiquée"}
@@ -255,8 +277,7 @@ ${
 const sendPurchaseRequestEmailSafely = async (
   to: string,
   subject: string,
-  text: string,
-  attachments?: EmailAttachment[]
+  text: string
 ) => {
   if (!to) return
 
@@ -266,21 +287,24 @@ const sendPurchaseRequestEmailSafely = async (
   fromLabel: "Vegibec - Demandes d'achat",
   subject,
   text,
-  attachments,
 });
   } catch (error) {
     console.error("Purchase request email failed:", error)
   }
 }
 
-const buildPictureEmailAttachments = (
+const buildPictureEmailLinks = async (
+  pictureKeys: string[],
   pictures: Express.Multer.File[]
-): EmailAttachment[] => {
-  return pictures.map((picture, index) => ({
-    filename: picture.originalname || `photo-${index + 1}`,
-    content: picture.buffer,
-    contentType: picture.mimetype,
-  }))
+): Promise<PictureEmailLink[]> => {
+  return Promise.all(
+    pictureKeys.map(async (pictureKey, index) => ({
+      label: pictures[index]?.originalname || "",
+      url: await getSignedUrlForKey(pictureKey, {
+        expiresIn: PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS,
+      }),
+    }))
+  )
 }
 
 router.get("/form-token", formTokenLimiter, async (req, res) => {
@@ -593,8 +617,10 @@ const buyerRecipients = getEmailRecipients(
 await sendPurchaseRequestEmailSafely(
   buyerRecipients,
   `Nouvelle demande d'achat #${createdRequest.id}`,
-  buildNewPurchaseRequestEmail(createdRequest),
-  buildPictureEmailAttachments(pictures)
+  buildNewPurchaseRequestEmail(
+    createdRequest,
+    await buildPictureEmailLinks(pictureKeys, pictures)
+  )
 )
 
 res.status(201).json(createdRequest)
