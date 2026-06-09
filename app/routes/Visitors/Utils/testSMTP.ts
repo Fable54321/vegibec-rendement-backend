@@ -85,34 +85,6 @@ const transporter = nodemailer.createTransport({
   requireTLS: !secure,
 });
 
-// const run = async (): Promise<void> => {
-//   console.log(`Testing SMTP relay ${host}:${port} as ${user}`);
-
-//   await transporter.verify();
-//   console.log("SMTP connection and authentication succeeded.");
-
-//   const info = await transporter.sendMail({
-//     from,
-//     to,
-//     subject: `SMTP relay test - ${new Date().toISOString()}`,
-//     text: "SMTP relay test message.",
-//     html: "<p>SMTP relay test message.</p>",
-//   });
-
-//   console.log("SMTP test email accepted by relay.");
-//   console.log({
-//     messageId: info.messageId,
-//     accepted: info.accepted,
-//     rejected: info.rejected,
-//     response: info.response,
-//   });
-// };
-
-// run().catch((error: unknown) => {
-//   console.error("SMTP test failed.");
-//   console.error(error);
-//   process.exitCode = 1;
-// });
 
 export const sendEmail = (subject: string, text: string, to: string) => {
   return transporter.sendMail({
