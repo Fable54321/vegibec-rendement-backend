@@ -34,6 +34,34 @@ const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
   return "normal"
 }
 
+router.get("/form-token", async (req, res) => {
+  try {
+    const token = crypto.randomBytes(32).toString("hex")
+
+    const result = await pool.query(
+      `
+      INSERT INTO portal.purchase_request_form_tokens (
+        token,
+        expires_at
+      )
+      VALUES (
+        $1,
+        now() + interval '30 minutes'
+      )
+      RETURNING token, expires_at
+      `,
+      [token]
+    )
+
+    res.json(result.rows[0])
+  } catch (error) {
+    console.error("Error creating purchase request form token:", error)
+    res.status(500).json({
+      message: "Error creating form token",
+    })
+  }
+})
+
 // GET /api/purchase-requests
 router.get("/", async (req, res) => {
   try {
@@ -541,32 +569,6 @@ router.patch("/:id/cancel", async (req, res) => {
 
 
 
-router.get("/form-token", async (req, res) => {
-  try {
-    const token = crypto.randomBytes(32).toString("hex")
 
-    const result = await pool.query(
-      `
-      INSERT INTO portal.purchase_request_form_tokens (
-        token,
-        expires_at
-      )
-      VALUES (
-        $1,
-        now() + interval '30 minutes'
-      )
-      RETURNING token, expires_at
-      `,
-      [token]
-    )
-
-    res.json(result.rows[0])
-  } catch (error) {
-    console.error("Error creating purchase request form token:", error)
-    res.status(500).json({
-      message: "Error creating form token",
-    })
-  }
-})
 
 export default router
