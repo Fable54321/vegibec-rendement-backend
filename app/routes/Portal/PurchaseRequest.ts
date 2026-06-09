@@ -178,19 +178,21 @@ router.post("/", requireValidFormToken, async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const {
-      requested_by,
-      description,
-      quantity,
-      reason,
-      requested_unit_price,
-      requested_supplier,
-      product_link,
-      expected_date,
-      companyWebsite,
-    } = req.body
+  const body = req.body ?? {}
 
-    // Honeypot field, optional but useful
+const {
+  requested_by,
+  description,
+  quantity,
+  reason,
+  requested_unit_price,
+  requested_supplier,
+  product_link,
+  expected_date,
+  companyWebsite,
+} = body
+
+   
     if (companyWebsite) {
       return res.status(400).json({ message: "Invalid request" })
     }
