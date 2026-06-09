@@ -3,6 +3,9 @@ import { pool } from "../../db"
 import crypto from "crypto"
 import rateLimit from "express-rate-limit"
 import { sendEmail } from "../../routes/Visitors/Utils/testSMTP"
+import multer from "multer"
+import { createPurchaseRequestPictureKey } from "../../routes/Portal/Utils/PurchaseHelper"
+import { uploadBufferToS3 } from "../../services/s3.services"
 
 const router = express.Router()
 
@@ -54,6 +57,22 @@ const actionPurchaseRequestLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     message: "Trop d'actions envoyées. Réessayez plus tard.",
+  },
+})
+
+const uploadPurchaseRequestPictures = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 5,
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      cb(new Error("Only image files are allowed"))
+      return
+    }
+
+    cb(null, true)
   },
 })
 
@@ -394,12 +413,14 @@ const requireValidFormToken = async (req : any, res : any, next : any) => {
 router.post(
   "/",
   createPurchaseRequestLimiter,
+  uploadPurchaseRequestPictures.array("pictures", 5),
   requireValidFormToken,
   async (req, res) => {
   const client = await pool.connect()
 
   try {
   const body = req.body ?? {}
+const pictures = (req.files as Express.Multer.File[]) ?? []
 
 const {
   requested_by,
@@ -512,7 +533,37 @@ const {
       ]
     )
 
-const createdRequest = result.rows[0]
+let createdRequest = result.rows[0]
+
+const pictureKeys = await Promise.all(
+  pictures.map((picture, index) => {
+    const key = createPurchaseRequestPictureKey(
+      createdRequest.id,
+      picture,
+      index
+    )
+
+    return uploadBufferToS3({
+      key,
+      buffer: picture.buffer,
+      contentType: picture.mimetype,
+    })
+  })
+)
+
+if (pictureKeys.length > 0) {
+  const updatedRequestResult = await client.query(
+    `
+    UPDATE portal.purchase_requests
+    SET picture_keys = $1
+    WHERE id = $2
+    RETURNING *
+    `,
+    [pictureKeys, createdRequest.id]
+  )
+
+  createdRequest = updatedRequestResult.rows[0]
+}
 
 await client.query("COMMIT")
 
