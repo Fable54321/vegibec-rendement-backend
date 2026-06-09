@@ -121,7 +121,7 @@ Lien produit:
 ${request.product_link || "Aucun lien indiqué"}
 
 Date requise:
-${request.expected_date || "Non indiquée"}
+${request.expected_date || "Non indiquée"} 
 
 Urgence:
 ${request.urgency || "Normal"}
