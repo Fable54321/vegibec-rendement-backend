@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import fs from "fs";
 import nodemailer from "nodemailer";
+import type Mail from "nodemailer/lib/mailer";
 import path from "path";
 
 const findEnvPath = (startDirectory: string): string | undefined => {
@@ -79,12 +80,15 @@ const transporter = nodemailer.createTransport({
   requireTLS: !secure,
 });
 
+export type EmailAttachment = Mail.Attachment;
+
 type SendEmailParams = {
   to: string | string[];
   subject: string;
   text: string;
   html?: string;
   fromLabel?: string;
+  attachments?: EmailAttachment[];
 };
 
 const fromEmail = process.env.SMTP_FROM?.trim() || user;
@@ -101,6 +105,7 @@ export const sendEmail = ({
   text,
   html,
   fromLabel,
+  attachments,
 }: SendEmailParams) => {
   return transporter.sendMail({
     from: buildFrom(fromLabel),
@@ -108,5 +113,6 @@ export const sendEmail = ({
     subject,
     text,
     html,
+    attachments,
   });
 };

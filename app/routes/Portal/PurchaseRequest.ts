@@ -2,7 +2,10 @@ import express from "express"
 import { pool } from "../../db"
 import crypto from "crypto"
 import rateLimit from "express-rate-limit"
-import { sendEmail } from "../../routes/Visitors/Utils/testSMTP"
+import {
+  EmailAttachment,
+  sendEmail,
+} from "../../routes/Visitors/Utils/testSMTP"
 import multer from "multer"
 import { createPurchaseRequestPictureKey } from "../../routes/Portal/Utils/PurchaseHelper"
 import { uploadBufferToS3 } from "../../services/s3.services"
@@ -163,6 +166,9 @@ ${formatDateFr(request.expected_date)}
 Urgence:
 ${request.urgency || "Normal"}
 
+Photos:
+${request.picture_keys?.length ? `${request.picture_keys.length} photo(s) jointe(s)` : "Aucune photo jointe"}
+
 Justification:
 ${request.reason || "Aucune justification indiquée"}
 
@@ -249,7 +255,8 @@ ${
 const sendPurchaseRequestEmailSafely = async (
   to: string,
   subject: string,
-  text: string
+  text: string,
+  attachments?: EmailAttachment[]
 ) => {
   if (!to) return
 
@@ -259,6 +266,7 @@ const sendPurchaseRequestEmailSafely = async (
   fromLabel: "Vegibec - Demandes d'achat",
   subject,
   text,
+  attachments,
 });
   } catch (error) {
     console.error("Purchase request email failed:", error)
@@ -575,7 +583,8 @@ const buyerRecipients = getEmailRecipients(
 await sendPurchaseRequestEmailSafely(
   buyerRecipients,
   `Nouvelle demande d'achat #${createdRequest.id}`,
-  buildNewPurchaseRequestEmail(createdRequest)
+  buildNewPurchaseRequestEmail(createdRequest),
+  pictures
 )
 
 res.status(201).json(createdRequest)
