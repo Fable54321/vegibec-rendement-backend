@@ -160,6 +160,8 @@ app.use(
 
 app.use("/picture-transfer", pictureTransferRoute);
 
+app.set("trust proxy", 1);
+
 app.use("/purchase-request", purchaseRequest);
 
 app.use("/facebook", publicFacebookRouter);

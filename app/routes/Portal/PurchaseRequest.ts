@@ -307,7 +307,7 @@ const {
   }
 })
 
-// PATCH /api/purchase-requests/:id/buyer-validation
+
 router.patch("/:id/buyer-validation", async (req, res) => {
   try {
     const { id } = req.params
@@ -400,7 +400,7 @@ router.patch("/:id/buyer-validation", async (req, res) => {
   }
 })
 
-// PATCH /api/purchase-requests/:id/admin-decision
+
 router.patch("/:id/admin-decision", async (req, res) => {
   try {
     const { id } = req.params
@@ -463,7 +463,6 @@ router.patch("/:id/admin-decision", async (req, res) => {
   }
 })
 
-// PATCH /api/purchase-requests/:id/mark-purchased
 router.patch("/:id/mark-purchased", async (req, res) => {
   try {
     const { id } = req.params
@@ -539,7 +538,7 @@ router.patch("/:id/mark-purchased", async (req, res) => {
   }
 })
 
-// PATCH /api/purchase-requests/:id/cancel
+
 router.patch("/:id/cancel", async (req, res) => {
   try {
     const { id } = req.params
