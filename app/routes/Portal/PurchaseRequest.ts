@@ -1,6 +1,7 @@
 import express from "express"
 import { pool } from "../../db"
 import crypto from "crypto"
+import rateLimit from "express-rate-limit"
 
 const router = express.Router()
 
@@ -14,6 +15,46 @@ const VALID_STATUSES = [
   "purchased",
   "cancelled",
 ]
+
+const formTokenLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Trop de tentatives de préparation du formulaire. Réessayez plus tard.",
+  },
+})
+
+const createPurchaseRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Trop de demandes envoyées. Réessayez plus tard.",
+  },
+})
+
+const readPurchaseRequestsLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Trop de requêtes. Réessayez plus tard.",
+  },
+})
+
+const actionPurchaseRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Trop d'actions envoyées. Réessayez plus tard.",
+  },
+})
 
 const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
   if (!expectedDate) return "normal"
@@ -34,7 +75,7 @@ const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
   return "normal"
 }
 
-router.get("/form-token", async (req, res) => {
+router.get("/form-token", formTokenLimiter, async (req, res) => {
   try {
     const token = crypto.randomBytes(32).toString("hex")
 
@@ -174,7 +215,11 @@ const requireValidFormToken = async (req : any, res : any, next : any) => {
   }
 }
 
-router.post("/", requireValidFormToken, async (req, res) => {
+router.post(
+  "/",
+  createPurchaseRequestLimiter,
+  requireValidFormToken,
+  async (req, res) => {
   const client = await pool.connect()
 
   try {
