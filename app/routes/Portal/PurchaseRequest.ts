@@ -117,9 +117,6 @@ ${formatMoney(request.requested_unit_price)}
 Prix total estimé:
 ${formatMoney(request.requested_total_price)}
 
-Fournisseur demandé:
-${request.requested_supplier || "Non indiqué"}
-
 Lien produit:
 ${request.product_link || "Aucun lien indiqué"}
 
