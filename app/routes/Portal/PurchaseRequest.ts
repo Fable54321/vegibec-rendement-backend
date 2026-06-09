@@ -143,14 +143,19 @@ router.get("/", readPurchaseRequestsLimiter, async (req, res) => {
 })
 
 // GET /api/purchase-requests/:id
-router.get("/:id(\\d+)", readPurchaseRequestsLimiter, async (req, res) => {
+router.get("/:id", readPurchaseRequestsLimiter, async (req, res) => {
   try {
     const { id } = req.params
+
+    if (!/^\d+$/.test(id)) {
+      return res.status(404).json({ message: "Purchase request not found" })
+    }
 
     const result = await pool.query(
       `
       SELECT 
         pr.*,
+        buyer.name AS buyer_name,
         buyer.surname AS buyer_surname,
         admin.name AS admin_name,
         admin.surname AS admin_surname,
@@ -162,7 +167,7 @@ router.get("/:id(\\d+)", readPurchaseRequestsLimiter, async (req, res) => {
       LEFT JOIN public.users purchased_by ON purchased_by.id = pr.purchased_by_user_id
       WHERE pr.id = $1
       `,
-      [id]
+      [Number(id)]
     )
 
     if (result.rows.length === 0) {
