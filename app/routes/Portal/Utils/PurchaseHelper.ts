@@ -13,7 +13,7 @@ import path from "path";
   if (file.mimetype === "image/jpeg") return ".jpg";
 
   return ".jpg";
-};
+}; 
 
 export const createPurchaseRequestPictureKey = (
   purchaseRequestId: number,
