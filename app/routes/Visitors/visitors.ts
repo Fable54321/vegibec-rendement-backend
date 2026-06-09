@@ -107,11 +107,11 @@ router.post("/start", async (req, res) => {
     if (shouldSendEmail) {
       const generatedUrl = generateVisitorPlanUrl(req).url;
       const planUrl = generatedUrl;
-      const emailInfo = await sendEmail(
-        "Vegibec - plan du site",
-        `Vous trouverez le plan du site a l'adresse suivante: ${planUrl}\n\nCordialement,\nL'equipe de Vegibec`,
-        visitorEmail,
-      );
+    const emailInfo = await sendEmail({
+  to: visitorEmail,
+  subject: "Vegibec - plan du site",
+  text: `Vous trouverez le plan du site à l'adresse suivante: ${planUrl}\n\nCordialement,\nL'équipe de Vegibec`,
+});
 
       emailSent = emailInfo.accepted.includes(visitorEmail);
 
