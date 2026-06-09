@@ -1,5 +1,6 @@
 import express from "express"
 import { pool } from "../../db"
+import type { PoolClient } from "pg"
 import crypto from "crypto"
 import rateLimit from "express-rate-limit"
 import { sendEmail } from "../../routes/Visitors/Utils/testSMTP"
@@ -60,6 +61,8 @@ const actionPurchaseRequestLimiter = rateLimit({
   },
 })
 
+const BUYER_VALIDATION_TOKEN_EXPIRES_IN_DAYS = 14
+
 const uploadPurchaseRequestPictures = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -99,6 +102,130 @@ const getEmailRecipients = (...envNames: string[]) => {
     .map((name) => process.env[name]?.trim())
     .filter(Boolean)
     .join(",")
+}
+
+const ensureBuyerValidationTokenTable = async (client: PoolClient) => {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS portal.purchase_request_buyer_validation_tokens (
+      id bigserial PRIMARY KEY,
+      purchase_request_id bigint NOT NULL REFERENCES portal.purchase_requests(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz
+    )
+  `)
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS purchase_request_buyer_validation_tokens_request_id_idx
+    ON portal.purchase_request_buyer_validation_tokens (purchase_request_id)
+  `)
+}
+
+const hashBuyerValidationToken = (token: string) => {
+  return crypto.createHash("sha256").update(token).digest("hex")
+}
+
+const createBuyerValidationToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensureBuyerValidationTokenTable(client)
+
+  const token = crypto.randomBytes(32).toString("hex")
+  const tokenHash = hashBuyerValidationToken(token)
+
+  await client.query(
+    `
+    INSERT INTO portal.purchase_request_buyer_validation_tokens (
+      purchase_request_id,
+      token_hash,
+      expires_at
+    )
+    VALUES (
+      $1,
+      $2,
+      now() + ($3::text || ' days')::interval
+    )
+    `,
+    [purchaseRequestId, tokenHash, BUYER_VALIDATION_TOKEN_EXPIRES_IN_DAYS]
+  )
+
+  return token
+}
+
+const getBuyerValidationTokenFromRequest = (req: express.Request) => {
+  const bodyToken = (req.body as { buyer_validation_token?: unknown })?.buyer_validation_token
+  const queryToken = req.query.token
+  const headerToken = req.headers["x-purchase-request-buyer-token"]
+  const paramToken = req.params.token
+
+  if (typeof paramToken === "string" && paramToken.trim()) return paramToken.trim()
+  if (typeof bodyToken === "string" && bodyToken.trim()) return bodyToken.trim()
+  if (typeof queryToken === "string" && queryToken.trim()) return queryToken.trim()
+  if (typeof headerToken === "string" && headerToken.trim()) return headerToken.trim()
+
+  return null
+}
+
+const validateBuyerValidationToken = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string | null
+) => {
+  if (!token) return false
+
+  await ensureBuyerValidationTokenTable(client)
+
+  const result = await client.query(
+    `
+    SELECT id
+    FROM portal.purchase_request_buyer_validation_tokens
+    WHERE purchase_request_id = $1
+      AND token_hash = $2
+      AND used_at IS NULL
+      AND expires_at > now()
+    LIMIT 1
+    `,
+    [purchaseRequestId, hashBuyerValidationToken(token)]
+  )
+
+  return result.rows.length > 0
+}
+
+const markBuyerValidationTokenUsed = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string
+) => {
+  await client.query(
+    `
+    UPDATE portal.purchase_request_buyer_validation_tokens
+    SET used_at = now()
+    WHERE purchase_request_id = $1
+      AND token_hash = $2
+      AND used_at IS NULL
+    `,
+    [purchaseRequestId, hashBuyerValidationToken(token)]
+  )
+}
+
+const buildBuyerValidationUrl = (
+  req: express.Request,
+  purchaseRequestId: number,
+  token: string
+) => {
+  const configuredBaseUrl =
+    process.env.PURCHASE_BUYER_VALIDATION_BASE_URL?.trim() ||
+    process.env.BASE_URL?.trim()
+
+  const baseUrl =
+    configuredBaseUrl ||
+    (process.env.NODE_ENV === "production"
+      ? "https://achats.vegibec-portail.com"
+      : `${req.protocol}://${req.get("host") || "localhost:3000"}`)
+
+  return `${baseUrl.replace(/\/$/, "")}/purchase-request/${purchaseRequestId}/buyer-validation/${token}`
 }
 
 const formatDateFr = (value: string | Date | null | undefined) => {
@@ -211,7 +338,8 @@ const formatPictureLinksForEmailHtml = (pictureLinks: PictureEmailLink[]) => {
 
 const buildNewPurchaseRequestEmail = (
   request: any,
-  pictureLinks: PictureEmailLink[] = []
+  pictureLinks: PictureEmailLink[] = [],
+  buyerValidationUrl: string
 ) => {
   const pictureExpiryText =
     pictureLinks.length > 0 ? "\n\nLes liens des photos expirent dans 7 jours." : ""
@@ -248,19 +376,24 @@ ${request.urgency || "Normal"}
 Photos:
 ${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
 
+Lien de validation acheteur:
+${buyerValidationUrl}
+
 Justification:
 ${request.reason || "Aucune justification indiquée"}
 
 Prochaine étape:
-Validation du prix par l'acheteur.
+L'acheteur doit confirmer le prix avec le lien de validation.
   `.trim() 
 }
 
 const buildNewPurchaseRequestEmailHtml = (
   request: any,
-  pictureLinks: PictureEmailLink[] = []
+  pictureLinks: PictureEmailLink[] = [],
+  buyerValidationUrl: string
 ) => {
   const productLinkUrl = getSafeHttpUrl(request.product_link)
+  const safeBuyerValidationUrl = escapeHtml(buyerValidationUrl)
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
@@ -302,6 +435,17 @@ const buildNewPurchaseRequestEmailHtml = (
       <p><strong>Photos:</strong></p>
       ${formatPictureLinksForEmailHtml(pictureLinks)}
 
+      <p>
+        <a
+          href="${safeBuyerValidationUrl}"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+        >
+          Confirmer le prix
+        </a>
+      </p>
+
       <p><strong>Justification:</strong><br />${
         request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
       }</p>
@@ -309,7 +453,7 @@ const buildNewPurchaseRequestEmailHtml = (
       <hr />
 
       <p><strong>Prochaine étape:</strong><br />
-      Validation du prix par l'acheteur.</p>
+      L'acheteur doit confirmer le prix avec le lien de validation.</p>
     </div>
   `.trim()
 }
@@ -724,6 +868,13 @@ if (pictureKeys.length > 0) {
   createdRequest = updatedRequestResult.rows[0]
 }
 
+const buyerValidationToken = await createBuyerValidationToken(client, createdRequest.id)
+const buyerValidationUrl = buildBuyerValidationUrl(
+  req,
+  createdRequest.id,
+  buyerValidationToken
+)
+
 await client.query("COMMIT")
 
 const buyerRecipients = getEmailRecipients(
@@ -736,8 +887,8 @@ const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
 await sendPurchaseRequestEmailSafely(
   buyerRecipients,
   `Nouvelle demande d'achat #${createdRequest.id}`,
-  buildNewPurchaseRequestEmail(createdRequest, pictureLinks),
-  buildNewPurchaseRequestEmailHtml(createdRequest, pictureLinks)
+  buildNewPurchaseRequestEmail(createdRequest, pictureLinks, buyerValidationUrl),
+  buildNewPurchaseRequestEmailHtml(createdRequest, pictureLinks, buyerValidationUrl)
 )
 
 res.status(201).json(createdRequest)
@@ -755,9 +906,15 @@ res.status(201).json(createdRequest)
 })
 
 
-router.patch("/:id/buyer-validation", actionPurchaseRequestLimiter, async (req, res) => {
+router.patch(
+  ["/:id/buyer-validation", "/:id/buyer-validation/:token"],
+  actionPurchaseRequestLimiter,
+  async (req, res) => {
+  const client = await pool.connect()
+
   try {
     const { id } = req.params
+    const purchaseRequestId = Number(id)
 
     const {
       buyer_user_id,
@@ -769,24 +926,50 @@ router.patch("/:id/buyer-validation", actionPurchaseRequestLimiter, async (req, 
       rejection_reason,
     } = req.body
 
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({ message: "Purchase request not found" })
+    }
+
     if (!buyer_user_id) {
       return res.status(400).json({ message: "buyer_user_id is required" })
     }
 
-    const currentRequest = await pool.query(
+    const buyerValidationToken = getBuyerValidationTokenFromRequest(req)
+
+    await client.query("BEGIN")
+
+    const isBuyerValidationTokenValid = await validateBuyerValidationToken(
+      client,
+      purchaseRequestId,
+      buyerValidationToken
+    )
+
+    if (!isBuyerValidationTokenValid || !buyerValidationToken) {
+      await client.query("ROLLBACK")
+
+      return res.status(403).json({
+        message: "Invalid or expired buyer validation token",
+      })
+    }
+
+    const currentRequest = await client.query(
       `
       SELECT *
       FROM portal.purchase_requests
       WHERE id = $1
       `,
-      [id]
+      [purchaseRequestId]
     )
 
     if (currentRequest.rows.length === 0) {
+      await client.query("ROLLBACK")
+
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
     if (currentRequest.rows[0].status !== "pending_buyer_validation") {
+      await client.query("ROLLBACK")
+
       return res.status(400).json({
         message: "This request is not pending buyer validation",
       })
@@ -813,7 +996,7 @@ router.patch("/:id/buyer-validation", actionPurchaseRequestLimiter, async (req, 
     const buyerConfirmedTotalPrice =
       cleanConfirmedUnitPrice !== null ? cleanConfirmedUnitPrice * quantity : null
 
-    const result = await pool.query(
+    const result = await client.query(
       `
       UPDATE portal.purchase_requests
       SET
@@ -836,11 +1019,19 @@ router.patch("/:id/buyer-validation", actionPurchaseRequestLimiter, async (req, 
         buyer_note || null,
         newStatus,
         rejection_reason || null,
-        id,
+        purchaseRequestId,
       ]
     )
 
     const updatedRequest = result.rows[0]
+
+    await markBuyerValidationTokenUsed(
+      client,
+      purchaseRequestId,
+      buyerValidationToken
+    )
+
+    await client.query("COMMIT")
 
 if (updatedRequest.status === "pending_admin_approval") {
   const adminRecipients = getEmailRecipients(
@@ -857,8 +1048,12 @@ if (updatedRequest.status === "pending_admin_approval") {
 
 res.json(updatedRequest)
   } catch (error) {
+    await client.query("ROLLBACK")
+
     console.error("Error validating purchase request:", error)
     res.status(500).json({ message: "Error validating purchase request" })
+  } finally {
+    client.release()
   }
 })
 
