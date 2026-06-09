@@ -26,8 +26,9 @@ const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
   const differenceInMs = selectedDate.getTime() - today.getTime()
   const differenceInDays = Math.ceil(differenceInMs / (1000 * 60 * 60 * 24))
 
-  if (differenceInDays <= 7) return "urgent"
-  if (differenceInDays <= 14) return "priority"
+  if (differenceInDays <= 1) return "Au plus vite"
+  if (differenceInDays <= 7) return "Urgent"
+  if (differenceInDays <= 14) return "Urgence medium"
 
   return "normal"
 }
@@ -40,14 +41,11 @@ router.get("/", async (req, res) => {
     let query = `
       SELECT 
         pr.*,
-        requester.name AS requester_name,
-        requester.surname AS requester_surname,
         buyer.name AS buyer_name,
         buyer.surname AS buyer_surname,
         admin.name AS admin_name,
         admin.surname AS admin_surname
       FROM portal.purchase_requests pr
-      LEFT JOIN public.users requester ON requester.id = pr.requested_by_user_id
       LEFT JOIN public.users buyer ON buyer.id = pr.buyer_user_id
       LEFT JOIN public.users admin ON admin.id = pr.admin_user_id
     `
@@ -83,7 +81,6 @@ router.get("/:id", async (req, res) => {
       `
       SELECT 
         pr.*,
-        requester.name AS requester_name,
         requester.surname AS requester_surname,
         buyer.name AS buyer_name,
         buyer.surname AS buyer_surname,
@@ -92,7 +89,6 @@ router.get("/:id", async (req, res) => {
         purchased_by.name AS purchased_by_name,
         purchased_by.surname AS purchased_by_surname
       FROM portal.purchase_requests pr
-      LEFT JOIN public.users requester ON requester.id = pr.requested_by_user_id
       LEFT JOIN public.users buyer ON buyer.id = pr.buyer_user_id
       LEFT JOIN public.users admin ON admin.id = pr.admin_user_id
       LEFT JOIN public.users purchased_by ON purchased_by.id = pr.purchased_by_user_id
@@ -112,12 +108,11 @@ router.get("/:id", async (req, res) => {
   }
 })
 
-// POST /api/purchase-requests
+
 router.post("/", async (req, res) => {
   try {
     const {
-      requested_by_user_id,
-      item_name,
+      requested_by,
       description,
       quantity,
       reason,
@@ -127,9 +122,9 @@ router.post("/", async (req, res) => {
       expected_date,
     } = req.body
 
-    if (!requested_by_user_id || !item_name) {
+    if (!requested_by || !quantity) {
       return res.status(400).json({
-        message: "requested_by_user_id and item_name are required",
+        message: "La description du produit et la quantité sont requises",
       })
     }
 
@@ -147,8 +142,7 @@ router.post("/", async (req, res) => {
     const result = await pool.query(
       `
       INSERT INTO portal.purchase_requests (
-        requested_by_user_id,
-        item_name,
+        requested_by,
         description,
         quantity,
         reason,
