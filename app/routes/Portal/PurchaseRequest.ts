@@ -273,6 +273,16 @@ const sendPurchaseRequestEmailSafely = async (
   }
 }
 
+const buildPictureEmailAttachments = (
+  pictures: Express.Multer.File[]
+): EmailAttachment[] => {
+  return pictures.map((picture, index) => ({
+    filename: picture.originalname || `photo-${index + 1}`,
+    content: picture.buffer,
+    contentType: picture.mimetype,
+  }))
+}
+
 router.get("/form-token", formTokenLimiter, async (req, res) => {
   try {
     const token = crypto.randomBytes(32).toString("hex")
@@ -584,7 +594,7 @@ await sendPurchaseRequestEmailSafely(
   buyerRecipients,
   `Nouvelle demande d'achat #${createdRequest.id}`,
   buildNewPurchaseRequestEmail(createdRequest),
-  pictures
+  buildPictureEmailAttachments(pictures)
 )
 
 res.status(201).json(createdRequest)
