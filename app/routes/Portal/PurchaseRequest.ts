@@ -69,8 +69,8 @@ const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
   const differenceInMs = selectedDate.getTime() - today.getTime()
   const differenceInDays = Math.ceil(differenceInMs / (1000 * 60 * 60 * 24))
 
-  if (differenceInDays <= 1) return "au_plus_vite"
-  if (differenceInDays <= 7) return "urgent"
+  if (differenceInDays <= 1) return "au plus vite"
+  if (differenceInDays <= 7) return "urgent (1 semaine ou moins)"
   if (differenceInDays <= 14) return "moyen"
 
   return "normal"
