@@ -63,7 +63,7 @@ const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const selectedDate = new Date(`${expectedDate}T00:00:00`)
+  const selectedDate = new Date(`${expectedDate}`)
   selectedDate.setHours(0, 0, 0, 0)
 
   const differenceInMs = selectedDate.getTime() - today.getTime()
