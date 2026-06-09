@@ -82,6 +82,24 @@ const getEmailRecipients = (...envNames: string[]) => {
     .join(",")
 }
 
+const formatDateFr = (value: string | Date | null | undefined) => {
+  if (!value) return "Non indiquée"
+
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "Non indiquée"
+  }
+
+  return new Intl.DateTimeFormat("fr-CA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date)
+}
+
 const formatMoney = (value: number | string | null | undefined) => {
   if (value === null || value === undefined || value === "") {
     return "Non indiqué"
@@ -121,7 +139,7 @@ Lien produit:
 ${request.product_link || "Aucun lien indiqué"}
 
 Date requise:
-${request.expected_date || "Non indiquée"} 
+${formatDateFr(request.expected_date)}
 
 Urgence:
 ${request.urgency || "Normal"}
@@ -162,7 +180,7 @@ Note de l'acheteur:
 ${request.buyer_note || "Aucune note"}
 
 Date requise:
-${request.expected_date || "Non indiquée"}
+${formatDateFr(request.expected_date)}
 
 Urgence:
 ${request.urgency || "Normal"}
