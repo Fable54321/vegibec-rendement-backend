@@ -104,7 +104,7 @@ router.get("/form-token", formTokenLimiter, async (req, res) => {
 })
 
 // GET /api/purchase-requests
-router.get("/", async (req, res) => {
+router.get("/", readPurchaseRequestsLimiter, async (req, res) => {
   try {
     const { status } = req.query
 
@@ -143,7 +143,7 @@ router.get("/", async (req, res) => {
 })
 
 // GET /api/purchase-requests/:id
-router.get("/:id", async (req, res) => {
+router.get("/:id(\\d+)", readPurchaseRequestsLimiter, async (req, res) => {
   try {
     const { id } = req.params
 
