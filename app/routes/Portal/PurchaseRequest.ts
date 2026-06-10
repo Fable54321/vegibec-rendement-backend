@@ -446,6 +446,13 @@ const buildNewPurchaseRequestEmailHtml = (
         </a>
       </p>
 
+      <p style="color:#475569;font-size:13px;">
+        Lien direct:<br />
+        <a href="${safeBuyerValidationUrl}" target="_blank" rel="noopener noreferrer">
+          ${safeBuyerValidationUrl}
+        </a>
+      </p>
+
       <p><strong>Justification:</strong><br />${
         request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
       }</p>
