@@ -536,7 +536,36 @@ const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
   return status ? labels[status] || status : "Non indique"
 }
 
+const getPriceIncreaseInfo = (request: any) => {
+  const requestedTotalPrice = Number(request.requested_total_price)
+  const confirmedTotalPrice = Number(request.buyer_confirmed_total_price)
+
+  if (!Number.isFinite(requestedTotalPrice) || !Number.isFinite(confirmedTotalPrice)) {
+    return null
+  }
+
+  if (confirmedTotalPrice <= requestedTotalPrice) {
+    return null
+  }
+
+  return {
+    difference: confirmedTotalPrice - requestedTotalPrice,
+    requestedTotalPrice,
+    confirmedTotalPrice,
+  }
+}
+
 const buildBuyerPriceConfirmedEmail = (request: any) => {
+  const priceIncreaseInfo = getPriceIncreaseInfo(request)
+  const priceIncreaseWarning = priceIncreaseInfo
+    ? `
+
+Attention:
+Le prix total confirme est plus eleve que le prix total estime de la demande.
+Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+`
+    : ""
+
   return `
 Le prix de la demande d'achat #${request.id} a ete confirme par l'acheteur.
 
@@ -551,11 +580,14 @@ ${request.reason || "Aucune justification indiquee"}
 Quantite:
 ${request.quantity || "Non indiquee"}
 
+Prix total estime dans la demande:
+${formatMoney(request.requested_total_price)}
+
 Prix unitaire confirme:
 ${formatMoney(request.buyer_confirmed_unit_price)}
 
 Prix total confirme:
-${formatMoney(request.buyer_confirmed_total_price)}
+${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
 
 Statut:
 ${getPurchaseRequestStatusLabel(request.status)}
@@ -571,6 +603,78 @@ ${request.urgency || "Normal"}
 
 Date requise:
 ${formatDateFr(request.expected_at || request.expected_date)}
+  `.trim()
+}
+
+const buildBuyerPriceConfirmedEmailHtml = (request: any) => {
+  const priceIncreaseInfo = getPriceIncreaseInfo(request)
+  const confirmedTotalPriceStyle = priceIncreaseInfo
+    ? "color:#b91c1c;font-weight:700;"
+    : ""
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h2>Prix confirme - demande d'achat #${escapeHtml(request.id)}</h2>
+
+      <p>Le prix de la demande d'achat a ete confirme par l'acheteur.</p>
+
+      ${
+        priceIncreaseInfo
+          ? `
+            <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
+              <strong>Attention: prix plus eleve que la demande initiale.</strong><br />
+              Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+            </div>
+          `
+          : ""
+      }
+
+      <p><strong>Description:</strong><br />${escapeHtml(
+        request.description || "Non indiquee"
+      )}</p>
+
+      <p><strong>Raison:</strong><br />${escapeHtml(
+        request.reason || "Aucune justification indiquee"
+      )}</p>
+
+      <p><strong>Quantite:</strong><br />${escapeHtml(
+        request.quantity || "Non indiquee"
+      )}</p>
+
+      <p><strong>Prix total estime dans la demande:</strong><br />${formatMoney(
+        request.requested_total_price
+      )}</p>
+
+      <p><strong>Prix unitaire confirme:</strong><br />${formatMoney(
+        request.buyer_confirmed_unit_price
+      )}</p>
+
+      <p><strong>Prix total confirme:</strong><br />
+        <span style="${confirmedTotalPriceStyle}">${formatMoney(
+          request.buyer_confirmed_total_price
+        )}</span>
+      </p>
+
+      <p><strong>Statut:</strong><br />${escapeHtml(
+        getPurchaseRequestStatusLabel(request.status)
+      )}</p>
+
+      <p><strong>Date de validation par l'acheteur:</strong><br />${formatDateTimeFr(
+        request.buyer_validated_at
+      )}</p>
+
+      <p><strong>Date de la demande:</strong><br />${formatDateTimeFr(
+        request.requested_at || request.created_at
+      )}</p>
+
+      <p><strong>Urgence:</strong><br />${escapeHtml(
+        request.urgency || "Normal"
+      )}</p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_at || request.expected_date
+      )}</p>
+    </div>
   `.trim()
 }
 
@@ -1126,7 +1230,8 @@ if (updatedRequest.status === "pending_admin_approval") {
   await sendPurchaseRequestEmailSafely(
     adminRecipients,
     `Prix confirme pour la demande d'achat #${updatedRequest.id}`,
-    buildBuyerPriceConfirmedEmail(updatedRequest)
+    buildBuyerPriceConfirmedEmail(updatedRequest),
+    buildBuyerPriceConfirmedEmailHtml(updatedRequest)
   )
 }
 
