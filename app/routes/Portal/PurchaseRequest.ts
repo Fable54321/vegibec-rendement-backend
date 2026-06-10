@@ -586,7 +586,7 @@ router.patch(
   try {
     const { id } = req.params
     const purchaseRequestId = Number(id)
-    const { admin_user_id, approved, admin_note, rejection_reason } = req.body
+    const {  approved, admin_note, rejection_reason } = req.body
 
 
     if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
