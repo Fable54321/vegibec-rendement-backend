@@ -14,12 +14,15 @@ import {
   createAdminApprovalToken,
   createBuyerValidationToken,
   createPurchaseRequestPictureKey,
+  getAdminApprovalTokenFromRequest,
   getBuyerValidationTokenFromRequest,
   getEmailRecipients,
   getUrgencyFromExpectedDate,
+  markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
   sendPurchaseRequestEmailSafely,
   uploadPurchaseRequestPictures,
+  validateAdminApprovalToken,
   validateBuyerValidationToken,
 } from "../../routes/Portal/Utils/PurchaseHelper"
 import { uploadBufferToS3 } from "../../services/s3.services"
@@ -575,33 +578,61 @@ res.json(updatedRequest)
 })
 
 
-router.patch("/:id/admin-decision", actionPurchaseRequestLimiter, async (req, res) => {
+router.patch(
+  ["/:id/admin-decision", "/:id/admin-decision/:token"],
+  actionPurchaseRequestLimiter,
+  async (req, res) => {
+  const client = await pool.connect()
   try {
     const { id } = req.params
+    const purchaseRequestId = Number(id)
     const { admin_user_id, approved, admin_note, rejection_reason } = req.body
 
-    if (!admin_user_id) {
-      return res.status(400).json({ message: "admin_user_id is required" })
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({ message: "Purchase request not found" })
     }
 
     if (typeof approved !== "boolean") {
-      return res.status(400).json({ message: "approved must be true or false" })
+      return res.status(400).json({ message: "La décision est requise" })
     }
 
-    const currentRequest = await pool.query(
+    const adminApprovalToken = getAdminApprovalTokenFromRequest(req)
+
+    await client.query("BEGIN")
+
+    const isAdminApprovalTokenValid = await validateAdminApprovalToken(
+      client,
+      purchaseRequestId,
+      adminApprovalToken
+    )
+
+    if (!isAdminApprovalTokenValid || !adminApprovalToken) {
+      await client.query("ROLLBACK")
+
+      return res.status(403).json({
+        message: "Invalid or expired admin approval token",
+      })
+    }
+
+    const currentRequest = await client.query(
       `
       SELECT *
       FROM portal.purchase_requests
       WHERE id = $1
       `,
-      [id]
+      [purchaseRequestId]
     )
 
     if (currentRequest.rows.length === 0) {
+      await client.query("ROLLBACK")
+
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
     if (currentRequest.rows[0].status !== "pending_admin_approval") {
+      await client.query("ROLLBACK")
+
       return res.status(400).json({
         message: "This request is not pending admin approval",
       })
@@ -622,15 +653,23 @@ router.patch("/:id/admin-decision", actionPurchaseRequestLimiter, async (req, re
       RETURNING *
       `,
       [
-        admin_user_id,
+        admin_user_id || null,
         admin_note || null,
         newStatus,
         approved ? null : rejection_reason || null,
-        id,
+        purchaseRequestId,
       ]
     )
 
     const updatedRequest = result.rows[0]
+
+    await markAdminApprovalTokenUsed(
+      client,
+      purchaseRequestId,
+      adminApprovalToken
+    )
+
+    await client.query("COMMIT")
 
 const buyerRecipients = getEmailRecipients(
   "PURCHASE_BUYER_EMAIL",
@@ -645,8 +684,12 @@ await sendPurchaseRequestEmailSafely(
 
 res.json(updatedRequest)
   } catch (error) {
+    await client.query("ROLLBACK")
+
     console.error("Error saving admin decision:", error)
     res.status(500).json({ message: "Error saving admin decision" })
+  } finally {
+    client.release()
   }
 })
 

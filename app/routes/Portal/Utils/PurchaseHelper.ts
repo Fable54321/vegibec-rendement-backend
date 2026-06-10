@@ -194,6 +194,21 @@ export const getBuyerValidationTokenFromRequest = (req: Request) => {
   return null
 }
 
+export const getAdminApprovalTokenFromRequest = (req: Request) => {
+  const bodyToken = (req.body as { admin_approval_token?: unknown })
+    ?.admin_approval_token
+  const queryToken = req.query.token
+  const headerToken = req.headers["x-purchase-request-admin-token"]
+  const paramToken = req.params.token
+
+  if (typeof paramToken === "string" && paramToken.trim()) return paramToken.trim()
+  if (typeof bodyToken === "string" && bodyToken.trim()) return bodyToken.trim()
+  if (typeof queryToken === "string" && queryToken.trim()) return queryToken.trim()
+  if (typeof headerToken === "string" && headerToken.trim()) return headerToken.trim()
+
+  return null
+}
+
 export const validateBuyerValidationToken = async (
   client: PoolClient,
   purchaseRequestId: number,
@@ -233,6 +248,48 @@ export const markBuyerValidationTokenUsed = async (
       AND used_at IS NULL
     `,
     [purchaseRequestId, hashBuyerValidationToken(token)]
+  )
+}
+
+export const validateAdminApprovalToken = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string | null
+) => {
+  if (!token) return false
+
+  await ensureAdminApprovalTokenTable(client)
+
+  const result = await client.query(
+    `
+    SELECT id
+    FROM portal.purchase_request_admin_approval_tokens
+    WHERE purchase_request_id = $1
+      AND token = $2
+      AND used_at IS NULL
+      AND expires_at > now()
+    LIMIT 1
+    `,
+    [purchaseRequestId, token]
+  )
+
+  return result.rows.length > 0
+}
+
+export const markAdminApprovalTokenUsed = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string
+) => {
+  await client.query(
+    `
+    UPDATE portal.purchase_request_admin_approval_tokens
+    SET used_at = now()
+    WHERE purchase_request_id = $1
+      AND token = $2
+      AND used_at IS NULL
+    `,
+    [purchaseRequestId, token]
   )
 }
 
