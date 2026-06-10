@@ -1217,15 +1217,10 @@ router.patch(
 
 if (updatedRequest.status === "pending_admin_approval") {
   const adminRecipients = getEmailRecipients(
-    "PURCHASE_ADMIN_EMAIL",
+    "PURCHASE_BUYER_EMAIL",
     "PURCHASE_EMAIL_COPY"
   )
 
-  await sendPurchaseRequestEmailSafely(
-    adminRecipients,
-    `Demande d'achat #${updatedRequest.id} à approuver`,
-    buildAdminApprovalEmail(updatedRequest)
-  )
 
   await sendPurchaseRequestEmailSafely(
     adminRecipients,
