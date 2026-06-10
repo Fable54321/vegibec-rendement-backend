@@ -106,6 +106,24 @@ const hashBuyerValidationToken = (token: string) => {
   return crypto.createHash("sha256").update(token).digest("hex")
 }
 
+const ensureAdminApprovalTokenTable = async (client: PoolClient) => {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS portal.purchase_request_admin_approval_tokens (
+      id bigserial PRIMARY KEY,
+      purchase_request_id bigint NOT NULL REFERENCES portal.purchase_requests(id) ON DELETE CASCADE,
+      token text NOT NULL UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz
+    )
+  `)
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS purchase_request_admin_approval_tokens_request_id_idx
+    ON portal.purchase_request_admin_approval_tokens (purchase_request_id)
+  `)
+}
+
 export const createBuyerValidationToken = async (
   client: PoolClient,
   purchaseRequestId: number
@@ -138,6 +156,8 @@ export const createAdminApprovalToken = async (
   client: PoolClient,
   purchaseRequestId: number
 ) => {
+  await ensureAdminApprovalTokenTable(client)
+
   const token = crypto.randomBytes(32).toString("hex")
 
   await client.query(
@@ -240,11 +260,7 @@ export const buildAdminApprovalUrl = (
   purchaseRequestId: number,
   token: string
 ) => {
-  const configuredBaseUrl =
-    process.env.PURCHASE_ADMIN_APPROVAL_BASE_URL?.trim() ||
-    process.env.PURCHASE_BUYER_VALIDATION_BASE_URL?.trim() ||
-    process.env.BASE_URL?.trim()
-
+  const configuredBaseUrl = "http://localhost:5173"
   const baseUrl =
     configuredBaseUrl ||
     (process.env.NODE_ENV === "production"
@@ -507,7 +523,10 @@ export const buildNewPurchaseRequestEmailHtml = (
   `.trim()
 }
 
-export const buildAdminApprovalEmail = (request: any) => {
+const buildAdminApprovalEmail = (
+  request: any,
+  adminApprovalUrl: string
+) => {
   return `
 Une demande d'achat est prete pour approbation administrative.
 
@@ -579,7 +598,10 @@ const getPriceIncreaseInfo = (request: any) => {
   }
 }
 
-export const buildBuyerPriceConfirmedEmail = (request: any) => {
+export const buildBuyerPriceConfirmedEmail = (
+  request: any,
+  adminApprovalUrl: string
+) => {
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
   const priceIncreaseWarning = priceIncreaseInfo
     ? `
@@ -627,14 +649,21 @@ ${request.urgency || "Normal"}
 
 Date requise:
 ${formatDateFr(request.expected_at || request.expected_date)}
+
+Lien d'approbation administrative:
+${adminApprovalUrl}
   `.trim()
 }
 
-export const buildBuyerPriceConfirmedEmailHtml = (request: any) => {
+export const buildBuyerPriceConfirmedEmailHtml = (
+  request: any,
+  adminApprovalUrl: string
+) => {
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
   const confirmedTotalPriceStyle = priceIncreaseInfo
     ? "color:#b91c1c;font-weight:700;"
     : ""
+  const safeAdminApprovalUrl = escapeHtml(adminApprovalUrl)
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
@@ -698,6 +727,24 @@ export const buildBuyerPriceConfirmedEmailHtml = (request: any) => {
       <p><strong>Date requise:</strong><br />${formatDateFr(
         request.expected_at || request.expected_date
       )}</p>
+
+      <p>
+        <a
+          href="${safeAdminApprovalUrl}"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+        >
+          Ouvrir le formulaire d'approbation
+        </a>
+      </p>
+
+      <p style="color:#475569;font-size:13px;">
+        Lien direct:<br />
+        <a href="${safeAdminApprovalUrl}" target="_blank" rel="noopener noreferrer">
+          ${safeAdminApprovalUrl}
+        </a>
+      </p>
     </div>
   `.trim()
 }

@@ -6,10 +6,12 @@ import {
   buildBuyerDecisionEmail,
   buildBuyerPriceConfirmedEmail,
   buildBuyerPriceConfirmedEmailHtml,
+  buildAdminApprovalUrl,
   buildBuyerValidationUrl,
   buildNewPurchaseRequestEmail,
   buildNewPurchaseRequestEmailHtml,
   buildPictureEmailLinks,
+  createAdminApprovalToken,
   createBuyerValidationToken,
   createPurchaseRequestPictureKey,
   getBuyerValidationTokenFromRequest,
@@ -528,6 +530,10 @@ router.patch(
     )
 
     const updatedRequest = result.rows[0]
+    const adminApprovalToken =
+      updatedRequest.status === "pending_admin_approval"
+        ? await createAdminApprovalToken(client, updatedRequest.id)
+        : null
 
     await markBuyerValidationTokenUsed(
       client,
@@ -537,18 +543,23 @@ router.patch(
 
     await client.query("COMMIT")
 
-if (updatedRequest.status === "pending_admin_approval") {
+if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
   const adminRecipients = getEmailRecipients(
     "PURCHASE_BUYER_EMAIL",
     "PURCHASE_EMAIL_COPY"
+  )
+  const adminApprovalUrl = buildAdminApprovalUrl(
+    req,
+    updatedRequest.id,
+    adminApprovalToken
   )
 
 
   await sendPurchaseRequestEmailSafely(
     adminRecipients,
     `Prix confirme pour la demande d'achat #${updatedRequest.id}`,
-    buildBuyerPriceConfirmedEmail(updatedRequest),
-    buildBuyerPriceConfirmedEmailHtml(updatedRequest)
+    buildBuyerPriceConfirmedEmail(updatedRequest, adminApprovalUrl),
+    buildBuyerPriceConfirmedEmailHtml(updatedRequest, adminApprovalUrl)
   )
 }
 
