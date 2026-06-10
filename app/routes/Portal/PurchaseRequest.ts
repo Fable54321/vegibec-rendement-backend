@@ -244,6 +244,26 @@ const formatDateFr = (value: string | Date | null | undefined) => {
   }).format(date)
 }
 
+const formatDateTimeFr = (value: string | Date | null | undefined) => {
+  if (!value) return "Non indique"
+
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "Non indique"
+  }
+
+  return new Intl.DateTimeFormat("fr-CA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Toronto",
+  }).format(date)
+}
+
 const formatMoney = (value: number | string | null | undefined) => {
   if (value === null || value === undefined || value === "") {
     return "Non indiqué"
@@ -501,6 +521,59 @@ Approbation ou refus par l'administration.
   `.trim()
 }
 
+const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
+  const labels: Record<string, string> = {
+    pending_buyer_validation: "En attente de validation par l'acheteur",
+    needs_requester_info: "Information demandee au demandeur",
+    pending_admin_approval: "En attente d'approbation administrative",
+    approved: "Approuvee",
+    rejected: "Refusee",
+    ready_to_purchase: "Prete a acheter",
+    purchased: "Achetee",
+    cancelled: "Annulee",
+  }
+
+  return status ? labels[status] || status : "Non indique"
+}
+
+const buildBuyerPriceConfirmedEmail = (request: any) => {
+  return `
+Le prix de la demande d'achat #${request.id} a ete confirme par l'acheteur.
+
+Resume de la demande:
+
+Description:
+${request.description || "Non indiquee"}
+
+Raison:
+${request.reason || "Aucune justification indiquee"}
+
+Quantite:
+${request.quantity || "Non indiquee"}
+
+Prix unitaire confirme:
+${formatMoney(request.buyer_confirmed_unit_price)}
+
+Prix total confirme:
+${formatMoney(request.buyer_confirmed_total_price)}
+
+Statut:
+${getPurchaseRequestStatusLabel(request.status)}
+
+Date de validation par l'acheteur:
+${formatDateTimeFr(request.buyer_validated_at)}
+
+Date de la demande:
+${formatDateTimeFr(request.requested_at || request.created_at)}
+
+Urgence:
+${request.urgency || "Normal"}
+
+Date requise:
+${formatDateFr(request.expected_at || request.expected_date)}
+  `.trim()
+}
+
 const buildBuyerDecisionEmail = (request: any) => {
   const approved = request.status === "ready_to_purchase"
 
@@ -517,6 +590,9 @@ ${request.description}
 
 Quantité:
 ${request.quantity}
+
+Date requise:
+${formatDateFr(request.expected_date)}
 
 Prix total confirmé:
 ${formatMoney(request.buyer_confirmed_total_price)}
@@ -807,25 +883,25 @@ const {
 
 const result = await client.query(
   `
-  INSERT INTO portal.purchase_requests (
-    requested_by,
-    description,
-    quantity,
-    reason,
-    urgency,
-    requested_unit_price,
-    requested_total_price,
-    requested_supplier,
-    product_link,
-    expected_date,
-    status
-  )
-  VALUES (
-    $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10,
-    'pending_buyer_validation'
-  )
-  RETURNING *
+INSERT INTO portal.purchase_requests (
+  requested_by,
+  description,
+  quantity,
+  reason,
+  urgency,
+  requested_unit_price,
+  requested_total_price,
+  requested_supplier,
+  product_link,
+  expected_date,
+  status
+)
+VALUES (
+  $1, $2, $3, $4, $5, $6,
+  $7, $8, $9, $10,
+  'pending_buyer_validation'
+)
+RETURNING *
   `,
   [
     requested_by.trim(),
@@ -1045,6 +1121,12 @@ if (updatedRequest.status === "pending_admin_approval") {
     adminRecipients,
     `Demande d'achat #${updatedRequest.id} à approuver`,
     buildAdminApprovalEmail(updatedRequest)
+  )
+
+  await sendPurchaseRequestEmailSafely(
+    adminRecipients,
+    `Prix confirme pour la demande d'achat #${updatedRequest.id}`,
+    buildBuyerPriceConfirmedEmail(updatedRequest)
   )
 }
 
