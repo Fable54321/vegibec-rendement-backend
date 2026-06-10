@@ -523,14 +523,14 @@ export const buildNewPurchaseRequestEmailHtml = (
   `.trim()
 }
 
-const buildAdminApprovalEmail = (
+export const buildAdminApprovalEmail = (
   request: any,
   adminApprovalUrl: string
 ) => {
   return `
-Une demande d'achat est prete pour approbation administrative.
+Une demande d'achat est prête pour approbation administrative.
 
-Numero de demande: #${request.id}
+Numéro de demande: #${request.id}
 
 Demandeur:
 ${request.requested_by}
@@ -538,16 +538,16 @@ ${request.requested_by}
 Description:
 ${request.description}
 
-Quantite:
+Quantité:
 ${request.quantity}
 
-Prix unitaire confirme:
+Prix unitaire confirmé:
 ${formatMoney(request.buyer_confirmed_unit_price)}
 
-Prix total confirme:
+Prix total confirmé:
 ${formatMoney(request.buyer_confirmed_total_price)}
 
-Fournisseur confirme:
+Fournisseur potentiel:
 ${request.buyer_confirmed_supplier || "Non indique"}
 
 Note de l'acheteur:
@@ -559,7 +559,10 @@ ${formatDateFr(request.expected_date)}
 Urgence:
 ${request.urgency || "Normal"}
 
-Prochaine etape:
+Lien d'approbation:
+${adminApprovalUrl}
+
+Prochaine étape:
 Approbation ou refus par l'administration.
   `.trim()
 }

@@ -3,9 +3,8 @@ import { pool } from "../../db"
 import crypto from "crypto"
 import rateLimit from "express-rate-limit"
 import {
+  buildAdminApprovalEmail,
   buildBuyerDecisionEmail,
-  buildBuyerPriceConfirmedEmail,
-  buildBuyerPriceConfirmedEmailHtml,
   buildAdminApprovalUrl,
   buildBuyerValidationUrl,
   buildNewPurchaseRequestEmail,
@@ -557,9 +556,8 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
 
   await sendPurchaseRequestEmailSafely(
     adminRecipients,
-    `Prix confirme pour la demande d'achat #${updatedRequest.id}`,
-    buildBuyerPriceConfirmedEmail(updatedRequest, adminApprovalUrl),
-    buildBuyerPriceConfirmedEmailHtml(updatedRequest, adminApprovalUrl)
+    `Demande d'achat #${updatedRequest.id} prete pour approbation`,
+    buildAdminApprovalEmail(updatedRequest, adminApprovalUrl)
   )
 }
 
