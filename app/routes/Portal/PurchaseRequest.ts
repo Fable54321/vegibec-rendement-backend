@@ -935,9 +935,6 @@ router.patch(
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
-    if (!buyer_user_id) {
-      return res.status(400).json({ message: "buyer_user_id is required" })
-    }
 
     const buyerValidationToken = getBuyerValidationTokenFromRequest(req)
 
