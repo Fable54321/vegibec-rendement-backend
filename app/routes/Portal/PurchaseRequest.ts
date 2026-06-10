@@ -622,7 +622,7 @@ const buildBuyerPriceConfirmedEmailHtml = (request: any) => {
         priceIncreaseInfo
           ? `
             <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
-              <strong>Attention: prix plus eleve que la demande initiale.</strong><br />
+              <strong>Attention: prix plus élevé que la demande initiale.</strong><br />
               Ecart: ${formatMoney(priceIncreaseInfo.difference)}
             </div>
           `
@@ -630,26 +630,26 @@ const buildBuyerPriceConfirmedEmailHtml = (request: any) => {
       }
 
       <p><strong>Description:</strong><br />${escapeHtml(
-        request.description || "Non indiquee"
+        request.description || "Non indiquée"
       )}</p>
 
       <p><strong>Raison:</strong><br />${escapeHtml(
-        request.reason || "Aucune justification indiquee"
+        request.reason || "Aucune justification indiquée"
       )}</p>
 
       <p><strong>Quantite:</strong><br />${escapeHtml(
-        request.quantity || "Non indiquee"
+        request.quantity || "Non indiquée"
       )}</p>
 
-      <p><strong>Prix total estime dans la demande:</strong><br />${formatMoney(
+      <p><strong>Prix total estimé dans la demande:</strong><br />${formatMoney(
         request.requested_total_price
       )}</p>
 
-      <p><strong>Prix unitaire confirme:</strong><br />${formatMoney(
+      <p><strong>Prix unitaire confirmé:</strong><br />${formatMoney(
         request.buyer_confirmed_unit_price
       )}</p>
 
-      <p><strong>Prix total confirme:</strong><br />
+      <p><strong>Prix total confirmé:</strong><br />
         <span style="${confirmedTotalPriceStyle}">${formatMoney(
           request.buyer_confirmed_total_price
         )}</span>
