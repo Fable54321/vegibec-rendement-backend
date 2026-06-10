@@ -4,6 +4,7 @@ import crypto from "crypto"
 import rateLimit from "express-rate-limit"
 import {
   buildAdminApprovalEmail,
+  buildAdminApprovalEmailHtml,
   buildBuyerDecisionEmail,
   buildAdminApprovalUrl,
   buildBuyerValidationUrl,
@@ -557,7 +558,8 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
   await sendPurchaseRequestEmailSafely(
     adminRecipients,
     `Demande d'achat #${updatedRequest.id} prete pour approbation`,
-    buildAdminApprovalEmail(updatedRequest, adminApprovalUrl)
+    buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
+    buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
   )
 }
 

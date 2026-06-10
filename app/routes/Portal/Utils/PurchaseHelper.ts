@@ -527,6 +527,18 @@ export const buildAdminApprovalEmail = (
   request: any,
   adminApprovalUrl: string
 ) => {
+  const priceIncreaseInfo = getPriceIncreaseInfo(request)
+  const priceIncreaseWarning = priceIncreaseInfo
+    ? `
+
+Attention:
+Le prix total confirme est plus eleve que le prix total estime de la demande.
+Prix estime: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}
+Prix confirme: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
+Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+`
+    : ""
+
   return `
 Une demande d'achat est prête pour approbation administrative.
 
@@ -545,7 +557,7 @@ Prix unitaire confirmé:
 ${formatMoney(request.buyer_confirmed_unit_price)}
 
 Prix total confirmé:
-${formatMoney(request.buyer_confirmed_total_price)}
+${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
 
 Fournisseur potentiel:
 ${request.buyer_confirmed_supplier || "Non indique"}
@@ -564,6 +576,80 @@ ${adminApprovalUrl}
 
 Prochaine étape:
 Approbation ou refus par l'administration.
+  `.trim()
+}
+
+export const buildAdminApprovalEmailHtml = (
+  request: any,
+  adminApprovalUrl: string
+) => {
+  const priceIncreaseInfo = getPriceIncreaseInfo(request)
+  const confirmedTotalPriceStyle = priceIncreaseInfo
+    ? "color:#b91c1c;font-weight:700;"
+    : ""
+  const safeAdminApprovalUrl = escapeHtml(adminApprovalUrl)
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h2>Demande d'achat #${escapeHtml(request.id)} prete pour approbation</h2>
+
+      <p>Une demande d'achat est prete pour approbation administrative.</p>
+
+      ${
+        priceIncreaseInfo
+          ? `
+            <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
+              <strong>Attention: prix plus eleve que la demande initiale.</strong><br />
+              Prix estime: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}<br />
+              Prix confirme: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}<br />
+              Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+            </div>
+          `
+          : ""
+      }
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+      <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
+      <p><strong>Quantite:</strong><br />${escapeHtml(request.quantity)}</p>
+      <p><strong>Prix unitaire confirme:</strong><br />${formatMoney(
+        request.buyer_confirmed_unit_price
+      )}</p>
+      <p><strong>Prix total confirme:</strong><br />
+        <span style="${confirmedTotalPriceStyle}">${formatMoney(
+          request.buyer_confirmed_total_price
+        )}</span>
+      </p>
+      <p><strong>Fournisseur potentiel:</strong><br />${escapeHtml(
+        request.buyer_confirmed_supplier || "Non indique"
+      )}</p>
+      <p><strong>Note de l'acheteur:</strong><br />${escapeHtml(
+        request.buyer_note || "Aucune note"
+      )}</p>
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_date
+      )}</p>
+      <p><strong>Urgence:</strong><br />${escapeHtml(
+        request.urgency || "Normal"
+      )}</p>
+
+      <p>
+        <a
+          href="${safeAdminApprovalUrl}"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+        >
+          Ouvrir le formulaire d'approbation
+        </a>
+      </p>
+
+      <p style="color:#475569;font-size:13px;">
+        Lien direct:<br />
+        <a href="${safeAdminApprovalUrl}" target="_blank" rel="noopener noreferrer">
+          ${safeAdminApprovalUrl}
+        </a>
+      </p>
+    </div>
   `.trim()
 }
 
