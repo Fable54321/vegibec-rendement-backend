@@ -215,9 +215,7 @@ const buildBuyerValidationUrl = (
   purchaseRequestId: number,
   token: string
 ) => {
-  const configuredBaseUrl =
-    process.env.PURCHASE_BUYER_VALIDATION_BASE_URL?.trim() ||
-    process.env.BASE_URL?.trim()
+  const configuredBaseUrl = "http://localhost:5173"
 
   const baseUrl =
     configuredBaseUrl ||
