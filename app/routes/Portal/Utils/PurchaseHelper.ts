@@ -1,27 +1,778 @@
-import crypto from "crypto";
-import path from "path";
+import crypto from "crypto"
+import type { Request } from "express"
+import multer from "multer"
+import path from "path"
+import type { PoolClient } from "pg"
+import { getSignedUrlForKey } from "../../../services/s3.services"
+import { sendEmail } from "../../Visitors/Utils/testSMTP"
 
- const getPictureExtension = (file: Express.Multer.File) => {
-  const extension = path.extname(file.originalname).toLowerCase();
+const BUYER_VALIDATION_TOKEN_EXPIRES_IN_DAYS = 14
+const ADMIN_APPROVAL_TOKEN_EXPIRES_IN_DAYS = 14
+const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
+
+export type PictureEmailLink = {
+  label: string
+  url: string
+}
+
+const getPictureExtension = (file: Express.Multer.File) => {
+  const extension = path.extname(file.originalname).toLowerCase()
 
   if (extension && extension.length <= 10) {
-    return extension;
+    return extension
   }
 
-  if (file.mimetype === "image/png") return ".png";
-  if (file.mimetype === "image/webp") return ".webp";
-  if (file.mimetype === "image/jpeg") return ".jpg";
+  if (file.mimetype === "image/png") return ".png"
+  if (file.mimetype === "image/webp") return ".webp"
+  if (file.mimetype === "image/jpeg") return ".jpg"
 
-  return ".jpg";
-}; 
+  return ".jpg"
+}
 
 export const createPurchaseRequestPictureKey = (
   purchaseRequestId: number,
   file: Express.Multer.File,
   index: number
 ) => {
-  const randomId = crypto.randomBytes(16).toString("hex");
-  const extension = getPictureExtension(file);
+  const randomId = crypto.randomBytes(16).toString("hex")
+  const extension = getPictureExtension(file)
 
-  return `purchase-requests/${purchaseRequestId}/pictures/${index + 1}-${randomId}${extension}`;
-}; 
+  return `purchase-requests/${purchaseRequestId}/pictures/${
+    index + 1
+  }-${randomId}${extension}`
+}
+
+export const uploadPurchaseRequestPictures = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 5,
+    fileSize: 7 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      cb(new Error("Only image files are allowed"))
+      return
+    }
+
+    cb(null, true)
+  },
+})
+
+export const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
+  if (!expectedDate) return "normal"
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const selectedDate = new Date(`${expectedDate}`)
+  selectedDate.setHours(0, 0, 0, 0)
+
+  const differenceInMs = selectedDate.getTime() - today.getTime()
+  const differenceInDays = Math.ceil(differenceInMs / (1000 * 60 * 60 * 24))
+
+  if (differenceInDays <= 1) return "au plus vite"
+  if (differenceInDays <= 7) return "urgent (1 semaine ou moins)"
+  if (differenceInDays <= 14) return "moyen"
+
+  return "normal"
+}
+
+export const getEmailRecipients = (...envNames: string[]) => {
+  return envNames
+    .map((name) => process.env[name]?.trim())
+    .filter(Boolean)
+    .join(",")
+}
+
+const ensureBuyerValidationTokenTable = async (client: PoolClient) => {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS portal.purchase_request_buyer_validation_tokens (
+      id bigserial PRIMARY KEY,
+      purchase_request_id bigint NOT NULL REFERENCES portal.purchase_requests(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz
+    )
+  `)
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS purchase_request_buyer_validation_tokens_request_id_idx
+    ON portal.purchase_request_buyer_validation_tokens (purchase_request_id)
+  `)
+}
+
+const hashBuyerValidationToken = (token: string) => {
+  return crypto.createHash("sha256").update(token).digest("hex")
+}
+
+export const createBuyerValidationToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensureBuyerValidationTokenTable(client)
+
+  const token = crypto.randomBytes(32).toString("hex")
+  const tokenHash = hashBuyerValidationToken(token)
+
+  await client.query(
+    `
+    INSERT INTO portal.purchase_request_buyer_validation_tokens (
+      purchase_request_id,
+      token_hash,
+      expires_at
+    )
+    VALUES (
+      $1,
+      $2,
+      now() + ($3::text || ' days')::interval
+    )
+    `,
+    [purchaseRequestId, tokenHash, BUYER_VALIDATION_TOKEN_EXPIRES_IN_DAYS]
+  )
+
+  return token
+}
+
+export const createAdminApprovalToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  const token = crypto.randomBytes(32).toString("hex")
+
+  await client.query(
+    `
+    INSERT INTO portal.purchase_request_admin_approval_tokens (
+      purchase_request_id,
+      token,
+      expires_at
+    )
+    VALUES (
+      $1,
+      $2,
+      now() + ($3 || ' days')::interval
+    )
+    `,
+    [purchaseRequestId, token, ADMIN_APPROVAL_TOKEN_EXPIRES_IN_DAYS]
+  )
+
+  return token
+}
+
+export const getBuyerValidationTokenFromRequest = (req: Request) => {
+  const bodyToken = (req.body as { buyer_validation_token?: unknown })
+    ?.buyer_validation_token
+  const queryToken = req.query.token
+  const headerToken = req.headers["x-purchase-request-buyer-token"]
+  const paramToken = req.params.token
+
+  if (typeof paramToken === "string" && paramToken.trim()) return paramToken.trim()
+  if (typeof bodyToken === "string" && bodyToken.trim()) return bodyToken.trim()
+  if (typeof queryToken === "string" && queryToken.trim()) return queryToken.trim()
+  if (typeof headerToken === "string" && headerToken.trim()) return headerToken.trim()
+
+  return null
+}
+
+export const validateBuyerValidationToken = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string | null
+) => {
+  if (!token) return false
+
+  await ensureBuyerValidationTokenTable(client)
+
+  const result = await client.query(
+    `
+    SELECT id
+    FROM portal.purchase_request_buyer_validation_tokens
+    WHERE purchase_request_id = $1
+      AND token_hash = $2
+      AND used_at IS NULL
+      AND expires_at > now()
+    LIMIT 1
+    `,
+    [purchaseRequestId, hashBuyerValidationToken(token)]
+  )
+
+  return result.rows.length > 0
+}
+
+export const markBuyerValidationTokenUsed = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string
+) => {
+  await client.query(
+    `
+    UPDATE portal.purchase_request_buyer_validation_tokens
+    SET used_at = now()
+    WHERE purchase_request_id = $1
+      AND token_hash = $2
+      AND used_at IS NULL
+    `,
+    [purchaseRequestId, hashBuyerValidationToken(token)]
+  )
+}
+
+export const buildBuyerValidationUrl = (
+  req: Request,
+  purchaseRequestId: number,
+  token: string
+) => {
+  const configuredBaseUrl = "http://localhost:5173"
+
+  const baseUrl =
+    configuredBaseUrl ||
+    (process.env.NODE_ENV === "production"
+      ? "https://achats.vegibec-portail.com"
+      : `${req.protocol}://${req.get("host") || "localhost:3000"}`)
+
+  return `${baseUrl.replace(
+    /\/$/,
+    ""
+  )}/requete/${purchaseRequestId}/validation-prix/${token}`
+}
+
+export const buildAdminApprovalUrl = (
+  req: Request,
+  purchaseRequestId: number,
+  token: string
+) => {
+  const configuredBaseUrl =
+    process.env.PURCHASE_ADMIN_APPROVAL_BASE_URL?.trim() ||
+    process.env.PURCHASE_BUYER_VALIDATION_BASE_URL?.trim() ||
+    process.env.BASE_URL?.trim()
+
+  const baseUrl =
+    configuredBaseUrl ||
+    (process.env.NODE_ENV === "production"
+      ? "https://achats.vegibec-portail.com"
+      : `${req.protocol}://${req.get("host") || "localhost:3000"}`)
+
+  return `${baseUrl.replace(
+    /\/$/,
+    ""
+  )}/requete/${purchaseRequestId}/approbation-achat/${token}`
+}
+
+const formatDateFr = (value: string | Date | null | undefined) => {
+  if (!value) return "Non indiquee"
+
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "Non indiquee"
+  }
+
+  return new Intl.DateTimeFormat("fr-CA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date)
+}
+
+const formatDateTimeFr = (value: string | Date | null | undefined) => {
+  if (!value) return "Non indique"
+
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "Non indique"
+  }
+
+  return new Intl.DateTimeFormat("fr-CA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Toronto",
+  }).format(date)
+}
+
+const formatMoney = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === "") {
+    return "Non indique"
+  }
+
+  const numberValue = Number(value)
+
+  if (!Number.isFinite(numberValue)) {
+    return "Non indique"
+  }
+
+  return `${numberValue.toFixed(2)} $`
+}
+
+const escapeHtml = (value: unknown) => {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
+const getSafeHttpUrl = (value: unknown) => {
+  if (typeof value !== "string" || value.trim() === "") return null
+
+  try {
+    const url = new URL(value.trim())
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null
+    }
+
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+const formatPictureLinksForEmail = (pictureLinks: PictureEmailLink[]) => {
+  if (pictureLinks.length === 0) return "Aucune photo jointe"
+
+  return pictureLinks
+    .map((pictureLink, index) => {
+      return `Photo ${index + 1}${pictureLink.label ? ` (${pictureLink.label})` : ""}: ${
+        pictureLink.url
+      }`
+    })
+    .join("\n \n \n \n")
+}
+
+const formatPictureLinksForEmailHtml = (pictureLinks: PictureEmailLink[]) => {
+  if (pictureLinks.length === 0) {
+    return `<p>Aucune photo jointe</p>`
+  }
+
+  return `
+    <ul>
+      ${pictureLinks
+        .map(
+          (pictureLink, index) => `
+            <li>
+              <a href="${escapeHtml(pictureLink.url)}" target="_blank" rel="noopener noreferrer">
+                Photo ${index + 1}
+              </a>
+              ${
+                pictureLink.label
+                  ? `<span style="color:#64748b;"> - ${escapeHtml(
+                      pictureLink.label
+                    )}</span>`
+                  : ""
+              }
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+    <p style="color:#64748b;font-size:13px;">
+      Les liens des photos expirent dans 7 jours.
+    </p>
+  `
+}
+
+export const buildNewPurchaseRequestEmail = (
+  request: any,
+  pictureLinks: PictureEmailLink[] = [],
+  buyerValidationUrl: string
+) => {
+  const pictureExpiryText =
+    pictureLinks.length > 0 ? "\n\nLes liens des photos expirent dans 7 jours." : ""
+
+  return `
+Une nouvelle demande d'achat a ete creee.
+
+Numero de demande: #${request.id}
+
+Demandeur:
+${request.requested_by}
+
+Description:
+${request.description}
+
+Quantite:
+${request.quantity}
+
+Prix unitaire estime:
+${formatMoney(request.requested_unit_price)}
+
+Prix total estime:
+${formatMoney(request.requested_total_price)}
+
+Lien produit:
+${request.product_link || "Aucun lien indique"}
+
+Date requise:
+${formatDateFr(request.expected_date)}
+
+Urgence:
+${request.urgency || "Normal"}
+
+Photos:
+${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
+
+Lien de validation acheteur:
+${buyerValidationUrl}
+
+Justification:
+${request.reason || "Aucune justification indiquee"}
+
+Prochaine etape:
+L'acheteur doit confirmer le prix avec le lien de validation.
+  `.trim()
+}
+
+export const buildNewPurchaseRequestEmailHtml = (
+  request: any,
+  pictureLinks: PictureEmailLink[] = [],
+  buyerValidationUrl: string
+) => {
+  const productLinkUrl = getSafeHttpUrl(request.product_link)
+  const safeBuyerValidationUrl = escapeHtml(buyerValidationUrl)
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h2>Nouvelle demande d'achat #${escapeHtml(request.id)}</h2>
+
+      <p>Une nouvelle demande d'achat a ete creee.</p>
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+
+      <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
+
+      <p><strong>Quantite:</strong><br />${escapeHtml(request.quantity)}</p>
+
+      <p><strong>Prix unitaire estime:</strong><br />${formatMoney(
+        request.requested_unit_price
+      )}</p>
+
+      <p><strong>Prix total estime:</strong><br />${formatMoney(
+        request.requested_total_price
+      )}</p>
+
+      <p>
+        <strong>Lien produit:</strong><br />
+        ${
+          productLinkUrl
+            ? `<a href="${escapeHtml(
+                productLinkUrl
+              )}" target="_blank" rel="noopener noreferrer">Voir le produit</a>`
+            : "Aucun lien indique"
+        }
+      </p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_date
+      )}</p>
+
+      <p><strong>Urgence:</strong><br />${escapeHtml(request.urgency || "Normal")}</p>
+
+      <p><strong>Photos:</strong></p>
+      ${formatPictureLinksForEmailHtml(pictureLinks)}
+
+      <p>
+        <a
+          href="${safeBuyerValidationUrl}"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+        >
+          Confirmer le prix
+        </a>
+      </p>
+
+      <p style="color:#475569;font-size:13px;">
+        Lien direct:<br />
+        <a href="${safeBuyerValidationUrl}" target="_blank" rel="noopener noreferrer">
+          ${safeBuyerValidationUrl}
+        </a>
+      </p>
+
+      <p><strong>Justification:</strong><br />${
+        request.reason ? escapeHtml(request.reason) : "Aucune justification indiquee"
+      }</p>
+
+      <hr />
+
+      <p><strong>Prochaine etape:</strong><br />
+      L'acheteur doit confirmer le prix avec le lien de validation.</p>
+    </div>
+  `.trim()
+}
+
+export const buildAdminApprovalEmail = (request: any) => {
+  return `
+Une demande d'achat est prete pour approbation administrative.
+
+Numero de demande: #${request.id}
+
+Demandeur:
+${request.requested_by}
+
+Description:
+${request.description}
+
+Quantite:
+${request.quantity}
+
+Prix unitaire confirme:
+${formatMoney(request.buyer_confirmed_unit_price)}
+
+Prix total confirme:
+${formatMoney(request.buyer_confirmed_total_price)}
+
+Fournisseur confirme:
+${request.buyer_confirmed_supplier || "Non indique"}
+
+Note de l'acheteur:
+${request.buyer_note || "Aucune note"}
+
+Date requise:
+${formatDateFr(request.expected_date)}
+
+Urgence:
+${request.urgency || "Normal"}
+
+Prochaine etape:
+Approbation ou refus par l'administration.
+  `.trim()
+}
+
+const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
+  const labels: Record<string, string> = {
+    pending_buyer_validation: "En attente de validation par l'acheteur",
+    needs_requester_info: "Information demandee au demandeur",
+    pending_admin_approval: "En attente d'approbation administrative",
+    approved: "Approuvee",
+    rejected: "Refusee",
+    ready_to_purchase: "Prete a acheter",
+    purchased: "Achetee",
+    cancelled: "Annulee",
+  }
+
+  return status ? labels[status] || status : "Non indique"
+}
+
+const getPriceIncreaseInfo = (request: any) => {
+  const requestedTotalPrice = Number(request.requested_total_price)
+  const confirmedTotalPrice = Number(request.buyer_confirmed_total_price)
+
+  if (!Number.isFinite(requestedTotalPrice) || !Number.isFinite(confirmedTotalPrice)) {
+    return null
+  }
+
+  if (confirmedTotalPrice <= requestedTotalPrice) {
+    return null
+  }
+
+  return {
+    difference: confirmedTotalPrice - requestedTotalPrice,
+    requestedTotalPrice,
+    confirmedTotalPrice,
+  }
+}
+
+export const buildBuyerPriceConfirmedEmail = (request: any) => {
+  const priceIncreaseInfo = getPriceIncreaseInfo(request)
+  const priceIncreaseWarning = priceIncreaseInfo
+    ? `
+
+Attention:
+Le prix total confirme est plus eleve que le prix total estime de la demande.
+Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+`
+    : ""
+
+  return `
+Le prix de la demande d'achat #${request.id} a ete confirme par l'acheteur.
+
+Resume de la demande:
+
+Description:
+${request.description || "Non indiquee"}
+
+Raison:
+${request.reason || "Aucune justification indiquee"}
+
+Quantite:
+${request.quantity || "Non indiquee"}
+
+Prix total estime dans la demande:
+${formatMoney(request.requested_total_price)}
+
+Prix unitaire confirme:
+${formatMoney(request.buyer_confirmed_unit_price)}
+
+Prix total confirme:
+${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
+
+Statut:
+${getPurchaseRequestStatusLabel(request.status)}
+
+Date de validation par l'acheteur:
+${formatDateTimeFr(request.buyer_validated_at)}
+
+Date de la demande:
+${formatDateTimeFr(request.requested_at || request.created_at)}
+
+Urgence:
+${request.urgency || "Normal"}
+
+Date requise:
+${formatDateFr(request.expected_at || request.expected_date)}
+  `.trim()
+}
+
+export const buildBuyerPriceConfirmedEmailHtml = (request: any) => {
+  const priceIncreaseInfo = getPriceIncreaseInfo(request)
+  const confirmedTotalPriceStyle = priceIncreaseInfo
+    ? "color:#b91c1c;font-weight:700;"
+    : ""
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h2>Prix confirme - demande d'achat #${escapeHtml(request.id)}</h2>
+
+      <p>Le prix de la demande d'achat a ete confirme par l'acheteur.</p>
+
+      ${
+        priceIncreaseInfo
+          ? `
+            <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
+              <strong>Attention: prix plus eleve que la demande initiale.</strong><br />
+              Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+            </div>
+          `
+          : ""
+      }
+
+      <p><strong>Description:</strong><br />${escapeHtml(
+        request.description || "Non indiquee"
+      )}</p>
+
+      <p><strong>Raison:</strong><br />${escapeHtml(
+        request.reason || "Aucune justification indiquee"
+      )}</p>
+
+      <p><strong>Quantite:</strong><br />${escapeHtml(
+        request.quantity || "Non indiquee"
+      )}</p>
+
+      <p><strong>Prix total estime dans la demande:</strong><br />${formatMoney(
+        request.requested_total_price
+      )}</p>
+
+      <p><strong>Prix unitaire confirme:</strong><br />${formatMoney(
+        request.buyer_confirmed_unit_price
+      )}</p>
+
+      <p><strong>Prix total confirme:</strong><br />
+        <span style="${confirmedTotalPriceStyle}">${formatMoney(
+          request.buyer_confirmed_total_price
+        )}</span>
+      </p>
+
+      <p><strong>Statut:</strong><br />${escapeHtml(
+        getPurchaseRequestStatusLabel(request.status)
+      )}</p>
+
+      <p><strong>Date de validation par l'acheteur:</strong><br />${formatDateTimeFr(
+        request.buyer_validated_at
+      )}</p>
+
+      <p><strong>Date de la demande:</strong><br />${formatDateTimeFr(
+        request.requested_at || request.created_at
+      )}</p>
+
+      <p><strong>Urgence:</strong><br />${escapeHtml(
+        request.urgency || "Normal"
+      )}</p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_at || request.expected_date
+      )}</p>
+    </div>
+  `.trim()
+}
+
+export const buildBuyerDecisionEmail = (request: any) => {
+  const approved = request.status === "ready_to_purchase"
+
+  return `
+La demande d'achat #${request.id} a ete ${
+    approved ? "approuvee" : "refusee"
+  } par l'administration.
+
+Demandeur:
+${request.requested_by}
+
+Description:
+${request.description}
+
+Quantite:
+${request.quantity}
+
+Date requise:
+${formatDateFr(request.expected_date)}
+
+Prix total confirme:
+${formatMoney(request.buyer_confirmed_total_price)}
+
+Decision:
+${approved ? "Approuvee pour achat" : "Refusee"}
+
+Note de l'administration:
+${request.admin_note || "Aucune note"}
+
+Raison du refus:
+${request.rejection_reason || "Non applicable"}
+
+${
+  approved
+    ? "Prochaine etape:\nL'acheteur peut proceder a l'achat."
+    : "Aucune action d'achat ne doit etre effectuee."
+}
+  `.trim()
+}
+
+export const sendPurchaseRequestEmailSafely = async (
+  to: string,
+  subject: string,
+  text: string,
+  html?: string
+) => {
+  if (!to) return
+
+  try {
+    await sendEmail({
+      to,
+      fromLabel: "Vegibec - Demandes d'achat",
+      subject,
+      text,
+      html,
+    })
+  } catch (error) {
+    console.error("Purchase request email failed:", error)
+  }
+}
+
+export const buildPictureEmailLinks = async (
+  pictureKeys: string[],
+  pictures: Express.Multer.File[]
+): Promise<PictureEmailLink[]> => {
+  return Promise.all(
+    pictureKeys.map(async (pictureKey, index) => ({
+      label: pictures[index]?.originalname || "",
+      url: await getSignedUrlForKey(pictureKey, {
+        expiresIn: PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS,
+      }),
+    }))
+  )
+}
