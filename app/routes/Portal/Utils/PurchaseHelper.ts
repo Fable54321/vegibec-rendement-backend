@@ -784,7 +784,7 @@ export const buildAdminApprovalEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Michelle - ouvrir la décision
+          Michelle - approbation
         </a>
       </p>
 
@@ -988,7 +988,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Michelle - ouvrir la décision
+          Michelle - approbation
         </a>
       </p>
 
