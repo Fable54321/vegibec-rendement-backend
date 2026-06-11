@@ -382,6 +382,12 @@ const formatMoney = (value: number | string | null | undefined) => {
   return `${numberValue.toFixed(2)} $`
 }
 
+const formatRequesterEmail = (request: any) => {
+  return typeof request.request_email === "string" && request.request_email.trim()
+    ? request.request_email.trim()
+    : "Non indiqué"
+}
+
 const escapeHtml = (value: unknown) => {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -467,6 +473,9 @@ Numéro de demande: #${request.id}
 Demandeur:
 ${request.requested_by}
 
+Courriel du demandeur:
+${formatRequesterEmail(request)}
+
 Description:
 ${request.description}
 
@@ -517,6 +526,9 @@ export const buildNewPurchaseRequestEmailHtml = (
       <p>Une nouvelle demande d'achat a été créée.</p>
 
       <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
+        formatRequesterEmail(request)
+      )}</p>
 
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
 
@@ -604,6 +616,9 @@ Numéro de demande: #${request.id}
 Demandeur:
 ${request.requested_by}
 
+Courriel du demandeur:
+${formatRequesterEmail(request)}
+
 Description:
 ${request.description}
 
@@ -666,6 +681,9 @@ export const buildAdminApprovalEmailHtml = (
       }
 
       <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
+        formatRequesterEmail(request)
+      )}</p>
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
       <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
       <p><strong>Prix unitaire confirmé:</strong><br />${formatMoney(
@@ -763,6 +781,12 @@ Le prix de la demande d'achat #${request.id} a été confirmé par l'acheteur.
 
 Résumé de la demande:
 
+Demandeur:
+${request.requested_by || "Non indiqué"}
+
+Courriel du demandeur:
+${formatRequesterEmail(request)}
+
 Description:
 ${request.description || "Non indiquée"}
 
@@ -830,6 +854,14 @@ export const buildBuyerPriceConfirmedEmailHtml = (
 
       <p><strong>Description:</strong><br />${escapeHtml(
         request.description || "Non indiquée"
+      )}</p>
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(
+        request.requested_by || "Non indiqué"
+      )}</p>
+
+      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
+        formatRequesterEmail(request)
       )}</p>
 
       <p><strong>Raison:</strong><br />${escapeHtml(
@@ -905,6 +937,9 @@ La demande d'achat #${request.id} a été ${
 
 Demandeur:
 ${request.requested_by}
+
+Courriel du demandeur:
+${formatRequesterEmail(request)}
 
 Description:
 ${request.description}
