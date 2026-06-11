@@ -766,7 +766,6 @@ router.patch(
     const purchaseRequestId = Number(id)
 
     const {
-      purchased_by_user_id,
       final_unit_price,
       purchase_reference,
       purchase_note,
@@ -774,10 +773,6 @@ router.patch(
 
     if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
       return res.status(404).json({ message: "Purchase request not found" })
-    }
-
-    if (!purchased_by_user_id) {
-      return res.status(400).json({ message: "purchased_by_user_id is required" })
     }
 
     const purchaseToken = getPurchaseTokenFromRequest(req)
@@ -835,18 +830,16 @@ router.patch(
       `
       UPDATE portal.purchase_requests
       SET
-        purchased_by_user_id = $1,
-        final_unit_price = $2,
-        final_total_price = $3,
+        final_unit_price = $1,
+        final_total_price = $2,
         purchased_at = now(),
-        purchase_reference = $4,
-        purchase_note = $5,
+        purchase_reference = $3,
+        purchase_note = $4,
         status = 'purchased'
-      WHERE id = $6
+      WHERE id = $5
       RETURNING *
       `,
       [
-        purchased_by_user_id,
         cleanFinalUnitPrice,
         finalTotalPrice,
         purchase_reference || null,
