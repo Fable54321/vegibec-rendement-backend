@@ -331,12 +331,12 @@ export const buildAdminApprovalUrl = (
 }
 
 const formatDateFr = (value: string | Date | null | undefined) => {
-  if (!value) return "Non indiquee"
+  if (!value) return "Non indiquée"
 
   const date = value instanceof Date ? value : new Date(value)
 
   if (Number.isNaN(date.getTime())) {
-    return "Non indiquee"
+    return "Non indiquée"
   }
 
   return new Intl.DateTimeFormat("fr-CA", {
@@ -349,12 +349,12 @@ const formatDateFr = (value: string | Date | null | undefined) => {
 }
 
 const formatDateTimeFr = (value: string | Date | null | undefined) => {
-  if (!value) return "Non indique"
+  if (!value) return "Non indiqué"
 
   const date = value instanceof Date ? value : new Date(value)
 
   if (Number.isNaN(date.getTime())) {
-    return "Non indique"
+    return "Non indiqué"
   }
 
   return new Intl.DateTimeFormat("fr-CA", {
@@ -370,13 +370,13 @@ const formatDateTimeFr = (value: string | Date | null | undefined) => {
 
 const formatMoney = (value: number | string | null | undefined) => {
   if (value === null || value === undefined || value === "") {
-    return "Non indique"
+    return "Non indiqué"
   }
 
   const numberValue = Number(value)
 
   if (!Number.isFinite(numberValue)) {
-    return "Non indique"
+    return "Non indiqué"
   }
 
   return `${numberValue.toFixed(2)} $`
@@ -460,9 +460,9 @@ export const buildNewPurchaseRequestEmail = (
     pictureLinks.length > 0 ? "\n\nLes liens des photos expirent dans 7 jours." : ""
 
   return `
-Une nouvelle demande d'achat a ete creee.
+Une nouvelle demande d'achat a été créée.
 
-Numero de demande: #${request.id}
+Numéro de demande: #${request.id}
 
 Demandeur:
 ${request.requested_by}
@@ -470,17 +470,17 @@ ${request.requested_by}
 Description:
 ${request.description}
 
-Quantite:
+Quantité:
 ${request.quantity}
 
-Prix unitaire estime:
+Prix unitaire estimé:
 ${formatMoney(request.requested_unit_price)}
 
-Prix total estime:
+Prix total estimé:
 ${formatMoney(request.requested_total_price)}
 
 Lien produit:
-${request.product_link || "Aucun lien indique"}
+${request.product_link || "Aucun lien indiqué"}
 
 Date requise:
 ${formatDateFr(request.expected_date)}
@@ -495,9 +495,9 @@ Lien de validation acheteur:
 ${buyerValidationUrl}
 
 Justification:
-${request.reason || "Aucune justification indiquee"}
+${request.reason || "Aucune justification indiquée"}
 
-Prochaine etape:
+Prochaine étape:
 L'acheteur doit confirmer le prix avec le lien de validation.
   `.trim()
 }
@@ -514,19 +514,19 @@ export const buildNewPurchaseRequestEmailHtml = (
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
       <h2>Nouvelle demande d'achat #${escapeHtml(request.id)}</h2>
 
-      <p>Une nouvelle demande d'achat a ete creee.</p>
+      <p>Une nouvelle demande d'achat a été créée.</p>
 
       <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
 
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
 
-      <p><strong>Quantite:</strong><br />${escapeHtml(request.quantity)}</p>
+      <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
 
-      <p><strong>Prix unitaire estime:</strong><br />${formatMoney(
+      <p><strong>Prix unitaire estimé:</strong><br />${formatMoney(
         request.requested_unit_price
       )}</p>
 
-      <p><strong>Prix total estime:</strong><br />${formatMoney(
+      <p><strong>Prix total estimé:</strong><br />${formatMoney(
         request.requested_total_price
       )}</p>
 
@@ -537,7 +537,7 @@ export const buildNewPurchaseRequestEmailHtml = (
             ? `<a href="${escapeHtml(
                 productLinkUrl
               )}" target="_blank" rel="noopener noreferrer">Voir le produit</a>`
-            : "Aucun lien indique"
+            : "Aucun lien indiqué"
         }
       </p>
 
@@ -569,12 +569,12 @@ export const buildNewPurchaseRequestEmailHtml = (
       </p>
 
       <p><strong>Justification:</strong><br />${
-        request.reason ? escapeHtml(request.reason) : "Aucune justification indiquee"
+        request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
       }</p>
 
       <hr />
 
-      <p><strong>Prochaine etape:</strong><br />
+      <p><strong>Prochaine étape:</strong><br />
       L'acheteur doit confirmer le prix avec le lien de validation.</p>
     </div>
   `.trim()
@@ -589,10 +589,10 @@ export const buildAdminApprovalEmail = (
     ? `
 
 Attention:
-Le prix total confirme est plus eleve que le prix total estime de la demande.
-Prix estime: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}
-Prix confirme: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
-Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+Le prix total confirmé est plus élevé que le prix total estimé de la demande.
+Prix estimé: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}
+Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
+Écart: ${formatMoney(priceIncreaseInfo.difference)}
 `
     : ""
 
@@ -617,7 +617,7 @@ Prix total confirmé:
 ${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
 
 Fournisseur potentiel:
-${request.buyer_confirmed_supplier || "Non indique"}
+${request.buyer_confirmed_supplier || "Non indiqué"}
 
 Note de l'acheteur:
 ${request.buyer_note || "Aucune note"}
@@ -648,18 +648,18 @@ export const buildAdminApprovalEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Demande d'achat #${escapeHtml(request.id)} prete pour approbation</h2>
+      <h2>Demande d'achat #${escapeHtml(request.id)} prête pour approbation</h2>
 
-      <p>Une demande d'achat est prete pour approbation administrative.</p>
+      <p>Une demande d'achat est prête pour approbation administrative.</p>
 
       ${
         priceIncreaseInfo
           ? `
             <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
-              <strong>Attention: prix plus eleve que la demande initiale.</strong><br />
-              Prix estime: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}<br />
-              Prix confirme: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}<br />
-              Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+              <strong>Attention: prix plus élevé que la demande initiale.</strong><br />
+              Prix estimé: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}<br />
+              Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}<br />
+              Écart: ${formatMoney(priceIncreaseInfo.difference)}
             </div>
           `
           : ""
@@ -667,17 +667,17 @@ export const buildAdminApprovalEmailHtml = (
 
       <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
-      <p><strong>Quantite:</strong><br />${escapeHtml(request.quantity)}</p>
-      <p><strong>Prix unitaire confirme:</strong><br />${formatMoney(
+      <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
+      <p><strong>Prix unitaire confirmé:</strong><br />${formatMoney(
         request.buyer_confirmed_unit_price
       )}</p>
-      <p><strong>Prix total confirme:</strong><br />
+      <p><strong>Prix total confirmé:</strong><br />
         <span style="${confirmedTotalPriceStyle}">${formatMoney(
           request.buyer_confirmed_total_price
         )}</span>
       </p>
       <p><strong>Fournisseur potentiel:</strong><br />${escapeHtml(
-        request.buyer_confirmed_supplier || "Non indique"
+        request.buyer_confirmed_supplier || "Non indiqué"
       )}</p>
       <p><strong>Note de l'acheteur:</strong><br />${escapeHtml(
         request.buyer_note || "Aucune note"
@@ -713,16 +713,16 @@ export const buildAdminApprovalEmailHtml = (
 const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
   const labels: Record<string, string> = {
     pending_buyer_validation: "En attente de validation par l'acheteur",
-    needs_requester_info: "Information demandee au demandeur",
+    needs_requester_info: "Information demandée au demandeur",
     pending_admin_approval: "En attente d'approbation administrative",
-    approved: "Approuvee",
-    rejected: "Refusee",
-    ready_to_purchase: "Prete a acheter",
-    purchased: "Achetee",
-    cancelled: "Annulee",
+    approved: "Approuvée",
+    rejected: "Refusée",
+    ready_to_purchase: "Prête à acheter",
+    purchased: "Achetée",
+    cancelled: "Annulée",
   }
 
-  return status ? labels[status] || status : "Non indique"
+  return status ? labels[status] || status : "Non indiqué"
 }
 
 const getPriceIncreaseInfo = (request: any) => {
@@ -753,32 +753,32 @@ export const buildBuyerPriceConfirmedEmail = (
     ? `
 
 Attention:
-Le prix total confirme est plus eleve que le prix total estime de la demande.
-Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+Le prix total confirmé est plus élevé que le prix total estimé de la demande.
+Écart: ${formatMoney(priceIncreaseInfo.difference)}
 `
     : ""
 
   return `
-Le prix de la demande d'achat #${request.id} a ete confirme par l'acheteur.
+Le prix de la demande d'achat #${request.id} a été confirmé par l'acheteur.
 
-Resume de la demande:
+Résumé de la demande:
 
 Description:
-${request.description || "Non indiquee"}
+${request.description || "Non indiquée"}
 
 Raison:
-${request.reason || "Aucune justification indiquee"}
+${request.reason || "Aucune justification indiquée"}
 
-Quantite:
-${request.quantity || "Non indiquee"}
+Quantité:
+${request.quantity || "Non indiquée"}
 
-Prix total estime dans la demande:
+Prix total estimé dans la demande:
 ${formatMoney(request.requested_total_price)}
 
-Prix unitaire confirme:
+Prix unitaire confirmé:
 ${formatMoney(request.buyer_confirmed_unit_price)}
 
-Prix total confirme:
+Prix total confirmé:
 ${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
 
 Statut:
@@ -813,42 +813,42 @@ export const buildBuyerPriceConfirmedEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Prix confirme - demande d'achat #${escapeHtml(request.id)}</h2>
+      <h2>Prix confirmé - demande d'achat #${escapeHtml(request.id)}</h2>
 
-      <p>Le prix de la demande d'achat a ete confirme par l'acheteur.</p>
+      <p>Le prix de la demande d'achat a été confirmé par l'acheteur.</p>
 
       ${
         priceIncreaseInfo
           ? `
             <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
-              <strong>Attention: prix plus eleve que la demande initiale.</strong><br />
-              Ecart: ${formatMoney(priceIncreaseInfo.difference)}
+              <strong>Attention: prix plus élevé que la demande initiale.</strong><br />
+              Écart: ${formatMoney(priceIncreaseInfo.difference)}
             </div>
           `
           : ""
       }
 
       <p><strong>Description:</strong><br />${escapeHtml(
-        request.description || "Non indiquee"
+        request.description || "Non indiquée"
       )}</p>
 
       <p><strong>Raison:</strong><br />${escapeHtml(
-        request.reason || "Aucune justification indiquee"
+        request.reason || "Aucune justification indiquée"
       )}</p>
 
-      <p><strong>Quantite:</strong><br />${escapeHtml(
-        request.quantity || "Non indiquee"
+      <p><strong>Quantité:</strong><br />${escapeHtml(
+        request.quantity || "Non indiquée"
       )}</p>
 
-      <p><strong>Prix total estime dans la demande:</strong><br />${formatMoney(
+      <p><strong>Prix total estimé dans la demande:</strong><br />${formatMoney(
         request.requested_total_price
       )}</p>
 
-      <p><strong>Prix unitaire confirme:</strong><br />${formatMoney(
+      <p><strong>Prix unitaire confirmé:</strong><br />${formatMoney(
         request.buyer_confirmed_unit_price
       )}</p>
 
-      <p><strong>Prix total confirme:</strong><br />
+      <p><strong>Prix total confirmé:</strong><br />
         <span style="${confirmedTotalPriceStyle}">${formatMoney(
           request.buyer_confirmed_total_price
         )}</span>
@@ -899,8 +899,8 @@ export const buildBuyerDecisionEmail = (request: any) => {
   const approved = request.status === "ready_to_purchase"
 
   return `
-La demande d'achat #${request.id} a ete ${
-    approved ? "approuvee" : "refusee"
+La demande d'achat #${request.id} a été ${
+    approved ? "approuvée" : "refusée"
   } par l'administration.
 
 Demandeur:
@@ -909,17 +909,17 @@ ${request.requested_by}
 Description:
 ${request.description}
 
-Quantite:
+Quantité:
 ${request.quantity}
 
 Date requise:
 ${formatDateFr(request.expected_date)}
 
-Prix total confirme:
+Prix total confirmé:
 ${formatMoney(request.buyer_confirmed_total_price)}
 
-Decision:
-${approved ? "Approuvee pour achat" : "Refusee"}
+Décision:
+${approved ? "Approuvée pour achat" : "Refusée"}
 
 Note de l'administration:
 ${request.admin_note || "Aucune note"}
@@ -929,8 +929,8 @@ ${request.rejection_reason || "Non applicable"}
 
 ${
   approved
-    ? "Prochaine etape:\nL'acheteur peut proceder a l'achat."
-    : "Aucune action d'achat ne doit etre effectuee."
+    ? "Prochaine étape:\nL'acheteur peut procéder à l'achat."
+    : "Aucune action d'achat ne doit être effectuée."
 }
   `.trim()
 }

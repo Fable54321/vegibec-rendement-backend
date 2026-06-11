@@ -560,7 +560,7 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
 
   await sendPurchaseRequestEmailSafely(
     adminRecipients,
-    `Demande d'achat #${updatedRequest.id} prete pour approbation`,
+    `Demande d'achat #${updatedRequest.id} prête pour approbation`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
   )
@@ -644,7 +644,6 @@ router.patch(
       `
       UPDATE portal.purchase_requests
       SET
-        admin_user_id = $1,
         admin_decision_at = now(),
         admin_note = $2,
         status = $3,
@@ -653,7 +652,6 @@ router.patch(
       RETURNING *
       `,
       [
-        admin_user_id || null,
         admin_note || null,
         newStatus,
         approved ? null : rejection_reason || null,

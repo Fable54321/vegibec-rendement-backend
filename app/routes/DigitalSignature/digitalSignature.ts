@@ -533,7 +533,7 @@ router.post("/foreign-worker-contract/session/sign-all/by-pin", async (req, res)
 
     if (unsignedContractIds.length === 0) {
       return res.status(400).json({
-        error: "Aucun contrat Ã  signer",
+        error: "Aucun contrat à signer",
       });
     }
 

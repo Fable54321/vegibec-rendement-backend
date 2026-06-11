@@ -44,7 +44,7 @@ router.get("/", requireAppRole("main", ["admin", "user", "guest"]), async (_req,
 router.get("/list", requireAppRole("main", ["admin"]), async (_req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, username, email, name, surname, role, created_at, updated_at
+      SELECT id, username, email, name, surname, role, created_at, updated_at, is_office
       FROM users
       ORDER BY id ASC;
     `);
