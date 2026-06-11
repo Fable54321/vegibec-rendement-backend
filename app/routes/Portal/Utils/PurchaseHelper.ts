@@ -1086,7 +1086,7 @@ export const buildBuyerDecisionEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Ricardo - ouvrir la demande à acheter
+          Ricardo - Rappel de la demande
         </a>
       </p>
 
