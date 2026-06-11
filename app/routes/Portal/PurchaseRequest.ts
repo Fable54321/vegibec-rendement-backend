@@ -26,6 +26,7 @@ import {
   validateBuyerValidationToken,
 } from "../../routes/Portal/Utils/PurchaseHelper"
 import { uploadBufferToS3 } from "../../services/s3.services"
+import { sendEmail } from "../Visitors/Utils/testSMTP"
 
 const router = express.Router()
 
@@ -78,6 +79,34 @@ const actionPurchaseRequestLimiter = rateLimit({
   message: {
     message: "Trop d'actions envoyées. Réessayez plus tard.",
   },
+})
+
+router.post("/send-email", actionPurchaseRequestLimiter, async (req, res) => {
+  try {
+    const { to, subject, message } = req.body ?? {}
+
+    const cleanTo = typeof to === "string" ? to.trim() : ""
+    const cleanSubject = typeof subject === "string" ? subject.trim() : ""
+    const cleanMessage = typeof message === "string" ? message.trim() : ""
+
+    if (!cleanTo || !cleanSubject || !cleanMessage) {
+      return res.status(400).json({
+        message: "to, subject and message are required",
+      })
+    }
+
+    await sendEmail({
+      to: cleanTo,
+      subject: cleanSubject,
+      text: cleanMessage,
+      fromLabel: "Vegibec - Demandes d'achat",
+    })
+
+    res.status(200).json({ message: "Email sent successfully" })
+  } catch (error) {
+    console.error("Error sending purchase request email:", error)
+    res.status(500).json({ message: "Error sending email" })
+  }
 })
 
 router.get("/form-token", formTokenLimiter, async (req, res) => {
