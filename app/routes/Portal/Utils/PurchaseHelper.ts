@@ -1091,8 +1091,8 @@ ${approved ? "Approuvée pour achat" : "Refusée"}
 Lien de la demande:
 ${finalRequestUrl}
 
-Note de Michelle:
-${request.admin_note || "Aucune note"}
+Note de Ricardo:
+${request.buyer_note || "Aucune note"}
 
 Raison du refus:
 ${request.rejection_reason || "Non applicable"}
@@ -1153,8 +1153,8 @@ export const buildBuyerDecisionEmailHtml = (
         </a>
       </p>
 
-      <p><strong>Note de Michelle:</strong><br />${escapeHtml(
-        request.admin_note || "Aucune note"
+      <p><strong>Note de Ricardo:</strong><br />${escapeHtml(
+        request.buyer_note || "Aucune note"
       )}</p>
       <p><strong>Raison du refus:</strong><br />${escapeHtml(
         request.rejection_reason || "Non applicable"
