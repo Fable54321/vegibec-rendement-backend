@@ -669,15 +669,15 @@ router.patch(
 
     const newStatus = approved ? "ready_to_purchase" : "rejected"
 
-    const result = await pool.query(
+    const result = await client.query(
       `
       UPDATE portal.purchase_requests
       SET
         admin_decision_at = now(),
-        admin_note = $2,
-        status = $3,
-        rejection_reason = $4
-      WHERE id = $5
+        admin_note = $1,
+        status = $2,
+        rejection_reason = $3
+      WHERE id = $4
       RETURNING *
       `,
       [
