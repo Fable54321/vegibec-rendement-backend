@@ -19,14 +19,17 @@ import {
   createPurchaseRequestPictureKey,
   getAdminApprovalTokenFromRequest,
   getBuyerValidationTokenFromRequest,
+  getPurchaseTokenFromRequest,
   getEmailRecipients,
   getUrgencyFromExpectedDate,
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
+  markPurchaseTokenUsed,
   sendPurchaseRequestEmailSafely,
   uploadPurchaseRequestPictures,
   validateAdminApprovalToken,
   validateBuyerValidationToken,
+  validatePurchaseToken,
 } from "../../routes/Portal/Utils/PurchaseHelper"
 import { uploadBufferToS3 } from "../../services/s3.services"
 import { sendEmail } from "../Visitors/Utils/testSMTP"
@@ -752,9 +755,15 @@ res.json(updatedRequest)
   }
 })
 
-router.patch("/:id/mark-purchased", actionPurchaseRequestLimiter, async (req, res) => {
+router.patch(
+  ["/:id/mark-purchased", "/:id/mark-purchased/:token"],
+  actionPurchaseRequestLimiter,
+  async (req, res) => {
+  const client = await pool.connect()
+
   try {
     const { id } = req.params
+    const purchaseRequestId = Number(id)
 
     const {
       purchased_by_user_id,
@@ -763,24 +772,50 @@ router.patch("/:id/mark-purchased", actionPurchaseRequestLimiter, async (req, re
       purchase_note,
     } = req.body
 
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({ message: "Purchase request not found" })
+    }
+
     if (!purchased_by_user_id) {
       return res.status(400).json({ message: "purchased_by_user_id is required" })
     }
 
-    const currentRequest = await pool.query(
+    const purchaseToken = getPurchaseTokenFromRequest(req)
+
+    await client.query("BEGIN")
+
+    const isPurchaseTokenValid = await validatePurchaseToken(
+      client,
+      purchaseRequestId,
+      purchaseToken
+    )
+
+    if (!isPurchaseTokenValid || !purchaseToken) {
+      await client.query("ROLLBACK")
+
+      return res.status(403).json({
+        message: "Invalid or expired purchase token",
+      })
+    }
+
+    const currentRequest = await client.query(
       `
       SELECT *
       FROM portal.purchase_requests
       WHERE id = $1
       `,
-      [id]
+      [purchaseRequestId]
     )
 
     if (currentRequest.rows.length === 0) {
+      await client.query("ROLLBACK")
+
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
     if (currentRequest.rows[0].status !== "ready_to_purchase") {
+      await client.query("ROLLBACK")
+
       return res.status(400).json({
         message: "This request is not ready to purchase",
       })
@@ -796,7 +831,7 @@ router.patch("/:id/mark-purchased", actionPurchaseRequestLimiter, async (req, re
     const finalTotalPrice =
       cleanFinalUnitPrice !== null ? cleanFinalUnitPrice * quantity : null
 
-    const result = await pool.query(
+    const result = await client.query(
       `
       UPDATE portal.purchase_requests
       SET
@@ -816,14 +851,22 @@ router.patch("/:id/mark-purchased", actionPurchaseRequestLimiter, async (req, re
         finalTotalPrice,
         purchase_reference || null,
         purchase_note || null,
-        id,
+        purchaseRequestId,
       ]
     )
 
+    await markPurchaseTokenUsed(client, purchaseRequestId, purchaseToken)
+
+    await client.query("COMMIT")
+
     res.json(result.rows[0])
   } catch (error) {
+    await client.query("ROLLBACK")
+
     console.error("Error marking purchase request as purchased:", error)
     res.status(500).json({ message: "Error marking purchase request as purchased" })
+  } finally {
+    client.release()
   }
 })
 
