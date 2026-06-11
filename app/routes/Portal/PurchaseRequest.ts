@@ -711,6 +711,25 @@ await sendPurchaseRequestEmailSafely(
   buildBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
 )
 
+const requesterEmail =
+  typeof updatedRequest.request_email === "string"
+    ? updatedRequest.request_email.trim()
+    : ""
+
+if (requesterEmail) {
+  const requesterMessage = approved
+    ? `Votre demande d'achat a été approuvée et est en cours pour le produit :\n${updatedRequest.description}`
+    : `Votre demande d'achat a été refusée pour le produit :\n${updatedRequest.description}\n\nRaison du refus :\n${
+        updatedRequest.rejection_reason || "Aucune raison indiquée"
+      }`
+
+  await sendPurchaseRequestEmailSafely(
+    requesterEmail,
+    `Votre demande d'achat #${updatedRequest.id}`,
+    requesterMessage
+  )
+}
+
 res.json(updatedRequest)
   } catch (error) {
     await client.query("ROLLBACK")
