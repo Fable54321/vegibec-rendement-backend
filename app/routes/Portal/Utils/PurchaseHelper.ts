@@ -8,7 +8,10 @@ import { sendEmail } from "../../Visitors/Utils/testSMTP"
 
 const BUYER_VALIDATION_TOKEN_EXPIRES_IN_DAYS = 14
 const ADMIN_APPROVAL_TOKEN_EXPIRES_IN_DAYS = 14
+const PURCHASE_TOKEN_EXPIRES_IN_DAYS = 14
 const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
+const PURCHASE_BUYER_NAME = "Ricardo"
+const PURCHASE_ADMIN_NAME = "Michelle"
 
 export type PictureEmailLink = {
   label: string
@@ -124,6 +127,24 @@ const ensureAdminApprovalTokenTable = async (client: PoolClient) => {
   `)
 }
 
+const ensurePurchaseTokenTable = async (client: PoolClient) => {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS portal.purchase_request_purchase_tokens (
+      id bigserial PRIMARY KEY,
+      purchase_request_id bigint NOT NULL REFERENCES portal.purchase_requests(id) ON DELETE CASCADE,
+      token text NOT NULL UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz
+    )
+  `)
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS purchase_request_purchase_tokens_request_id_idx
+    ON portal.purchase_request_purchase_tokens (purchase_request_id)
+  `)
+}
+
 export const createBuyerValidationToken = async (
   client: PoolClient,
   purchaseRequestId: number
@@ -174,6 +195,33 @@ export const createAdminApprovalToken = async (
     )
     `,
     [purchaseRequestId, token, ADMIN_APPROVAL_TOKEN_EXPIRES_IN_DAYS]
+  )
+
+  return token
+}
+
+export const createPurchaseToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensurePurchaseTokenTable(client)
+
+  const token = crypto.randomBytes(32).toString("hex")
+
+  await client.query(
+    `
+    INSERT INTO portal.purchase_request_purchase_tokens (
+      purchase_request_id,
+      token,
+      expires_at
+    )
+    VALUES (
+      $1,
+      $2,
+      now() + ($3 || ' days')::interval
+    )
+    `,
+    [purchaseRequestId, token, PURCHASE_TOKEN_EXPIRES_IN_DAYS]
   )
 
   return token
@@ -332,7 +380,8 @@ export const buildAdminApprovalUrl = (
 
 export const buildFinalPurchaseRequestUrl = (
   req: Request,
-  purchaseRequestId: number
+  purchaseRequestId: number,
+  token?: string | null
 ) => {
   const configuredBaseUrl = "http://localhost:5173"
   const baseUrl =
@@ -341,7 +390,13 @@ export const buildFinalPurchaseRequestUrl = (
       ? "https://achats.vegibec-portail.com"
       : `${req.protocol}://${req.get("host") || "localhost:3000"}`)
 
-  return `${baseUrl.replace(/\/$/, "")}/requete/${purchaseRequestId}`
+  const normalizedBaseUrl = baseUrl.replace(/\/$/, "")
+
+  if (token) {
+    return `${normalizedBaseUrl}/requete/${purchaseRequestId}/acheter/${token}`
+  }
+
+  return `${normalizedBaseUrl}/requete/${purchaseRequestId}`
 }
 
 const formatDateFr = (value: string | Date | null | undefined) => {
@@ -514,14 +569,14 @@ ${request.urgency || "Normal"}
 Photos:
 ${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
 
-Lien de validation acheteur:
+Lien de validation pour Ricardo:
 ${buyerValidationUrl}
 
 Justification:
 ${request.reason || "Aucune justification indiquée"}
 
 Prochaine étape:
-L'acheteur doit confirmer le prix avec le lien de validation.
+Ricardo doit confirmer le prix avec le lien de validation.
   `.trim()
 }
 
@@ -583,7 +638,7 @@ export const buildNewPurchaseRequestEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Confirmer le prix
+          Ricardo - confirmer le prix
         </a>
       </p>
 
@@ -601,7 +656,7 @@ export const buildNewPurchaseRequestEmailHtml = (
       <hr />
 
       <p><strong>Prochaine étape:</strong><br />
-      L'acheteur doit confirmer le prix avec le lien de validation.</p>
+      Ricardo doit confirmer le prix avec le lien de validation.</p>
     </div>
   `.trim()
 }
@@ -623,7 +678,7 @@ Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
     : ""
 
   return `
-Une demande d'achat est prête pour approbation administrative.
+Une demande d'achat est prête pour la décision de Michelle.
 
 Numéro de demande: #${request.id}
 
@@ -648,7 +703,7 @@ ${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
 Fournisseur potentiel:
 ${request.buyer_confirmed_supplier || "Non indiqué"}
 
-Note de l'acheteur:
+Note de Ricardo:
 ${request.buyer_note || "Aucune note"}
 
 Date requise:
@@ -657,11 +712,11 @@ ${formatDateFr(request.expected_date)}
 Urgence:
 ${request.urgency || "Normal"}
 
-Lien d'approbation:
+Lien de décision pour Michelle:
 ${adminApprovalUrl}
 
 Prochaine étape:
-Approbation ou refus par l'administration.
+Michelle doit approuver ou refuser la demande.
   `.trim()
 }
 
@@ -677,9 +732,9 @@ export const buildAdminApprovalEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Demande d'achat #${escapeHtml(request.id)} prête pour approbation</h2>
+      <h2>Demande d'achat #${escapeHtml(request.id)} prête pour Michelle</h2>
 
-      <p>Une demande d'achat est prête pour approbation administrative.</p>
+      <p>Michelle doit approuver ou refuser cette demande.</p>
 
       ${
         priceIncreaseInfo
@@ -711,7 +766,7 @@ export const buildAdminApprovalEmailHtml = (
       <p><strong>Fournisseur potentiel:</strong><br />${escapeHtml(
         request.buyer_confirmed_supplier || "Non indiqué"
       )}</p>
-      <p><strong>Note de l'acheteur:</strong><br />${escapeHtml(
+      <p><strong>Note de Ricardo:</strong><br />${escapeHtml(
         request.buyer_note || "Aucune note"
       )}</p>
       <p><strong>Date requise:</strong><br />${formatDateFr(
@@ -728,7 +783,7 @@ export const buildAdminApprovalEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Ouvrir le formulaire d'approbation
+          Michelle - ouvrir la décision
         </a>
       </p>
 
@@ -744,9 +799,9 @@ export const buildAdminApprovalEmailHtml = (
 
 const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
   const labels: Record<string, string> = {
-    pending_buyer_validation: "En attente de validation par l'acheteur",
+    pending_buyer_validation: "En attente de validation par Ricardo",
     needs_requester_info: "Information demandée au demandeur",
-    pending_admin_approval: "En attente d'approbation administrative",
+    pending_admin_approval: "En attente de décision par Michelle",
     approved: "Approuvée",
     rejected: "Refusée",
     ready_to_purchase: "Prête à acheter",
@@ -791,7 +846,10 @@ Le prix total confirmé est plus élevé que le prix total estimé de la demande
     : ""
 
   return `
-Le prix de la demande d'achat #${request.id} a été confirmé par l'acheteur.
+Ricardo a confirmé le prix de la demande d'achat #${request.id}.
+
+Prochaine décision:
+Michelle doit approuver ou refuser la demande.
 
 Résumé de la demande:
 
@@ -822,7 +880,7 @@ ${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
 Statut:
 ${getPurchaseRequestStatusLabel(request.status)}
 
-Date de validation par l'acheteur:
+Date de validation par Ricardo:
 ${formatDateTimeFr(request.buyer_validated_at)}
 
 Date de la demande:
@@ -834,7 +892,7 @@ ${request.urgency || "Normal"}
 Date requise:
 ${formatDateFr(request.expected_at || request.expected_date)}
 
-Lien d'approbation administrative:
+Lien de décision pour Michelle:
 ${adminApprovalUrl}
   `.trim()
 }
@@ -851,9 +909,11 @@ export const buildBuyerPriceConfirmedEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Prix confirmé - demande d'achat #${escapeHtml(request.id)}</h2>
+      <h2>Ricardo a confirmé le prix - demande d'achat #${escapeHtml(
+        request.id
+      )}</h2>
 
-      <p>Le prix de la demande d'achat a été confirmé par l'acheteur.</p>
+      <p>Michelle doit maintenant approuver ou refuser la demande.</p>
 
       ${
         priceIncreaseInfo
@@ -904,7 +964,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
         getPurchaseRequestStatusLabel(request.status)
       )}</p>
 
-      <p><strong>Date de validation par l'acheteur:</strong><br />${formatDateTimeFr(
+      <p><strong>Date de validation par Ricardo:</strong><br />${formatDateTimeFr(
         request.buyer_validated_at
       )}</p>
 
@@ -927,7 +987,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Ouvrir le formulaire d'approbation
+          Michelle - ouvrir la décision
         </a>
       </p>
 
@@ -944,8 +1004,8 @@ export const buildBuyerPriceConfirmedEmailHtml = (
 export const buildBuyerDecisionEmail = (request: any, finalRequestUrl: string) => {
   const approved = request.status === "ready_to_purchase"
   const firstLine = approved
-    ? `${request.requested_by} demande d'achat #${request.id} approuvée et prête à être achetée`
-    : `${request.requested_by} demande d'achat #${request.id} refusée`
+    ? `${PURCHASE_BUYER_NAME} demande d'achat #${request.id} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
+    : `Demande d'achat #${request.id} refusée par ${PURCHASE_ADMIN_NAME}`
 
   return `
 ${firstLine}
@@ -974,7 +1034,7 @@ ${approved ? "Approuvée pour achat" : "Refusée"}
 Lien de la demande:
 ${finalRequestUrl}
 
-Note de l'administration:
+Note de Michelle:
 ${request.admin_note || "Aucune note"}
 
 Raison du refus:
@@ -982,8 +1042,8 @@ ${request.rejection_reason || "Non applicable"}
 
 ${
   approved
-    ? "Prochaine étape:\nL'acheteur peut procéder à l'achat."
-    : "Aucune action d'achat ne doit être effectuée."
+    ? "Prochaine étape:\nRicardo doit procéder à l'achat."
+    : "Prochaine étape:\nRicardo ne doit pas procéder à l'achat."
 }
   `.trim()
 }
@@ -994,8 +1054,8 @@ export const buildBuyerDecisionEmailHtml = (
 ) => {
   const approved = request.status === "ready_to_purchase"
   const firstLine = approved
-    ? `${request.requested_by} demande d'achat #${request.id} approuvée et prête à être achetée`
-    : `${request.requested_by} demande d'achat #${request.id} refusée`
+    ? `${PURCHASE_BUYER_NAME} demande d'achat #${request.id} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
+    : `Demande d'achat #${request.id} refusée par ${PURCHASE_ADMIN_NAME}`
   const safeFinalRequestUrl = escapeHtml(finalRequestUrl)
 
   return `
@@ -1025,7 +1085,7 @@ export const buildBuyerDecisionEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Ouvrir la demande
+          Ricardo - ouvrir la demande à acheter
         </a>
       </p>
 
@@ -1036,7 +1096,7 @@ export const buildBuyerDecisionEmailHtml = (
         </a>
       </p>
 
-      <p><strong>Note de l'administration:</strong><br />${escapeHtml(
+      <p><strong>Note de Michelle:</strong><br />${escapeHtml(
         request.admin_note || "Aucune note"
       )}</p>
       <p><strong>Raison du refus:</strong><br />${escapeHtml(

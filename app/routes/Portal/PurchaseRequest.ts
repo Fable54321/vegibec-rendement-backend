@@ -15,6 +15,7 @@ import {
   buildPictureEmailLinks,
   createAdminApprovalToken,
   createBuyerValidationToken,
+  createPurchaseToken,
   createPurchaseRequestPictureKey,
   getAdminApprovalTokenFromRequest,
   getBuyerValidationTokenFromRequest,
@@ -427,7 +428,7 @@ const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
 
 await sendPurchaseRequestEmailSafely(
   buyerRecipients,
-  `Nouvelle demande d'achat #${createdRequest.id}`,
+  `Ricardo - nouvelle demande d'achat #${createdRequest.id} à valider`,
   buildNewPurchaseRequestEmail(createdRequest, pictureLinks, buyerValidationUrl),
   buildNewPurchaseRequestEmailHtml(createdRequest, pictureLinks, buyerValidationUrl)
 )
@@ -589,7 +590,7 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
 
   await sendPurchaseRequestEmailSafely(
     adminRecipients,
-    `Demande d'achat #${updatedRequest.id} prête pour approbation`,
+    `Michelle - décision requise pour la demande d'achat #${updatedRequest.id}`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
   )
@@ -689,6 +690,10 @@ router.patch(
     )
 
     const updatedRequest = result.rows[0]
+    const purchaseToken =
+      updatedRequest.status === "ready_to_purchase"
+        ? await createPurchaseToken(client, updatedRequest.id)
+        : null
 
     await markAdminApprovalTokenUsed(
       client,
@@ -702,11 +707,17 @@ const buyerRecipients = getEmailRecipients(
   "PURCHASE_BUYER_EMAIL",
   "PURCHASE_EMAIL_COPY"
 )
-const finalRequestUrl = buildFinalPurchaseRequestUrl(req, updatedRequest.id)
+const finalRequestUrl = buildFinalPurchaseRequestUrl(
+  req,
+  updatedRequest.id,
+  purchaseToken
+)
 
 await sendPurchaseRequestEmailSafely(
   buyerRecipients,
-  `Décision pour la demande d'achat #${updatedRequest.id}`,
+  approved
+    ? `Ricardo - demande d'achat #${updatedRequest.id} approuvée, achat à faire`
+    : `Ricardo - demande d'achat #${updatedRequest.id} refusée`,
   buildBuyerDecisionEmail(updatedRequest, finalRequestUrl),
   buildBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
 )
@@ -718,8 +729,8 @@ const requesterEmail =
 
 if (requesterEmail) {
   const requesterMessage = approved
-    ? `Votre demande d'achat a été approuvée et est en cours pour le produit :\n${updatedRequest.description}`
-    : `Votre demande d'achat a été refusée pour le produit :\n${updatedRequest.description}\n\nRaison du refus :\n${
+    ? `Votre demande d'achat a été approuvée par Michelle et est maintenant entre les mains de Ricardo pour l'achat du produit :\n${updatedRequest.description}`
+    : `Votre demande d'achat a été refusée par Michelle pour le produit :\n${updatedRequest.description}\n\nRaison du refus :\n${
         updatedRequest.rejection_reason || "Aucune raison indiquée"
       }`
 
