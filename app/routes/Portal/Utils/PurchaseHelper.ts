@@ -548,6 +548,8 @@ ${formatRequesterEmail(request)}
 Description:
 ${request.description}
 
+Justification: ${request.reason || "Aucune justification indiquée"}
+
 Quantité:
 ${request.quantity}
 
@@ -571,9 +573,6 @@ ${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
 
 Lien de validation pour Ricardo:
 ${buyerValidationUrl}
-
-Justification:
-${request.reason || "Aucune justification indiquée"}
 
 Prochaine étape:
 Ricardo doit confirmer le prix avec le lien de validation.
@@ -600,6 +599,10 @@ export const buildNewPurchaseRequestEmailHtml = (
       )}</p>
 
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
+
+       <p><strong>Justification:</strong><br />${
+        request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
+      }</p>
 
       <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
 
@@ -649,9 +652,7 @@ export const buildNewPurchaseRequestEmailHtml = (
         </a>
       </p>
 
-      <p><strong>Justification:</strong><br />${
-        request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
-      }</p>
+     
 
       <hr />
 
