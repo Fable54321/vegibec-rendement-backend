@@ -32,6 +32,21 @@ const getPictureExtension = (file: Express.Multer.File) => {
   return ".jpg"
 }
 
+const getPurchaseDocumentExtension = (file: Express.Multer.File) => {
+  const extension = path.extname(file.originalname).toLowerCase()
+
+  if (extension && extension.length <= 10) {
+    return extension
+  }
+
+  if (file.mimetype === "application/pdf") return ".pdf"
+  if (file.mimetype === "image/png") return ".png"
+  if (file.mimetype === "image/webp") return ".webp"
+  if (file.mimetype === "image/jpeg") return ".jpg"
+
+  return ".bin"
+}
+
 export const createPurchaseRequestPictureKey = (
   purchaseRequestId: number,
   file: Express.Multer.File,
@@ -45,6 +60,19 @@ export const createPurchaseRequestPictureKey = (
   }-${randomId}${extension}`
 }
 
+export const createPurchaseRequestDocumentKey = (
+  purchaseRequestId: number,
+  file: Express.Multer.File,
+  index: number
+) => {
+  const randomId = crypto.randomBytes(16).toString("hex")
+  const extension = getPurchaseDocumentExtension(file)
+
+  return `purchase-requests/${purchaseRequestId}/purchase-documents/${
+    index + 1
+  }-${randomId}${extension}`
+}
+
 export const uploadPurchaseRequestPictures = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -54,6 +82,25 @@ export const uploadPurchaseRequestPictures = multer({
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
       cb(new Error("Only image files are allowed"))
+      return
+    }
+
+    cb(null, true)
+  },
+})
+
+export const uploadPurchaseRequestDocuments = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 5,
+    fileSize: 7 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    const isAcceptedImage = file.mimetype.startsWith("image/")
+    const isAcceptedPdf = file.mimetype === "application/pdf"
+
+    if (!isAcceptedImage && !isAcceptedPdf) {
+      cb(new Error("Only image and PDF files are allowed"))
       return
     }
 

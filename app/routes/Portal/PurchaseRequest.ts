@@ -16,6 +16,7 @@ import {
   createAdminApprovalToken,
   createBuyerValidationToken,
   createPurchaseToken,
+  createPurchaseRequestDocumentKey,
   createPurchaseRequestPictureKey,
   getAdminApprovalTokenFromRequest,
   getBuyerValidationTokenFromRequest,
@@ -26,6 +27,7 @@ import {
   markBuyerValidationTokenUsed,
   markPurchaseTokenUsed,
   sendPurchaseRequestEmailSafely,
+  uploadPurchaseRequestDocuments,
   uploadPurchaseRequestPictures,
   validateAdminApprovalToken,
   validateBuyerValidationToken,
@@ -758,6 +760,7 @@ res.json(updatedRequest)
 router.patch(
   ["/:id/mark-purchased", "/:id/mark-purchased/:token"],
   actionPurchaseRequestLimiter,
+  uploadPurchaseRequestDocuments.array("purchase_documents", 5),
   async (req, res) => {
   const client = await pool.connect()
 
@@ -767,9 +770,11 @@ router.patch(
 
     const {
       final_unit_price,
+      final_supplier,
       purchase_reference,
       purchase_note,
-    } = req.body
+    } = req.body ?? {}
+    const purchaseDocuments = (req.files as Express.Multer.File[]) ?? []
 
     if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
       return res.status(404).json({ message: "Purchase request not found" })
@@ -826,6 +831,22 @@ router.patch(
     const finalTotalPrice =
       cleanFinalUnitPrice !== null ? cleanFinalUnitPrice * quantity : null
 
+    const purchaseDocumentKeys = await Promise.all(
+      purchaseDocuments.map((document, index) => {
+        const key = createPurchaseRequestDocumentKey(
+          purchaseRequestId,
+          document,
+          index
+        )
+
+        return uploadBufferToS3({
+          key,
+          buffer: document.buffer,
+          contentType: document.mimetype,
+        })
+      })
+    )
+
     const result = await client.query(
       `
       UPDATE portal.purchase_requests
@@ -835,8 +856,10 @@ router.patch(
         purchased_at = now(),
         purchase_reference = $3,
         purchase_note = $4,
+        final_supplier = $5,
+        purchase_document_keys = $6,
         status = 'purchased'
-      WHERE id = $5
+      WHERE id = $7
       RETURNING *
       `,
       [
@@ -844,6 +867,8 @@ router.patch(
         finalTotalPrice,
         purchase_reference || null,
         purchase_note || null,
+        final_supplier || null,
+        purchaseDocumentKeys,
         purchaseRequestId,
       ]
     )
