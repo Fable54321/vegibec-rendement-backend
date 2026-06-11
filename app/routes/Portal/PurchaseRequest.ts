@@ -6,8 +6,10 @@ import {
   buildAdminApprovalEmail,
   buildAdminApprovalEmailHtml,
   buildBuyerDecisionEmail,
+  buildBuyerDecisionEmailHtml,
   buildAdminApprovalUrl,
   buildBuyerValidationUrl,
+  buildFinalPurchaseRequestUrl,
   buildNewPurchaseRequestEmail,
   buildNewPurchaseRequestEmailHtml,
   buildPictureEmailLinks,
@@ -700,11 +702,13 @@ const buyerRecipients = getEmailRecipients(
   "PURCHASE_BUYER_EMAIL",
   "PURCHASE_EMAIL_COPY"
 )
+const finalRequestUrl = buildFinalPurchaseRequestUrl(req, updatedRequest.id)
 
 await sendPurchaseRequestEmailSafely(
   buyerRecipients,
   `Décision pour la demande d'achat #${updatedRequest.id}`,
-  buildBuyerDecisionEmail(updatedRequest)
+  buildBuyerDecisionEmail(updatedRequest, finalRequestUrl),
+  buildBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
 )
 
 res.json(updatedRequest)

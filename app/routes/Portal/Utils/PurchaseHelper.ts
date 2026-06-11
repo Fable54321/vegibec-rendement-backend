@@ -330,6 +330,20 @@ export const buildAdminApprovalUrl = (
   )}/requete/${purchaseRequestId}/approbation-achat/${token}`
 }
 
+export const buildFinalPurchaseRequestUrl = (
+  req: Request,
+  purchaseRequestId: number
+) => {
+  const configuredBaseUrl = "http://localhost:5173"
+  const baseUrl =
+    configuredBaseUrl ||
+    (process.env.NODE_ENV === "production"
+      ? "https://achats.vegibec-portail.com"
+      : `${req.protocol}://${req.get("host") || "localhost:3000"}`)
+
+  return `${baseUrl.replace(/\/$/, "")}/requete/${purchaseRequestId}`
+}
+
 const formatDateFr = (value: string | Date | null | undefined) => {
   if (!value) return "Non indiquée"
 
@@ -927,13 +941,14 @@ export const buildBuyerPriceConfirmedEmailHtml = (
   `.trim()
 }
 
-export const buildBuyerDecisionEmail = (request: any) => {
+export const buildBuyerDecisionEmail = (request: any, finalRequestUrl: string) => {
   const approved = request.status === "ready_to_purchase"
+  const firstLine = approved
+    ? `${request.requested_by} demande d'achat #${request.id} approuvée et prête à être achetée`
+    : `${request.requested_by} demande d'achat #${request.id} refusée`
 
   return `
-La demande d'achat #${request.id} a été ${
-    approved ? "approuvée" : "refusée"
-  } par l'administration.
+${firstLine}
 
 Demandeur:
 ${request.requested_by}
@@ -956,6 +971,9 @@ ${formatMoney(request.buyer_confirmed_total_price)}
 Décision:
 ${approved ? "Approuvée pour achat" : "Refusée"}
 
+Lien de la demande:
+${finalRequestUrl}
+
 Note de l'administration:
 ${request.admin_note || "Aucune note"}
 
@@ -967,6 +985,64 @@ ${
     ? "Prochaine étape:\nL'acheteur peut procéder à l'achat."
     : "Aucune action d'achat ne doit être effectuée."
 }
+  `.trim()
+}
+
+export const buildBuyerDecisionEmailHtml = (
+  request: any,
+  finalRequestUrl: string
+) => {
+  const approved = request.status === "ready_to_purchase"
+  const firstLine = approved
+    ? `${request.requested_by} demande d'achat #${request.id} approuvée et prête à être achetée`
+    : `${request.requested_by} demande d'achat #${request.id} refusée`
+  const safeFinalRequestUrl = escapeHtml(finalRequestUrl)
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h1 style="font-size:24px;line-height:1.2;margin:0 0 18px;">
+        ${escapeHtml(firstLine)}
+      </h1>
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
+        formatRequesterEmail(request)
+      )}</p>
+      <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
+      <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
+      <p><strong>Date requise:</strong><br />${formatDateFr(request.expected_date)}</p>
+      <p><strong>Prix total confirmé:</strong><br />${formatMoney(
+        request.buyer_confirmed_total_price
+      )}</p>
+      <p><strong>Décision:</strong><br />${
+        approved ? "Approuvée pour achat" : "Refusée"
+      }</p>
+
+      <p>
+        <a
+          href="${safeFinalRequestUrl}"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+        >
+          Ouvrir la demande
+        </a>
+      </p>
+
+      <p style="color:#475569;font-size:13px;">
+        Lien direct:<br />
+        <a href="${safeFinalRequestUrl}" target="_blank" rel="noopener noreferrer">
+          ${safeFinalRequestUrl}
+        </a>
+      </p>
+
+      <p><strong>Note de l'administration:</strong><br />${escapeHtml(
+        request.admin_note || "Aucune note"
+      )}</p>
+      <p><strong>Raison du refus:</strong><br />${escapeHtml(
+        request.rejection_reason || "Non applicable"
+      )}</p>
+    </div>
   `.trim()
 }
 
