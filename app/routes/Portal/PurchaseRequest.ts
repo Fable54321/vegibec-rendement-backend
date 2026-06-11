@@ -156,24 +156,14 @@ router.get("/:id", readPurchaseRequestsLimiter, async (req, res) => {
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
-    const result = await pool.query(
-      `
-      SELECT 
-        pr.*,
-        buyer.name AS buyer_name,
-        buyer.surname AS buyer_surname,
-        admin.name AS admin_name,
-        admin.surname AS admin_surname,
-        purchased_by.name AS purchased_by_name,
-        purchased_by.surname AS purchased_by_surname
-      FROM portal.purchase_requests pr
-      LEFT JOIN public.users buyer ON buyer.id = pr.buyer_user_id
-      LEFT JOIN public.users admin ON admin.id = pr.admin_user_id
-      LEFT JOIN public.users purchased_by ON purchased_by.id = pr.purchased_by_user_id
-      WHERE pr.id = $1
-      `,
-      [Number(id)]
-    )
+const result = await pool.query(
+  `
+  SELECT pr.*
+  FROM portal.purchase_requests pr
+  WHERE pr.id = $1
+  `,
+  [Number(id)]
+)
 
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "Purchase request not found" })
@@ -247,7 +237,13 @@ const {
   product_link,
   expected_date,
   companyWebsite,
+  email,
 } = body
+
+const cleanRequestEmail =
+  typeof email === "string" && email.trim() !== ""
+    ? email.trim()
+    : null
 
    
     if (companyWebsite) {
@@ -314,25 +310,26 @@ const {
 
 const result = await client.query(
   `
-INSERT INTO portal.purchase_requests (
-  requested_by,
-  description,
-  quantity,
-  reason,
-  urgency,
-  requested_unit_price,
-  requested_total_price,
-  requested_supplier,
-  product_link,
-  expected_date,
-  status
-)
-VALUES (
-  $1, $2, $3, $4, $5, $6,
-  $7, $8, $9, $10,
-  'pending_buyer_validation'
-)
-RETURNING *
+  INSERT INTO portal.purchase_requests (
+    requested_by,
+    description,
+    quantity,
+    reason,
+    urgency,
+    requested_unit_price,
+    requested_total_price,
+    requested_supplier,
+    product_link,
+    expected_date,
+    status,
+    request_email
+  )
+  VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    'pending_buyer_validation', $11
+  )
+  RETURNING *
   `,
   [
     requested_by.trim(),
@@ -345,6 +342,7 @@ RETURNING *
     requested_supplier || null,
     product_link || null,
     expected_date || null,
+    cleanRequestEmail,
   ]
 )
 
