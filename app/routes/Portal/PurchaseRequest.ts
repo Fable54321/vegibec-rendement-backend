@@ -426,7 +426,8 @@ await client.query("COMMIT")
 
 const buyerRecipients = getEmailRecipients(
   "PURCHASE_BUYER_EMAIL",
-  "PURCHASE_EMAIL_COPY"
+  "PURCHASE_EMAIL_COPY",
+  "programmation@vegibec.com"
 )
 
 const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
