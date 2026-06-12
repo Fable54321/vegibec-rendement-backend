@@ -638,7 +638,7 @@ export const buildNewPurchaseRequestEmail = (
     pictureLinks.length > 0 ? "\n\nLes liens des photos expirent dans 7 jours." : ""
 
   return `
-Une nouvelle demande d'achat a été créée.
+Une nouvelle demande d'achat a été soumise.
 
 Numéro de demande: #${request.id}
 
@@ -692,9 +692,9 @@ export const buildNewPurchaseRequestEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Nouvelle demande d'achat #${escapeHtml(request.id)}</h2>
+      <h2>Demande d'achat #${escapeHtml(request.id)}</h2>
 
-      <p>Une nouvelle demande d'achat a été créée.</p>
+      <p>Une nouvelle demande d'achat a été soumise.</p>
 
       <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
       <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
