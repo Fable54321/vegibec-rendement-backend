@@ -449,7 +449,7 @@ export const buildBuyerValidationUrl = (
   purchaseRequestId: number,
   token: string
 ) => {
-  const configuredBaseUrl = "http://localhost:5173"
+  const configuredBaseUrl = "https://achats.vegibec-portail.com"
 
   const baseUrl =
     configuredBaseUrl ||
@@ -468,7 +468,7 @@ export const buildAdminApprovalUrl = (
   purchaseRequestId: number,
   token: string
 ) => {
-  const configuredBaseUrl = "http://localhost:5173"
+  const configuredBaseUrl = "https://achats.vegibec-portail.com"
   const baseUrl =
     configuredBaseUrl ||
     (process.env.NODE_ENV === "production"
@@ -486,7 +486,7 @@ export const buildFinalPurchaseRequestUrl = (
   purchaseRequestId: number,
   token?: string | null
 ) => {
-  const configuredBaseUrl = "http://localhost:5173"
+  const configuredBaseUrl = "https://achats.vegibec-portail.com"
   const baseUrl =
     configuredBaseUrl ||
     (process.env.NODE_ENV === "production"
