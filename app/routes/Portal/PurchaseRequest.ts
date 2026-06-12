@@ -741,7 +741,7 @@ if (requesterEmail) {
 
   await sendPurchaseRequestEmailSafely(
     requesterEmail,
-    `Votre demande d'achat #${updatedRequest.id}`,
+    `Réponse à votre demande d'achat`,
     requesterMessage
   )
 }
