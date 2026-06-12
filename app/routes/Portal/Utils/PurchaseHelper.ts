@@ -129,7 +129,9 @@ export const getUrgencyFromExpectedDate = (expectedDate: string | null) => {
 
 export const getEmailRecipients = (...envNames: string[]) => {
   return envNames
-    .map((name) => process.env[name]?.trim())
+    .map((name) =>
+      name.includes("@") ? name.trim() : process.env[name]?.trim()
+    )
     .filter(Boolean)
     .join(",")
 }

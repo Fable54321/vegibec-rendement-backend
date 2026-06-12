@@ -37,6 +37,7 @@ import { uploadBufferToS3 } from "../../services/s3.services"
 import { sendEmail } from "../Visitors/Utils/testSMTP"
 
 const router = express.Router()
+const TEMP_PURCHASE_EMAIL_COPY = "programmation@vegibec.com"
 
 const VALID_STATUSES = [
   "pending_buyer_validation",
@@ -427,7 +428,7 @@ await client.query("COMMIT")
 const buyerRecipients = getEmailRecipients(
   "PURCHASE_BUYER_EMAIL",
   "PURCHASE_EMAIL_COPY",
-  "programmation@vegibec.com"
+  TEMP_PURCHASE_EMAIL_COPY
 )
 
 const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
@@ -585,7 +586,8 @@ router.patch(
 if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
   const adminRecipients = getEmailRecipients(
     "PURCHASE_BUYER_EMAIL",
-    "PURCHASE_EMAIL_COPY"
+    "PURCHASE_EMAIL_COPY",
+    TEMP_PURCHASE_EMAIL_COPY
   )
   const adminApprovalUrl = buildAdminApprovalUrl(
     req,
@@ -711,7 +713,8 @@ router.patch(
 
 const buyerRecipients = getEmailRecipients(
   "PURCHASE_BUYER_EMAIL",
-  "PURCHASE_EMAIL_COPY"
+  "PURCHASE_EMAIL_COPY",
+  TEMP_PURCHASE_EMAIL_COPY
 )
 const finalRequestUrl = buildFinalPurchaseRequestUrl(
   req,
