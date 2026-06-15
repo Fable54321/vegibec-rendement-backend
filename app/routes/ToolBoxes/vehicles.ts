@@ -96,6 +96,55 @@ router.get('/:vehicleId/pictures', async (req, res) => {
   }
 });
 
+router.get('/:vehicleId/pictures/:pictureId', async (req, res) => {
+  try {
+    const vehicleId = Number(req.params.vehicleId);
+    const pictureId = Number(req.params.pictureId);
+
+    if (!Number.isInteger(vehicleId) || vehicleId <= 0) {
+      return res.status(400).json({ error: 'Invalid vehicle id' });
+    }
+
+    if (!Number.isInteger(pictureId) || pictureId <= 0) {
+      return res.status(400).json({ error: 'Invalid picture id' }); 
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        s3_key,
+        description,
+        equipment_name,
+        toolbox_id,
+        vehicle_id,
+        created_at
+      FROM toolboxes_inventory.pictures
+      WHERE vehicle_id = $1 AND id = $2
+      `,
+      [vehicleId, pictureId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Picture not found' });
+    }
+
+    const picture = result.rows[0];
+
+    res.status(200).json({
+      ...picture,
+      signed_url: await getSignedUrlForKey(picture.s3_key, {
+        expiresIn: 60 * 5,
+      }),
+    });
+  } catch (error) {
+    console.error('Error fetching vehicle picture:', error);
+    res.status(500).json({
+      error: 'Failed to fetch vehicle picture',
+    });
+  }
+});
+
 // Get full vehicle inventory by vehicle id
 router.get('/:vehicleId/items', async (req, res) => {
   try {
