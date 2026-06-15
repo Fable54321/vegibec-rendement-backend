@@ -123,12 +123,14 @@ router.get('/:toolboxId/pictures/:pictureId', async (req, res) => {
         vehicle_id,
         created_at
       FROM toolboxes_inventory.pictures
-      WHERE toolbox_id = $1 AND id = $2
+      WHERE toolbox_id = $1
+        AND id = $2
+      LIMIT 1
       `,
       [toolboxId, pictureId]
     );
 
-    if (result.rows.length === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Picture not found' });
     }
 
@@ -138,17 +140,18 @@ router.get('/:toolboxId/pictures/:pictureId', async (req, res) => {
       expiresIn: 60 * 5,
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       ...picture,
       signed_url: signedUrl,
     });
   } catch (error) {
     console.error('Error fetching toolbox picture:', error);
-    res.status(500).json({
+
+    return res.status(500).json({
       error: 'Failed to fetch toolbox picture',
     });
   }
-})
+});
 
 
 // Get full toolbox inventory by toolbox id

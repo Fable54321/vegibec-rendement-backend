@@ -106,7 +106,7 @@ router.get('/:vehicleId/pictures/:pictureId', async (req, res) => {
     }
 
     if (!Number.isInteger(pictureId) || pictureId <= 0) {
-      return res.status(400).json({ error: 'Invalid picture id' }); 
+      return res.status(400).json({ error: 'Invalid picture id' });
     }
 
     const result = await pool.query(
@@ -120,26 +120,31 @@ router.get('/:vehicleId/pictures/:pictureId', async (req, res) => {
         vehicle_id,
         created_at
       FROM toolboxes_inventory.pictures
-      WHERE vehicle_id = $1 AND id = $2
+      WHERE vehicle_id = $1
+        AND id = $2
+      LIMIT 1
       `,
       [vehicleId, pictureId]
     );
 
-    if (result.rows.length === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Picture not found' });
     }
 
     const picture = result.rows[0];
 
-    res.status(200).json({
+    const signedUrl = await getSignedUrlForKey(picture.s3_key, {
+      expiresIn: 60 * 5,
+    });
+
+    return res.status(200).json({
       ...picture,
-      signed_url: await getSignedUrlForKey(picture.s3_key, {
-        expiresIn: 60 * 5,
-      }),
+      signed_url: signedUrl,
     });
   } catch (error) {
     console.error('Error fetching vehicle picture:', error);
-    res.status(500).json({
+
+    return res.status(500).json({
       error: 'Failed to fetch vehicle picture',
     });
   }
