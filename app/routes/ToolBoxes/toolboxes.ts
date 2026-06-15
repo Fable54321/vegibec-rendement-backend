@@ -55,6 +55,51 @@ router.patch('/:toolboxId', async (req, res) => {
   }
 });
 
+
+router.get('/:toolboxId/pictures', async (req, res) => {
+  try {
+    const toolboxId = Number(req.params.toolboxId);
+
+    if (!Number.isInteger(toolboxId) || toolboxId <= 0) {
+      return res.status(400).json({ error: 'Invalid toolbox id' });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        s3_key,
+        description,
+        equipment_name,
+        toolbox_id,
+        vehicle_id,
+        created_at
+      FROM toolboxes_inventory.pictures
+      WHERE toolbox_id = $1
+      ORDER BY created_at ASC, id ASC
+      `,
+      [toolboxId]
+    );
+
+    const pictures = await Promise.all(
+      result.rows.map(async (picture) => ({
+        ...picture,
+        signed_url: await getSignedUrlForKey(picture.s3_key, {
+          expiresIn: 60 * 5,
+        }),
+      }))
+    );
+
+    res.status(200).json(pictures);
+  } catch (error) {
+    console.error('Error fetching toolbox pictures:', error);
+    res.status(500).json({
+      error: 'Failed to fetch toolbox pictures',
+    });
+  }
+});
+
+
 // Get full toolbox inventory by toolbox id
 router.get('/:toolboxId/items', async (req, res) => {
   try {
