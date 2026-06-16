@@ -1110,7 +1110,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
 export const buildBuyerDecisionEmail = (request: any, finalRequestUrl: string) => {
   const approved = request.status === "ready_to_purchase"
   const firstLine = approved
-    ? `${PURCHASE_BUYER_NAME} demande d'achat #${request.id} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
+    ? `${PURCHASE_BUYER_NAME} - demande d'achat #${request.id} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
     : `Demande d'achat #${request.id} refusée par ${PURCHASE_ADMIN_NAME}`
 
   return `
