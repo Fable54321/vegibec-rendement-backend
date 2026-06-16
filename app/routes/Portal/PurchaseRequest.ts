@@ -259,200 +259,328 @@ router.post(
   uploadPurchaseRequestPictures.array("pictures", 5),
   requireValidFormToken,
   async (req, res) => {
-  const client = await pool.connect()
+    const client = await pool.connect()
+    let transactionStarted = false
 
-  try {
-  const body = req.body ?? {}
-const pictures = (req.files as Express.Multer.File[]) ?? []
+    try {
+      const body = req.body ?? {}
+      const pictures = (req.files as Express.Multer.File[]) ?? []
 
-const {
-  requested_by,
-  description,
-  quantity,
-  reason,
-  requested_unit_price,
-  requested_supplier,
-  product_link,
-  expected_date,
-  companyWebsite,
-  email,
-} = body
+      const {
+        requested_by,
+        description,
+        quantity,
+        reason,
+        requested_unit_price,
+        requested_supplier,
+        product_link,
+        expected_date,
+        companyWebsite,
+        email,
+      } = body
 
-const cleanRequestEmail =
-  typeof email === "string" && email.trim() !== ""
-    ? email.trim()
-    : null
+      if (companyWebsite) {
+        return res.status(400).json({ message: "Invalid request" })
+      }
 
-   
-    if (companyWebsite) {
-      return res.status(400).json({ message: "Invalid request" })
-    }
+      const cleanRequestedBy =
+        typeof requested_by === "string" ? requested_by.trim() : ""
 
-    if (!requested_by || !description) {
-      return res.status(400).json({
-        message: "Le demandeur et la description du produit sont requis",
+      const cleanDescription =
+        typeof description === "string" ? description.trim() : ""
+
+      const cleanReason =
+        typeof reason === "string" && reason.trim() !== ""
+          ? reason.trim()
+          : null
+
+      const cleanRequestedSupplier =
+        typeof requested_supplier === "string" &&
+        requested_supplier.trim() !== ""
+          ? requested_supplier.trim()
+          : null
+
+      const cleanProductLink =
+        typeof product_link === "string" && product_link.trim() !== ""
+          ? product_link.trim()
+          : null
+
+      const cleanExpectedDate =
+        typeof expected_date === "string" && expected_date.trim() !== ""
+          ? expected_date.trim()
+          : null
+
+      // Email is optional.
+      // Null, undefined, and empty string are accepted and saved as null.
+      const cleanRequestEmail =
+        typeof email === "string" && email.trim() !== ""
+          ? email.trim().toLowerCase()
+          : null
+
+      if (!cleanRequestedBy || !cleanDescription) {
+        return res.status(400).json({
+          message: "Le demandeur et la description du produit sont requis",
+        })
+      }
+
+      if (cleanRequestedBy.length > 150) {
+        return res.status(400).json({
+          message: "Le nom du demandeur est trop long",
+        })
+      }
+
+      if (cleanDescription.length > 1000) {
+        return res.status(400).json({
+          message: "La description est trop longue",
+        })
+      }
+
+      if (cleanReason && cleanReason.length > 2000) {
+        return res.status(400).json({
+          message: "La justification est trop longue",
+        })
+      }
+
+      if (cleanRequestedSupplier && cleanRequestedSupplier.length > 200) {
+        return res.status(400).json({
+          message: "Le fournisseur est trop long",
+        })
+      }
+
+      if (cleanProductLink && cleanProductLink.length > 2000) {
+        return res.status(400).json({
+          message: "Le lien du produit est trop long",
+        })
+      }
+
+      if (cleanRequestEmail && cleanRequestEmail.length > 254) {
+        return res.status(400).json({
+          message: "L'adresse courriel est trop longue",
+        })
+      }
+
+      if (
+        cleanRequestEmail &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanRequestEmail)
+      ) {
+        return res.status(400).json({
+          message: "L'adresse courriel est invalide",
+        })
+      }
+
+      if (cleanProductLink) {
+        try {
+          const url = new URL(cleanProductLink)
+
+          if (!["http:", "https:"].includes(url.protocol)) {
+            return res.status(400).json({
+              message: "Le lien du produit doit commencer par http ou https",
+            })
+          }
+        } catch {
+          return res.status(400).json({
+            message: "Le lien du produit est invalide",
+          })
+        }
+      }
+
+      const cleanQuantity =
+        quantity === undefined || quantity === null || quantity === ""
+          ? 1
+          : Number(quantity)
+
+      if (
+        !Number.isFinite(cleanQuantity) ||
+        cleanQuantity <= 0 ||
+        !Number.isInteger(cleanQuantity)
+      ) {
+        return res.status(400).json({
+          message: "La quantité doit être un nombre entier supérieur à 0",
+        })
+      }
+
+      const cleanUnitPrice =
+        requested_unit_price === "" ||
+        requested_unit_price === undefined ||
+        requested_unit_price === null
+          ? null
+          : Number(requested_unit_price)
+
+      if (
+        cleanUnitPrice !== null &&
+        (!Number.isFinite(cleanUnitPrice) || cleanUnitPrice < 0)
+      ) {
+        return res.status(400).json({
+          message: "Le prix doit être un nombre valide",
+        })
+      }
+
+      if (cleanExpectedDate) {
+        const date = new Date(`${cleanExpectedDate}T00:00:00`)
+
+        if (
+          Number.isNaN(date.getTime()) ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(cleanExpectedDate)
+        ) {
+          return res.status(400).json({
+            message: "La date souhaitée est invalide",
+          })
+        }
+      }
+
+      const requestedTotalPrice =
+        cleanUnitPrice !== null ? cleanUnitPrice * cleanQuantity : null
+
+      const urgency = getUrgencyFromExpectedDate(cleanExpectedDate)
+      const formToken = (req as any).purchaseRequestFormToken
+
+      await client.query("BEGIN")
+      transactionStarted = true
+
+      const tokenResult = await client.query(
+        `
+        UPDATE portal.purchase_request_form_tokens
+        SET used_at = now()
+        WHERE token = $1
+          AND used_at IS NULL
+          AND expires_at > now()
+        RETURNING id
+        `,
+        [formToken]
+      )
+
+      if (tokenResult.rows.length === 0) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
+
+        return res.status(403).json({
+          message: "Jeton de formulaire invalide ou expiré",
+        })
+      }
+
+      const result = await client.query(
+        `
+        INSERT INTO portal.purchase_requests (
+          requested_by,
+          description,
+          quantity,
+          reason,
+          urgency,
+          requested_unit_price,
+          requested_total_price,
+          requested_supplier,
+          product_link,
+          expected_date,
+          status,
+          request_email
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9, $10,
+          'pending_buyer_validation', $11
+        )
+        RETURNING *
+        `,
+        [
+          cleanRequestedBy,
+          cleanDescription,
+          cleanQuantity,
+          cleanReason,
+          urgency,
+          cleanUnitPrice,
+          requestedTotalPrice,
+          cleanRequestedSupplier,
+          cleanProductLink,
+          cleanExpectedDate,
+          cleanRequestEmail,
+        ]
+      )
+
+      let createdRequest = result.rows[0]
+
+      const pictureKeys = await Promise.all(
+        pictures.map((picture, index) => {
+          const key = createPurchaseRequestPictureKey(
+            createdRequest.id,
+            picture,
+            index
+          )
+
+          return uploadBufferToS3({
+            key,
+            buffer: picture.buffer,
+            contentType: picture.mimetype,
+          })
+        })
+      )
+
+      if (pictureKeys.length > 0) {
+        const updatedRequestResult = await client.query(
+          `
+          UPDATE portal.purchase_requests
+          SET picture_keys = $1
+          WHERE id = $2
+          RETURNING *
+          `,
+          [pictureKeys, createdRequest.id]
+        )
+
+        createdRequest = updatedRequestResult.rows[0]
+      }
+
+      const buyerValidationToken = await createBuyerValidationToken(
+        client,
+        createdRequest.id
+      )
+
+      const buyerValidationUrl = buildBuyerValidationUrl(
+        req,
+        createdRequest.id,
+        buyerValidationToken
+      )
+
+      await client.query("COMMIT")
+      transactionStarted = false
+
+      const buyerRecipients = getEmailRecipients(
+        "PURCHASE_BUYER_EMAIL",
+        "PURCHASE_EMAIL_COPY",
+        TEMP_PURCHASE_EMAIL_COPY
+      )
+
+      const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
+
+      await sendPurchaseRequestEmailSafely(
+        buyerRecipients,
+        `Ricardo - nouvelle demande d'achat #${createdRequest.id} à valider`,
+        buildNewPurchaseRequestEmail(
+          createdRequest,
+          pictureLinks,
+          buyerValidationUrl
+        ),
+        buildNewPurchaseRequestEmailHtml(
+          createdRequest,
+          pictureLinks,
+          buyerValidationUrl
+        )
+      )
+
+      return res.status(201).json(createdRequest)
+    } catch (error) {
+      if (transactionStarted) {
+        await client.query("ROLLBACK")
+      }
+
+      console.error("Error creating purchase request:", error)
+
+      return res.status(500).json({
+        message: "Error creating purchase request",
       })
+    } finally {
+      client.release()
     }
-
-    const cleanQuantity = Number(quantity || 1)
-
-    if (!Number.isFinite(cleanQuantity) || cleanQuantity <= 0) {
-      return res.status(400).json({
-        message: "La quantité doit être un nombre supérieur à 0",
-      })
-    }
-
-    const cleanUnitPrice =
-      requested_unit_price === "" ||
-      requested_unit_price === undefined ||
-      requested_unit_price === null
-        ? null
-        : Number(requested_unit_price)
-
-    if (
-      cleanUnitPrice !== null &&
-      (!Number.isFinite(cleanUnitPrice) || cleanUnitPrice < 0)
-    ) {
-      return res.status(400).json({
-        message: "Le prix doit être un nombre valide",
-      })
-    }
-
-    const requestedTotalPrice =
-      cleanUnitPrice !== null ? cleanUnitPrice * cleanQuantity : null
-
-    const urgency = getUrgencyFromExpectedDate(expected_date || null)
-    const formToken = (req as any).purchaseRequestFormToken
-
-    await client.query("BEGIN")
-
-    const tokenResult = await client.query(
-      `
-      UPDATE portal.purchase_request_form_tokens
-      SET used_at = now()
-      WHERE token = $1
-        AND used_at IS NULL
-        AND expires_at > now()
-      RETURNING id
-      `,
-      [formToken]
-    )
-
-    if (tokenResult.rows.length === 0) {
-      await client.query("ROLLBACK")
-
-      return res.status(403).json({
-        message: "Jeton de formulaire invalide ou expiré",
-      })
-    }
-
-const result = await client.query(
-  `
-  INSERT INTO portal.purchase_requests (
-    requested_by,
-    description,
-    quantity,
-    reason,
-    urgency,
-    requested_unit_price,
-    requested_total_price,
-    requested_supplier,
-    product_link,
-    expected_date,
-    status,
-    request_email
-  )
-  VALUES (
-    $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10,
-    'pending_buyer_validation', $11
-  )
-  RETURNING *
-  `,
-  [
-    requested_by.trim(),
-    description.trim(),
-    cleanQuantity,
-    reason || null,
-    urgency,
-    cleanUnitPrice,
-    requestedTotalPrice,
-    requested_supplier || null,
-    product_link || null,
-    expected_date || null,
-    cleanRequestEmail,
-  ]
-)
-
-let createdRequest = result.rows[0]
-
-const pictureKeys = await Promise.all(
-  pictures.map((picture, index) => {
-    const key = createPurchaseRequestPictureKey(
-      createdRequest.id,
-      picture,
-      index
-    )
-
-    return uploadBufferToS3({
-      key,
-      buffer: picture.buffer,
-      contentType: picture.mimetype,
-    })
-  })
-)
-
-if (pictureKeys.length > 0) {
-  const updatedRequestResult = await client.query(
-    `
-    UPDATE portal.purchase_requests
-    SET picture_keys = $1
-    WHERE id = $2
-    RETURNING *
-    `,
-    [pictureKeys, createdRequest.id]
-  )
- 
-  createdRequest = updatedRequestResult.rows[0]
-}
-
-const buyerValidationToken = await createBuyerValidationToken(client, createdRequest.id)
-const buyerValidationUrl = buildBuyerValidationUrl(
-  req,
-  createdRequest.id,
-  buyerValidationToken
-)
-
-await client.query("COMMIT")
-
-const buyerRecipients = getEmailRecipients(
-  "PURCHASE_BUYER_EMAIL",
-  "PURCHASE_EMAIL_COPY",
-  TEMP_PURCHASE_EMAIL_COPY
-)
-
-const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
-
-await sendPurchaseRequestEmailSafely(
-  buyerRecipients,
-  `Ricardo - nouvelle demande d'achat #${createdRequest.id} à valider`,
-  buildNewPurchaseRequestEmail(createdRequest, pictureLinks, buyerValidationUrl),
-  buildNewPurchaseRequestEmailHtml(createdRequest, pictureLinks, buyerValidationUrl)
-)
-
-res.status(201).json(createdRequest)
-  } catch (error) {
-    await client.query("ROLLBACK")
-
-    console.error("Error creating purchase request:", error)
-
-    res.status(500).json({
-      message: "Error creating purchase request",
-    })
-  } finally {
-    client.release()
   }
-})
+)
 
 
 router.patch(
