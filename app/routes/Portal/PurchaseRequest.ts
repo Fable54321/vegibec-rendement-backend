@@ -21,7 +21,6 @@ import {
   getAdminApprovalTokenFromRequest,
   getBuyerValidationTokenFromRequest,
   getPurchaseTokenFromRequest,
-  getEmailRecipients,
   getUrgencyFromExpectedDate,
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
@@ -37,7 +36,7 @@ import { uploadBufferToS3 } from "../../services/s3.services"
 import { sendEmail } from "../Visitors/Utils/testSMTP"
 
 const router = express.Router()
-const TEMP_PURCHASE_EMAIL_COPY = "programmation@vegibec.com"
+const TEMP_PURCHASE_REQUEST_RECIPIENT = "programmation@vegibec.com"
 
 const VALID_STATUSES = [
   "pending_buyer_validation",
@@ -542,16 +541,10 @@ router.post(
       await client.query("COMMIT")
       transactionStarted = false
 
-      const buyerRecipients = getEmailRecipients(
-        "PURCHASE_BUYER_EMAIL",
-        "PURCHASE_EMAIL_COPY",
-        TEMP_PURCHASE_EMAIL_COPY
-      )
-
       const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
 
       await sendPurchaseRequestEmailSafely(
-        buyerRecipients,
+        TEMP_PURCHASE_REQUEST_RECIPIENT,
         `Ricardo - nouvelle demande d'achat #${createdRequest.id} à valider`,
         buildNewPurchaseRequestEmail(
           createdRequest,
@@ -712,11 +705,6 @@ router.patch(
     await client.query("COMMIT")
 
 if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
-  const adminRecipients = getEmailRecipients(
-    "PURCHASE_BUYER_EMAIL",
-    "PURCHASE_EMAIL_COPY",
-    TEMP_PURCHASE_EMAIL_COPY
-  )
   const adminApprovalUrl = buildAdminApprovalUrl(
     req,
     updatedRequest.id,
@@ -725,7 +713,7 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
 
 
   await sendPurchaseRequestEmailSafely(
-    adminRecipients,
+    TEMP_PURCHASE_REQUEST_RECIPIENT,
     `Michelle - décision requise pour la demande d'achat #${updatedRequest.id}`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
@@ -839,11 +827,6 @@ router.patch(
 
     await client.query("COMMIT")
 
-const buyerRecipients = getEmailRecipients(
-  "PURCHASE_BUYER_EMAIL",
-  "PURCHASE_EMAIL_COPY",
-  TEMP_PURCHASE_EMAIL_COPY
-)
 const finalRequestUrl = buildFinalPurchaseRequestUrl(
   req,
   updatedRequest.id,
@@ -851,7 +834,7 @@ const finalRequestUrl = buildFinalPurchaseRequestUrl(
 )
 
 await sendPurchaseRequestEmailSafely(
-  buyerRecipients,
+  TEMP_PURCHASE_REQUEST_RECIPIENT,
   approved
     ? `Ricardo - demande d'achat #${updatedRequest.id} approuvée, achat à faire`
     : `Ricardo - demande d'achat #${updatedRequest.id} refusée`,
