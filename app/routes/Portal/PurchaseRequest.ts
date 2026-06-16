@@ -281,18 +281,19 @@ router.post(
       const body = req.body ?? {}
       const pictures = (req.files as Express.Multer.File[]) ?? []
 
-      const {
-        requested_by,
-        description,
-        quantity,
-        reason,
-        requested_unit_price,
-        requested_supplier,
-        product_link,
-        expected_date,
-        companyWebsite,
-        email,
-      } = body
+    const {
+  requested_by,
+  description,
+  quantity,
+  quantity_format,
+  reason,
+  requested_unit_price,
+  requested_supplier,
+  product_link,
+  expected_date,
+  companyWebsite,
+  email,
+} = body
 
       if (companyWebsite) {
         return res.status(400).json({ message: "Invalid request" })
@@ -303,6 +304,11 @@ router.post(
 
       const cleanDescription =
         typeof description === "string" ? description.trim() : ""
+
+      const cleanQuantityFormat =
+  typeof quantity_format === "string" && quantity_format.trim() !== ""
+    ? quantity_format.trim().replace(/\s+/g, " ")
+    : null  
 
       const cleanReason =
         typeof reason === "string" && reason.trim() !== ""
@@ -349,6 +355,12 @@ router.post(
           message: "La description est trop longue",
         })
       }
+
+      if (cleanQuantityFormat && cleanQuantityFormat.length > 80) {
+  return res.status(400).json({
+    message: "Le format de quantité est trop long",
+  })
+}
 
       if (cleanReason && cleanReason.length > 2000) {
         return res.status(400).json({
@@ -399,20 +411,21 @@ router.post(
         }
       }
 
-      const cleanQuantity =
-        quantity === undefined || quantity === null || quantity === ""
-          ? 1
-          : Number(quantity)
+const cleanQuantity =
+  quantity === undefined || quantity === null || quantity === ""
+    ? null
+    : Number(quantity)
 
-      if (
-        !Number.isFinite(cleanQuantity) ||
-        cleanQuantity <= 0 ||
-        !Number.isInteger(cleanQuantity)
-      ) {
-        return res.status(400).json({
-          message: "La quantité doit être un nombre entier supérieur à 0",
-        })
-      }
+if (
+  cleanQuantity === null ||
+  !Number.isFinite(cleanQuantity) ||
+  cleanQuantity <= 0 ||
+  !Number.isInteger(cleanQuantity)
+) {
+  return res.status(400).json({
+    message: "La quantité doit être un nombre entier supérieur à 0",
+  })
+}
 
       const cleanUnitPrice =
         requested_unit_price === "" ||
@@ -479,6 +492,7 @@ router.post(
           requested_by,
           description,
           quantity,
+          quantity_format,
           reason,
           urgency,
           requested_unit_price,
@@ -491,8 +505,8 @@ router.post(
         )
         VALUES (
           $1, $2, $3, $4, $5, $6,
-          $7, $8, $9, $10,
-          'pending_buyer_validation', $11
+          $7, $8, $9, $10, $11,
+          'pending_buyer_validation', $12
         )
         RETURNING *
         `,
@@ -500,6 +514,7 @@ router.post(
           cleanRequestedBy,
           cleanDescription,
           cleanQuantity,
+          cleanQuantityFormat,
           cleanReason,
           urgency,
           cleanUnitPrice,
