@@ -21,6 +21,7 @@ import {
   getAdminApprovalTokenFromRequest,
   getBuyerValidationTokenFromRequest,
   getPurchaseTokenFromRequest,
+  getEmailRecipients,
   getUrgencyFromExpectedDate,
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
@@ -37,6 +38,11 @@ import { sendEmail } from "../Visitors/Utils/testSMTP"
 
 const router = express.Router()
 const TEMP_PURCHASE_REQUEST_RECIPIENT = "programmation@vegibec.com"
+const PURCHASE_REQUEST_RECIPIENTS = getEmailRecipients(
+  "PURCHASE_BUYER_EMAIL",
+  "PURCHASE_EMAIL_COPY",
+  TEMP_PURCHASE_REQUEST_RECIPIENT
+)
 
 const VALID_STATUSES = [
   "pending_buyer_validation",
@@ -104,14 +110,14 @@ router.post("/send-email", actionPurchaseRequestLimiter, async (req, res) => {
     }
 
     const emailInfo = await sendEmail({
-      to: TEMP_PURCHASE_REQUEST_RECIPIENT,
+      to: PURCHASE_REQUEST_RECIPIENTS,
       subject: cleanSubject,
       text: cleanMessage,
       fromLabel: "Vegibec - Demandes d'achat",
     })
 
     console.log("Purchase request email relay response:", {
-      to: TEMP_PURCHASE_REQUEST_RECIPIENT,
+      to: PURCHASE_REQUEST_RECIPIENTS,
       messageId: emailInfo.messageId,
       accepted: emailInfo.accepted,
       rejected: emailInfo.rejected,
@@ -552,7 +558,7 @@ router.post(
       const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
 
       await sendPurchaseRequestEmailSafely(
-        TEMP_PURCHASE_REQUEST_RECIPIENT,
+        PURCHASE_REQUEST_RECIPIENTS,
         `Ricardo - nouvelle demande d'achat #${createdRequest.id} à valider`,
         buildNewPurchaseRequestEmail(
           createdRequest,
@@ -721,7 +727,7 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
 
 
   await sendPurchaseRequestEmailSafely(
-    TEMP_PURCHASE_REQUEST_RECIPIENT,
+    PURCHASE_REQUEST_RECIPIENTS,
     `Michelle - décision requise pour la demande d'achat #${updatedRequest.id}`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
@@ -842,7 +848,7 @@ const finalRequestUrl = buildFinalPurchaseRequestUrl(
 )
 
 await sendPurchaseRequestEmailSafely(
-  TEMP_PURCHASE_REQUEST_RECIPIENT,
+  PURCHASE_REQUEST_RECIPIENTS,
   approved
     ? `Ricardo - demande d'achat #${updatedRequest.id} approuvée, achat à faire`
     : `Ricardo - demande d'achat #${updatedRequest.id} refusée`,
@@ -863,7 +869,7 @@ if (requesterEmail) {
       }`
 
   await sendPurchaseRequestEmailSafely(
-    TEMP_PURCHASE_REQUEST_RECIPIENT,
+    PURCHASE_REQUEST_RECIPIENTS,
     `Réponse à votre demande d'achat`,
     requesterMessage
   )
