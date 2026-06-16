@@ -556,6 +556,17 @@ const formatMoney = (value: number | string | null | undefined) => {
   return `${numberValue.toFixed(2)} $`
 }
 
+const formatQuantity = (request: any) => {
+  const quantity =
+    request.quantity === null || request.quantity === undefined || request.quantity === ""
+      ? "Non indiquée"
+      : String(request.quantity)
+  const quantityFormat =
+    typeof request.quantity_format === "string" ? request.quantity_format.trim() : ""
+
+  return quantityFormat ? `${quantity} ${quantityFormat}` : quantity
+}
+
 const formatRequesterEmail = (request: any) => {
   return typeof request.request_email === "string" && request.request_email.trim()
     ? request.request_email.trim()
@@ -656,7 +667,7 @@ ${request.description}
 Justification: ${request.reason || "Aucune justification indiquée"}
 
 Quantité:
-${request.quantity}
+${formatQuantity(request)}
 
 Prix unitaire estimé:
 ${formatMoney(request.requested_unit_price)}
@@ -709,7 +720,7 @@ export const buildNewPurchaseRequestEmailHtml = (
         request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
       }</p>
 
-      <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
+      <p><strong>Quantité:</strong><br />${escapeHtml(formatQuantity(request))}</p>
 
       <p><strong>Prix unitaire estimé:</strong><br />${formatMoney(
         request.requested_unit_price
@@ -798,7 +809,7 @@ Description:
 ${request.description}
 
 Quantité:
-${request.quantity}
+${formatQuantity(request)}
 
 Prix unitaire confirmé:
 ${formatMoney(request.buyer_confirmed_unit_price)}
@@ -860,7 +871,7 @@ export const buildAdminApprovalEmailHtml = (
         formatRequesterEmail(request)
       )}</p>
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
-      <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
+      <p><strong>Quantité:</strong><br />${escapeHtml(formatQuantity(request))}</p>
       <p><strong>Prix unitaire confirmé:</strong><br />${formatMoney(
         request.buyer_confirmed_unit_price
       )}</p>
@@ -972,7 +983,7 @@ Raison:
 ${request.reason || "Aucune justification indiquée"}
 
 Quantité:
-${request.quantity || "Non indiquée"}
+${formatQuantity(request)}
 
 Prix total estimé dans la demande:
 ${formatMoney(request.requested_total_price)}
@@ -1049,7 +1060,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
       )}</p>
 
       <p><strong>Quantité:</strong><br />${escapeHtml(
-        request.quantity || "Non indiquée"
+        formatQuantity(request)
       )}</p>
 
       <p><strong>Prix total estimé dans la demande:</strong><br />${formatMoney(
@@ -1126,7 +1137,7 @@ Description:
 ${request.description}
 
 Quantité:
-${request.quantity}
+${formatQuantity(request)}
 
 Date requise:
 ${formatDateFr(request.expected_date)}
@@ -1175,7 +1186,7 @@ export const buildBuyerDecisionEmailHtml = (
         formatRequesterEmail(request)
       )}</p>
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
-      <p><strong>Quantité:</strong><br />${escapeHtml(request.quantity)}</p>
+      <p><strong>Quantité:</strong><br />${escapeHtml(formatQuantity(request))}</p>
       <p><strong>Date requise:</strong><br />${formatDateFr(request.expected_date)}</p>
       <p><strong>Prix total confirmé:</strong><br />${formatMoney(
         request.buyer_confirmed_total_price
