@@ -40,11 +40,20 @@ import { PoolClient } from "pg"
 
 const router = express.Router()
 const TEMP_PURCHASE_REQUEST_RECIPIENT = "programmation@vegibec.com"
-const PURCHASE_REQUEST_RECIPIENTS = getEmailRecipients(
-  "PURCHASE_BUYER_EMAIL",
-  "PURCHASE_EMAIL_COPY",
-  TEMP_PURCHASE_REQUEST_RECIPIENT
-)
+const CONFLICT_REQUESTER_EMAIL = "achats@vegibec.com"
+
+const getPurchaseRequestRecipients = (request?: { request_email?: unknown }) => {
+  const requesterEmail =
+    typeof request?.request_email === "string"
+      ? request.request_email.trim().toLowerCase()
+      : ""
+  const recipientEnvNames =
+    requesterEmail === CONFLICT_REQUESTER_EMAIL
+      ? ["PURCHASE_BUYER_EMAIL"]
+      : ["PURCHASE_BUYER_EMAIL", "PURCHASE_EMAIL_COPY"]
+
+  return getEmailRecipients(...recipientEnvNames, TEMP_PURCHASE_REQUEST_RECIPIENT)
+}
 
 const VALID_STATUSES = [
   "pending_buyer_validation",
@@ -155,9 +164,13 @@ router.post("/send-email", actionPurchaseRequestLimiter, async (req, res) => {
       })
     }
 
+    const replyToRecipients = getPurchaseRequestRecipients({
+      request_email: cleanTo,
+    })
+
     const emailInfo = await sendEmail({
       to: cleanTo,
-      replyTo: PURCHASE_REQUEST_RECIPIENTS,
+      replyTo: replyToRecipients,
       subject: cleanSubject,
       text: cleanMessage,
       fromLabel: "Vegibec - Demandes d'achat",
@@ -165,7 +178,7 @@ router.post("/send-email", actionPurchaseRequestLimiter, async (req, res) => {
 
     console.log("Purchase request email relay response:", {
       to: cleanTo,
-      replyTo: PURCHASE_REQUEST_RECIPIENTS,
+      replyTo: replyToRecipients,
       messageId: emailInfo.messageId,
       accepted: emailInfo.accepted,
       rejected: emailInfo.rejected,
@@ -336,7 +349,7 @@ router.post(
   requested_unit_price,
   requested_supplier,
   product_link,
-  expected_date,
+  needed_by_date,
   companyWebsite,
   email,
 } = body
@@ -373,8 +386,8 @@ router.post(
           : null
 
       const cleanExpectedDate =
-        typeof expected_date === "string" && expected_date.trim() !== ""
-          ? expected_date.trim()
+        typeof needed_by_date === "string" && needed_by_date.trim() !== ""
+          ? needed_by_date.trim()
           : null
 
       // Email is optional.
@@ -548,7 +561,7 @@ if (
           requested_total_price,
           requested_supplier,
           product_link,
-          expected_date,
+          needed_by_date,
           status,
           request_email
         )
@@ -624,9 +637,10 @@ if (
 
       const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
       const displayRequestNumber = getPurchaseRequestDisplayNumber(createdRequest)
+      const emailRecipients = getPurchaseRequestRecipients(createdRequest)
 
       await sendPurchaseRequestEmailSafely(
-        PURCHASE_REQUEST_RECIPIENTS,
+        emailRecipients,
         `Ricardo - nouvelle demande d'achat #${displayRequestNumber} à valider`,
         buildNewPurchaseRequestEmail(
           createdRequest,
@@ -668,15 +682,16 @@ router.patch(
     const { id } = req.params
     const purchaseRequestId = Number(id)
 
-    const {
-      buyer_user_id,
-      buyer_confirmed_unit_price,
-      buyer_confirmed_supplier,
-      buyer_note,
-      needs_requester_info,
-      reject,
-      rejection_reason,
-    } = req.body
+const {
+  buyer_user_id,
+  buyer_confirmed_unit_price,
+  buyer_confirmed_supplier,
+  buyer_note,
+  needs_requester_info,
+  reject,
+  rejection_reason,
+  expected_date,
+} = req.body
 
     if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
       return res.status(404).json({ message: "Purchase request not found" })
@@ -736,6 +751,22 @@ router.patch(
 
     const quantity = Number(currentRequest.rows[0].quantity || 1)
 
+const cleanExpectedDate =
+  typeof expected_date === "string" && expected_date.trim()
+    ? expected_date.trim()
+    : null
+
+const cleanNeededByDate = currentRequest.rows[0].needed_by_date
+  ? new Date(currentRequest.rows[0].needed_by_date).toISOString().slice(0, 10)
+  : null
+
+const finalExpectedDate = cleanExpectedDate || cleanNeededByDate
+
+const dateChanged =
+  finalExpectedDate !== null &&
+  cleanNeededByDate !== null &&
+  finalExpectedDate !== cleanNeededByDate
+
     const cleanConfirmedUnitPrice =
       buyer_confirmed_unit_price === "" ||
       buyer_confirmed_unit_price === undefined
@@ -745,32 +776,36 @@ router.patch(
     const buyerConfirmedTotalPrice =
       cleanConfirmedUnitPrice !== null ? cleanConfirmedUnitPrice * quantity : null
 
-    const result = await client.query(
-      `
-      UPDATE portal.purchase_requests
-      SET
-        buyer_user_id = $1,
-        buyer_confirmed_unit_price = $2,
-        buyer_confirmed_total_price = $3,
-        buyer_confirmed_supplier = $4,
-        buyer_note = $5,
-        buyer_validated_at = now(),
-        status = $6,
-        rejection_reason = $7
-      WHERE id = $8
-      RETURNING *
-      `,
-      [
-        buyer_user_id,
-        cleanConfirmedUnitPrice,
-        buyerConfirmedTotalPrice,
-        buyer_confirmed_supplier || null,
-        buyer_note || null,
-        newStatus,
-        rejection_reason || null,
-        purchaseRequestId,
-      ]
-    )
+const result = await client.query(
+  `
+  UPDATE portal.purchase_requests
+  SET
+    buyer_user_id = $1,
+    buyer_confirmed_unit_price = $2,
+    buyer_confirmed_total_price = $3,
+    buyer_confirmed_supplier = $4,
+    buyer_note = $5,
+    buyer_validated_at = now(),
+    status = $6,
+    rejection_reason = $7,
+    expected_date = $8,
+    date_changed = $9
+  WHERE id = $10
+  RETURNING *
+  `,
+  [
+    buyer_user_id,
+    cleanConfirmedUnitPrice,
+    buyerConfirmedTotalPrice,
+    buyer_confirmed_supplier || null,
+    buyer_note || null,
+    newStatus,
+    rejection_reason || null,
+    finalExpectedDate,
+    dateChanged,
+    purchaseRequestId,
+  ]
+)
 
     const updatedRequest = result.rows[0]
     const adminApprovalToken =
@@ -788,6 +823,7 @@ router.patch(
 
 if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+  const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
   const adminApprovalUrl = buildAdminApprovalUrl(
     req,
     updatedRequest.id,
@@ -796,7 +832,7 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
 
 
   await sendPurchaseRequestEmailSafely(
-    PURCHASE_REQUEST_RECIPIENTS,
+    emailRecipients,
     `Michelle - décision requise pour la demande d'achat #${displayRequestNumber}`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
@@ -916,9 +952,10 @@ const finalRequestUrl = buildFinalPurchaseRequestUrl(
   purchaseToken
 )
 const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
 
 await sendPurchaseRequestEmailSafely(
-  PURCHASE_REQUEST_RECIPIENTS,
+  emailRecipients,
   approved
     ? `Ricardo - demande d'achat #${displayRequestNumber} approuvée, achat à faire`
     : `Ricardo - demande d'achat #${displayRequestNumber} refusée`,
@@ -939,7 +976,7 @@ if (requesterEmail) {
       }`
 
   await sendPurchaseRequestEmailSafely(
-    PURCHASE_REQUEST_RECIPIENTS,
+    emailRecipients,
     `Réponse à votre demande d'achat`,
     requesterMessage
   )

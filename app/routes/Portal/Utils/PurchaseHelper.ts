@@ -685,7 +685,7 @@ Lien produit:
 ${request.product_link || "Aucun lien indiqué"}
 
 Date requise:
-${formatDateFr(request.expected_date)}
+${formatDateFr(request.needed_by_date)}
 
 Urgence:
 ${request.urgency || "Normal"}
@@ -749,7 +749,7 @@ export const buildNewPurchaseRequestEmailHtml = (
       </p>
 
       <p><strong>Date requise:</strong><br />${formatDateFr(
-        request.expected_date
+        request.needed_by_date
       )}</p>
 
       <p><strong>Urgence:</strong><br />${escapeHtml(request.urgency || "Normal")}</p>
@@ -832,7 +832,7 @@ Note de Ricardo:
 ${request.buyer_note || "Aucune note"}
 
 Date requise:
-${formatDateFr(request.expected_date)}
+${formatDateFr(request.needed_by_date)}
 
 Urgence:
 ${request.urgency || "Normal"}
@@ -896,7 +896,7 @@ export const buildAdminApprovalEmailHtml = (
         request.buyer_note || "Aucune note"
       )}</p>
       <p><strong>Date requise:</strong><br />${formatDateFr(
-        request.expected_date
+        request.needed_by_date
       )}</p>
       <p><strong>Urgence:</strong><br />${escapeHtml(
         request.urgency || "Normal"
@@ -1017,7 +1017,7 @@ Urgence:
 ${request.urgency || "Normal"}
 
 Date requise:
-${formatDateFr(request.expected_at || request.expected_date)}
+${formatDateFr(request.expected_at || request.needed_by_date)}
 
 Lien de décision pour Michelle:
 ${adminApprovalUrl}
@@ -1105,7 +1105,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
       )}</p>
 
       <p><strong>Date requise:</strong><br />${formatDateFr(
-        request.expected_at || request.expected_date
+        request.expected_at || request.needed_date
       )}</p>
 
       <p>
@@ -1152,7 +1152,7 @@ Quantité:
 ${formatQuantity(request)}
 
 Date requise:
-${formatDateFr(request.expected_date)}
+${formatDateFr(request.needed_date)}
 
 Prix total confirmé:
 ${formatMoney(request.buyer_confirmed_total_price)}
@@ -1200,7 +1200,7 @@ export const buildBuyerDecisionEmailHtml = (
       )}</p>
       <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
       <p><strong>Quantité:</strong><br />${escapeHtml(formatQuantity(request))}</p>
-      <p><strong>Date requise:</strong><br />${formatDateFr(request.expected_date)}</p>
+      <p><strong>Date requise:</strong><br />${formatDateFr(request.needed_date)}</p>
       <p><strong>Prix total confirmé:</strong><br />${formatMoney(
         request.buyer_confirmed_total_price
       )}</p>
