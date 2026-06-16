@@ -32,6 +32,8 @@ const getPictureExtension = (file: Express.Multer.File) => {
   return ".jpg"
 }
 
+
+
 const getPurchaseDocumentExtension = (file: Express.Multer.File) => {
   const extension = path.extname(file.originalname).toLowerCase()
 
@@ -567,6 +569,9 @@ const formatQuantity = (request: any) => {
   return quantityFormat ? `${quantity} ${quantityFormat}` : quantity
 }
 
+export const getPurchaseRequestDisplayNumber = (request: any) =>
+  request.request_reference ?? String(request.id)
+
 const formatRequesterEmail = (request: any) => {
   return typeof request.request_email === "string" && request.request_email.trim()
     ? request.request_email.trim()
@@ -647,13 +652,14 @@ export const buildNewPurchaseRequestEmail = (
   pictureLinks: PictureEmailLink[] = [],
   buyerValidationUrl: string
 ) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const pictureExpiryText =
     pictureLinks.length > 0 ? "\n\nLes liens des photos expirent dans 7 jours." : ""
 
   return `
 Une nouvelle demande d'achat a été soumise.
 
-Numéro de demande: #${request.id}
+Numéro de demande: #${displayRequestNumber}
 
 Demandeur:
 ${request.requested_by}
@@ -700,12 +706,13 @@ export const buildNewPurchaseRequestEmailHtml = (
   pictureLinks: PictureEmailLink[] = [],
   buyerValidationUrl: string
 ) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const productLinkUrl = getSafeHttpUrl(request.product_link)
   const safeBuyerValidationUrl = escapeHtml(buyerValidationUrl)
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Demande d'achat #${escapeHtml(request.id)}</h2>
+      <h2>Demande d'achat #${escapeHtml(displayRequestNumber)}</h2>
 
       <p>Une nouvelle demande d'achat a été soumise.</p>
 
@@ -782,6 +789,7 @@ export const buildAdminApprovalEmail = (
   request: any,
   adminApprovalUrl: string
 ) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
   const priceIncreaseWarning = priceIncreaseInfo
     ? `
@@ -797,7 +805,7 @@ Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
   return `
 Une demande d'achat est prête pour la décision de Michelle.
 
-Numéro de demande: #${request.id}
+Numéro de demande: #${displayRequestNumber}
 
 Demandeur:
 ${request.requested_by}
@@ -841,6 +849,7 @@ export const buildAdminApprovalEmailHtml = (
   request: any,
   adminApprovalUrl: string
 ) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
   const confirmedTotalPriceStyle = priceIncreaseInfo
     ? "color:#b91c1c;font-weight:700;"
@@ -849,7 +858,7 @@ export const buildAdminApprovalEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Demande d'achat #${escapeHtml(request.id)} prête pour Michelle</h2>
+      <h2>Demande d'achat #${escapeHtml(displayRequestNumber)} prête pour Michelle</h2>
 
       <p>Michelle doit approuver ou refuser cette demande.</p>
 
@@ -952,6 +961,7 @@ export const buildBuyerPriceConfirmedEmail = (
   request: any,
   adminApprovalUrl: string
 ) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
   const priceIncreaseWarning = priceIncreaseInfo
     ? `
@@ -963,7 +973,7 @@ Le prix total confirmé est plus élevé que le prix total estimé de la demande
     : ""
 
   return `
-Ricardo a confirmé le prix de la demande d'achat #${request.id}.
+Ricardo a confirmé le prix de la demande d'achat #${displayRequestNumber}.
 
 Prochaine décision:
 Michelle doit approuver ou refuser la demande.
@@ -1018,6 +1028,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
   request: any,
   adminApprovalUrl: string
 ) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
   const confirmedTotalPriceStyle = priceIncreaseInfo
     ? "color:#b91c1c;font-weight:700;"
@@ -1027,7 +1038,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
       <h2>Ricardo a confirmé le prix - demande d'achat #${escapeHtml(
-        request.id
+        displayRequestNumber
       )}</h2>
 
       <p>Michelle doit maintenant approuver ou refuser la demande.</p>
@@ -1120,9 +1131,10 @@ export const buildBuyerPriceConfirmedEmailHtml = (
 
 export const buildBuyerDecisionEmail = (request: any, finalRequestUrl: string) => {
   const approved = request.status === "ready_to_purchase"
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const firstLine = approved
-    ? `${PURCHASE_BUYER_NAME} - demande d'achat #${request.id} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
-    : `Demande d'achat #${request.id} refusée par ${PURCHASE_ADMIN_NAME}`
+    ? `${PURCHASE_BUYER_NAME} - demande d'achat #${displayRequestNumber} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
+    : `Demande d'achat #${displayRequestNumber} refusée par ${PURCHASE_ADMIN_NAME}`
 
   return `
 ${firstLine}
@@ -1170,9 +1182,10 @@ export const buildBuyerDecisionEmailHtml = (
   finalRequestUrl: string
 ) => {
   const approved = request.status === "ready_to_purchase"
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const firstLine = approved
-    ? `${PURCHASE_BUYER_NAME} demande d'achat #${request.id} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
-    : `Demande d'achat #${request.id} refusée par ${PURCHASE_ADMIN_NAME}`
+    ? `${PURCHASE_BUYER_NAME} demande d'achat #${displayRequestNumber} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
+    : `Demande d'achat #${displayRequestNumber} refusée par ${PURCHASE_ADMIN_NAME}`
   const safeFinalRequestUrl = escapeHtml(finalRequestUrl)
 
   return `

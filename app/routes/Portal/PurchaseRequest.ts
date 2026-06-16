@@ -22,6 +22,7 @@ import {
   getBuyerValidationTokenFromRequest,
   getPurchaseTokenFromRequest,
   getEmailRecipients,
+  getPurchaseRequestDisplayNumber,
   getUrgencyFromExpectedDate,
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
@@ -35,6 +36,7 @@ import {
 } from "../../routes/Portal/Utils/PurchaseHelper"
 import { uploadBufferToS3 } from "../../services/s3.services"
 import { sendEmail } from "../Visitors/Utils/testSMTP"
+import { PoolClient } from "pg"
 
 const router = express.Router()
 const TEMP_PURCHASE_REQUEST_RECIPIENT = "programmation@vegibec.com"
@@ -94,6 +96,50 @@ const actionPurchaseRequestLimiter = rateLimit({
     message: "Trop d'actions envoyées. Réessayez plus tard.",
   },
 })
+
+async function getNextPurchaseRequestReference(client: PoolClient) {
+  const result = await client.query<{
+    period_key: string
+    next_number: number
+  }>(
+    `
+    WITH current_period AS (
+      SELECT date_trunc('month', now() AT TIME ZONE 'America/Toronto')::date AS period_month
+    ),
+    next_sequence AS (
+      INSERT INTO portal.purchase_request_monthly_sequences (
+        period_month,
+        last_number,
+        updated_at
+      )
+      SELECT
+        period_month,
+        1,
+        now()
+      FROM current_period
+      ON CONFLICT (period_month)
+      DO UPDATE SET
+        last_number = portal.purchase_request_monthly_sequences.last_number + 1,
+        updated_at = now()
+      RETURNING
+        period_month,
+        last_number
+    )
+    SELECT
+      to_char(period_month, 'YYYY-MM') AS period_key,
+      last_number AS next_number
+    FROM next_sequence
+    `,
+  )
+
+  const row = result.rows[0]
+
+  if (!row) {
+    throw new Error("Could not generate purchase request reference")
+  }
+
+  return `${row.period_key}-${String(row.next_number).padStart(3, "0")}`
+}
 
 router.post("/send-email", actionPurchaseRequestLimiter, async (req, res) => {
   try {
@@ -486,9 +532,12 @@ if (
         })
       }
 
+      const requestReference = await getNextPurchaseRequestReference(client)
+
       const result = await client.query(
         `
         INSERT INTO portal.purchase_requests (
+        request_reference,
           requested_by,
           description,
           quantity,
@@ -505,12 +554,13 @@ if (
         )
         VALUES (
           $1, $2, $3, $4, $5, $6,
-          $7, $8, $9, $10, $11,
-          'pending_buyer_validation', $12
+          $7, $8, $9, $10, $11, $12,
+          'pending_buyer_validation', $13
         )
         RETURNING *
         `,
         [
+          requestReference,
           cleanRequestedBy,
           cleanDescription,
           cleanQuantity,
@@ -573,10 +623,11 @@ if (
       transactionStarted = false
 
       const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
+      const displayRequestNumber = getPurchaseRequestDisplayNumber(createdRequest)
 
       await sendPurchaseRequestEmailSafely(
         PURCHASE_REQUEST_RECIPIENTS,
-        `Ricardo - nouvelle demande d'achat #${createdRequest.id} à valider`,
+        `Ricardo - nouvelle demande d'achat #${displayRequestNumber} à valider`,
         buildNewPurchaseRequestEmail(
           createdRequest,
           pictureLinks,
@@ -736,6 +787,7 @@ router.patch(
     await client.query("COMMIT")
 
 if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
   const adminApprovalUrl = buildAdminApprovalUrl(
     req,
     updatedRequest.id,
@@ -745,7 +797,7 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
 
   await sendPurchaseRequestEmailSafely(
     PURCHASE_REQUEST_RECIPIENTS,
-    `Michelle - décision requise pour la demande d'achat #${updatedRequest.id}`,
+    `Michelle - décision requise pour la demande d'achat #${displayRequestNumber}`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
   )
@@ -863,12 +915,13 @@ const finalRequestUrl = buildFinalPurchaseRequestUrl(
   updatedRequest.id,
   purchaseToken
 )
+const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
 
 await sendPurchaseRequestEmailSafely(
   PURCHASE_REQUEST_RECIPIENTS,
   approved
-    ? `Ricardo - demande d'achat #${updatedRequest.id} approuvée, achat à faire`
-    : `Ricardo - demande d'achat #${updatedRequest.id} refusée`,
+    ? `Ricardo - demande d'achat #${displayRequestNumber} approuvée, achat à faire`
+    : `Ricardo - demande d'achat #${displayRequestNumber} refusée`,
   buildBuyerDecisionEmail(updatedRequest, finalRequestUrl),
   buildBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
 )
