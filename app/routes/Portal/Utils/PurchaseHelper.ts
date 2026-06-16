@@ -1221,12 +1221,21 @@ export const sendPurchaseRequestEmailSafely = async (
   if (!to) return
 
   try {
-    await sendEmail({
+    const emailInfo = await sendEmail({
       to,
       fromLabel: "Vegibec - Demandes d'achat",
       subject,
       text,
       html,
+    })
+
+    console.log("Purchase request email relay response:", {
+      to,
+      subject,
+      messageId: emailInfo.messageId,
+      accepted: emailInfo.accepted,
+      rejected: emailInfo.rejected,
+      response: emailInfo.response,
     })
   } catch (error) {
     console.error("Purchase request email failed:", error)

@@ -103,11 +103,19 @@ router.post("/send-email", actionPurchaseRequestLimiter, async (req, res) => {
       })
     }
 
-    await sendEmail({
-      to: cleanTo,
+    const emailInfo = await sendEmail({
+      to: TEMP_PURCHASE_REQUEST_RECIPIENT,
       subject: cleanSubject,
       text: cleanMessage,
       fromLabel: "Vegibec - Demandes d'achat",
+    })
+
+    console.log("Purchase request email relay response:", {
+      to: TEMP_PURCHASE_REQUEST_RECIPIENT,
+      messageId: emailInfo.messageId,
+      accepted: emailInfo.accepted,
+      rejected: emailInfo.rejected,
+      response: emailInfo.response,
     })
 
     res.status(200).json({ message: "Email sent successfully" })
@@ -855,7 +863,7 @@ if (requesterEmail) {
       }`
 
   await sendPurchaseRequestEmailSafely(
-    requesterEmail,
+    TEMP_PURCHASE_REQUEST_RECIPIENT,
     `Réponse à votre demande d'achat`,
     requesterMessage
   )
