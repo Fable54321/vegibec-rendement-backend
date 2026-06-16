@@ -88,6 +88,7 @@ type SendEmailParams = {
   text: string;
   html?: string;
   fromLabel?: string;
+  replyTo?: string | string[];
   attachments?: EmailAttachment[];
 };
 
@@ -105,11 +106,13 @@ export const sendEmail = ({
   text,
   html,
   fromLabel,
+  replyTo,
   attachments,
 }: SendEmailParams) => {
   return transporter.sendMail({
     from: buildFrom(fromLabel),
     to,
+    replyTo,
     subject,
     text,
     html,

@@ -110,14 +110,16 @@ router.post("/send-email", actionPurchaseRequestLimiter, async (req, res) => {
     }
 
     const emailInfo = await sendEmail({
-      to: PURCHASE_REQUEST_RECIPIENTS,
+      to: cleanTo,
+      replyTo: PURCHASE_REQUEST_RECIPIENTS,
       subject: cleanSubject,
       text: cleanMessage,
       fromLabel: "Vegibec - Demandes d'achat",
     })
 
     console.log("Purchase request email relay response:", {
-      to: PURCHASE_REQUEST_RECIPIENTS,
+      to: cleanTo,
+      replyTo: PURCHASE_REQUEST_RECIPIENTS,
       messageId: emailInfo.messageId,
       accepted: emailInfo.accepted,
       rejected: emailInfo.rejected,
