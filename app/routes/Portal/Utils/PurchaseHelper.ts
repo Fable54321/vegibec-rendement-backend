@@ -1271,8 +1271,8 @@ export const buildDirectApprovalBuyerDecisionEmail = (
 
   return `
 IMPORTANT - APPROBATION DIRECTE
-Cette demande d'achat a ete approuvee directement par ${approver}.
-Elle saute l'approbation de Michelle et peut maintenant etre achetee.
+Cette demande d'achat a été approuvée directement par ${approver}.
+Elle saute l'approbation de Michelle et peut maintenant etre achetée.
 
 ${buildBuyerDecisionEmail(request, finalRequestUrl)}
   `.trim()
