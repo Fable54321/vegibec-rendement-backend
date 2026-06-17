@@ -7,6 +7,8 @@ import {
   buildAdminApprovalEmailHtml,
   buildBuyerDecisionEmail,
   buildBuyerDecisionEmailHtml,
+  buildRequesterDateChangedEmail,
+  buildRequesterDateChangedEmailHtml,
   buildAdminApprovalUrl,
   buildBuyerValidationUrl,
   buildFinalPurchaseRequestUrl,
@@ -54,6 +56,13 @@ const getPurchaseRequestRecipients = (request?: { request_email?: unknown }) => 
 
   return getEmailRecipients(...recipientEnvNames, TEMP_PURCHASE_REQUEST_RECIPIENT)
 }
+
+const getPurchaseRequestReplyToRecipients = () =>
+  getEmailRecipients(
+    "PURCHASE_BUYER_EMAIL",
+    "PURCHASE_EMAIL_COPY",
+    TEMP_PURCHASE_REQUEST_RECIPIENT
+  )
 
 const VALID_STATUSES = [
   "pending_buyer_validation",
@@ -836,6 +845,23 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
     `Michelle - décision requise pour la demande d'achat #${displayRequestNumber}`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
+  )
+}
+
+const requesterEmail =
+  typeof updatedRequest.request_email === "string"
+    ? updatedRequest.request_email.trim()
+    : ""
+
+if (updatedRequest.date_changed && requesterEmail) {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+
+  await sendPurchaseRequestEmailSafely(
+    requesterEmail,
+    `Mise a jour de la date pour votre demande d'achat #${displayRequestNumber}`,
+    buildRequesterDateChangedEmail(updatedRequest),
+    buildRequesterDateChangedEmailHtml(updatedRequest),
+    getPurchaseRequestReplyToRecipients()
   )
 }
 

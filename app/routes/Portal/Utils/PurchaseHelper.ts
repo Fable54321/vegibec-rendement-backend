@@ -1236,11 +1236,56 @@ export const buildBuyerDecisionEmailHtml = (
   `.trim()
 }
 
+export const buildRequesterDateChangedEmail = (request: any) => {
+  const originalDate = formatDateFr(request.needed_by_date)
+  const expectedDate = formatDateFr(request.expected_date || request.needed_by_date)
+
+  return `
+Bonjour${request.requested_by ? ` ${request.requested_by}` : ""},
+
+La date demandee pour le produit suivant ne pourra pas etre respectee :
+
+${request.description}
+
+Date demandee initialement : ${originalDate}
+Nouvelle date prevue : ${expectedDate}
+
+Si cette nouvelle date pose un probleme, veuillez communiquer avec Ricardo ou Michelle.
+
+Merci,
+Vegibec
+  `.trim()
+}
+
+export const buildRequesterDateChangedEmailHtml = (request: any) => {
+  return `
+    <div style="font-family: Arial, sans-serif; color: #1f2933; line-height: 1.5;">
+      <p>Bonjour${request.requested_by ? ` ${escapeHtml(request.requested_by)}` : ""},</p>
+      <p>
+        La date demandee pour le produit suivant ne pourra pas etre respectee.
+      </p>
+      <p><strong>Produit:</strong><br />${escapeHtml(request.description)}</p>
+      <p><strong>Date demandee initialement:</strong><br />${formatDateFr(
+        request.needed_by_date
+      )}</p>
+      <p><strong>Nouvelle date prevue:</strong><br />${formatDateFr(
+        request.expected_date || request.needed_by_date
+      )}</p>
+      <p>
+        Si cette nouvelle date pose un probleme, veuillez communiquer avec
+        Ricardo ou Michelle.
+      </p>
+      <p>Merci,<br />Vegibec</p>
+    </div>
+  `.trim()
+}
+
 export const sendPurchaseRequestEmailSafely = async (
   to: string,
   subject: string,
   text: string,
-  html?: string
+  html?: string,
+  replyTo?: string | string[]
 ) => {
   if (!to) return
 
@@ -1251,11 +1296,13 @@ export const sendPurchaseRequestEmailSafely = async (
       subject,
       text,
       html,
+      replyTo,
     })
 
     console.log("Purchase request email relay response:", {
       to,
       subject,
+      replyTo,
       messageId: emailInfo.messageId,
       accepted: emailInfo.accepted,
       rejected: emailInfo.rejected,
