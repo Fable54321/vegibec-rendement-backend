@@ -1324,18 +1324,19 @@ export const buildRequesterDateChangedEmailHtml = (request: any) => {
     <div style="font-family: Arial, sans-serif; color: #1f2933; line-height: 1.5;">
       <p>Bonjour${request.requested_by ? ` ${escapeHtml(request.requested_by)}` : ""},</p>
       <p>
-        La date demandee pour le produit suivant ne pourra pas etre respectee.
+        La date demandée pour le produit suivant ne pourra pas etre respectée.
       </p>
       <p><strong>Produit:</strong><br />${escapeHtml(request.description)}</p>
-      <p><strong>Date demandee initialement:</strong><br />${formatDateFr(
+      <p><strong>Date demandée initialement:</strong><br />${formatDateFr(
         request.needed_by_date
       )}</p>
-      <p><strong>Nouvelle date prevue:</strong><br />${formatDateFr(
+      <p><strong>Nouvelle date prévue:</strong><br />${formatDateFr(
         request.expected_date || request.needed_by_date
       )}</p>
       <p>
-        Si cette nouvelle date pose un probleme, veuillez communiquer avec
+        Si cette nouvelle date pose un problème, veuillez communiquer avec
         Ricardo ou Michelle.
+        La réponse à ce courriel est dirigée vers leurs deux boîtes courriel.
       </p>
       <p>Merci,<br />Vegibec</p>
     </div>
