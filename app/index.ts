@@ -51,6 +51,7 @@ import facebookRoute, { publicFacebookRouter } from "./routes/Facebook/PostToFac
 import getURlRoute from "./routes/Facebook/GetImageUrl";
 import unprotectedRoute from "./routes/Unprotected/Unprotected"
 import purchaseRequest from "./routes/Portal/PurchaseRequest";
+import buyingRoute from "./routes/Portal/BuyingRoute";
 
 
 
@@ -163,6 +164,7 @@ app.use("/picture-transfer", pictureTransferRoute);
 app.set("trust proxy", 1);
 
 app.use("/purchase-request", purchaseRequest);
+app.use("/buying", buyingRoute);
 
 app.use("/facebook", publicFacebookRouter);
 
