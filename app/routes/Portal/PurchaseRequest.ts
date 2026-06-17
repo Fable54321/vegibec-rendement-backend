@@ -271,6 +271,94 @@ router.get("/", readPurchaseRequestsLimiter, async (req, res) => {
 })
 
 // GET /api/purchase-requests/:id
+router.get(
+  [
+    "/:id/buyer-validation/:token",
+    "/:id/validation-prix/:token",
+    "/:id/admin-decision/:token",
+    "/:id/approbation-achat/:token",
+    "/:id/mark-purchased/:token",
+    "/:id/acheter/:token",
+  ],
+  readPurchaseRequestsLimiter,
+  async (req, res) => {
+    try {
+      const { id } = req.params
+      const purchaseRequestId = Number(id)
+
+      if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
+
+      const isBuyerValidationRoute =
+        req.path.includes("/buyer-validation/") ||
+        req.path.includes("/validation-prix/")
+      const isAdminDecisionRoute =
+        req.path.includes("/admin-decision/") ||
+        req.path.includes("/approbation-achat/")
+      const isMarkPurchasedRoute =
+        req.path.includes("/mark-purchased/") ||
+        req.path.includes("/acheter/")
+
+      const client = await pool.connect()
+
+      try {
+        let isTokenValid = false
+
+        if (isBuyerValidationRoute) {
+          isTokenValid = await validateBuyerValidationToken(
+            client,
+            purchaseRequestId,
+            getBuyerValidationTokenFromRequest(req)
+          )
+        }
+
+        if (isAdminDecisionRoute) {
+          isTokenValid = await validateAdminApprovalToken(
+            client,
+            purchaseRequestId,
+            getAdminApprovalTokenFromRequest(req)
+          )
+        }
+
+        if (isMarkPurchasedRoute) {
+          isTokenValid = await validatePurchaseToken(
+            client,
+            purchaseRequestId,
+            getPurchaseTokenFromRequest(req)
+          )
+        }
+
+        if (!isTokenValid) {
+          return res.status(403).json({
+            message: "Invalid, expired or already used token",
+          })
+        }
+
+        const result = await client.query(
+          `
+          SELECT pr.*
+          FROM portal.purchase_requests pr
+          WHERE pr.id = $1
+          `,
+          [purchaseRequestId]
+        )
+
+        if (result.rows.length === 0) {
+          return res.status(404).json({ message: "Purchase request not found" })
+        }
+
+        return res.json(result.rows[0])
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.error("Error fetching token-protected purchase request:", error)
+      return res.status(500).json({ message: "Error fetching purchase request" })
+    }
+  }
+)
+
 router.get("/:id", readPurchaseRequestsLimiter, async (req, res) => {
   try {
     const { id } = req.params
