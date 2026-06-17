@@ -563,10 +563,12 @@ const formatQuantity = (request: any) => {
     request.quantity === null || request.quantity === undefined || request.quantity === ""
       ? "Non indiquée"
       : String(request.quantity)
+  const rawQuantityFormat =
+    request.quantity_format ?? request.quantityFormat ?? request.format
   const quantityFormat =
-    typeof request.quantity_format === "string" ? request.quantity_format.trim() : ""
+    typeof rawQuantityFormat === "string" ? rawQuantityFormat.trim() : ""
 
-  return quantityFormat ? `${quantity} ${quantityFormat}` : quantity
+  return quantityFormat ? `${quantity} - ${quantityFormat}` : quantity
 }
 
 export const getPurchaseRequestDisplayNumber = (request: any) =>
