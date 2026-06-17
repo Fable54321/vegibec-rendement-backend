@@ -1305,7 +1305,7 @@ export const buildRequesterDateChangedEmail = (request: any) => {
   return `
 Bonjour${request.requested_by ? ` ${request.requested_by}` : ""},
 
-La date demandee pour le produit suivant ne pourra pas etre respectee :
+La date demandée pour le produit suivant ne pourra pas etre respectée :
 
 ${request.description}
 

@@ -331,7 +331,7 @@ router.get(
 
         if (!isTokenValid) {
           return res.status(403).json({
-            message: "Invalid, expired or already used token",
+            message: "Le lien n'est plus valide",
           })
         }
 
