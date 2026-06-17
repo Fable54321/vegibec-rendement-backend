@@ -9,6 +9,8 @@ import {
   buildBuyerDecisionEmailHtml,
   buildDirectApprovalBuyerDecisionEmail,
   buildDirectApprovalBuyerDecisionEmailHtml,
+  buildNewPurchaseRequestBatchEmail,
+  buildNewPurchaseRequestBatchEmailHtml,
   buildRequesterDateChangedEmail,
   buildRequesterDateChangedEmailHtml,
   buildAdminApprovalUrl,
@@ -30,6 +32,7 @@ import {
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
   sendPurchaseRequestEmailSafely,
+  uploadPurchaseRequestBatchPictures,
   uploadPurchaseRequestPictures,
   validateAdminApprovalToken,
   validateBuyerValidationToken,
@@ -74,6 +77,20 @@ const VALID_STATUSES = [
   "purchased",
   "cancelled",
 ]
+
+const MAX_BATCH_PURCHASE_ITEMS = 10
+const MAX_PICTURES_PER_BATCH_ITEM = 5
+
+type BatchPurchaseRequestItem = {
+  client_item_index?: unknown
+  description?: unknown
+  quantity?: unknown
+  quantity_format?: unknown
+  reason?: unknown
+  requested_unit_price?: unknown
+  product_link?: unknown
+  needed_by_date?: unknown
+}
 
 const formTokenLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
@@ -790,6 +807,437 @@ if (
 
       return res.status(500).json({
         message: "Error creating purchase request",
+      })
+    } finally {
+      client.release()
+    }
+  }
+)
+
+router.post(
+  "/batch",
+  createPurchaseRequestLimiter,
+  uploadPurchaseRequestBatchPictures.any(),
+  requireValidFormToken,
+  async (req, res) => {
+    const client = await pool.connect()
+    let transactionStarted = false
+
+    try {
+      const body = req.body ?? {}
+      const files = (req.files as Express.Multer.File[]) ?? []
+      const { requested_by, email, companyWebsite } = body
+
+      if (companyWebsite) {
+        return res.status(400).json({ message: "Invalid request" })
+      }
+
+      const cleanRequestedBy =
+        typeof requested_by === "string" ? requested_by.trim() : ""
+
+      const cleanRequestEmail =
+        typeof email === "string" && email.trim() !== ""
+          ? email.trim().toLowerCase()
+          : null
+
+      if (!cleanRequestedBy) {
+        return res.status(400).json({
+          message: "Le demandeur est requis",
+        })
+      }
+
+      if (cleanRequestedBy.length > 150) {
+        return res.status(400).json({
+          message: "Le nom du demandeur est trop long",
+        })
+      }
+
+      if (cleanRequestEmail && cleanRequestEmail.length > 254) {
+        return res.status(400).json({
+          message: "L'adresse courriel est trop longue",
+        })
+      }
+
+      if (
+        cleanRequestEmail &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanRequestEmail)
+      ) {
+        return res.status(400).json({
+          message: "L'adresse courriel est invalide",
+        })
+      }
+
+      let items: BatchPurchaseRequestItem[]
+
+      try {
+        items =
+          typeof body.items === "string" ? JSON.parse(body.items) : body.items
+      } catch {
+        return res.status(400).json({
+          message: "La liste des articles est invalide",
+        })
+      }
+
+      if (
+        !Array.isArray(items) ||
+        items.length < 2 ||
+        items.length > MAX_BATCH_PURCHASE_ITEMS
+      ) {
+        return res.status(400).json({
+          message: `La demande doit contenir entre 2 et ${MAX_BATCH_PURCHASE_ITEMS} articles`,
+        })
+      }
+
+      const picturesByItemIndex = new Map<number, Express.Multer.File[]>()
+
+      for (const file of files) {
+        const fieldMatch = /^pictures_(\d+)$/.exec(file.fieldname)
+
+        if (!fieldMatch) {
+          return res.status(400).json({
+            message: "Champ de photo invalide",
+          })
+        }
+
+        const itemIndex = Number(fieldMatch[1])
+
+        if (
+          !Number.isInteger(itemIndex) ||
+          itemIndex < 0 ||
+          itemIndex >= items.length
+        ) {
+          return res.status(400).json({
+            message: "Photo associée à un article invalide",
+          })
+        }
+
+        const itemPictures = picturesByItemIndex.get(itemIndex) ?? []
+        itemPictures.push(file)
+
+        if (itemPictures.length > MAX_PICTURES_PER_BATCH_ITEM) {
+          return res.status(400).json({
+            message: `Maximum ${MAX_PICTURES_PER_BATCH_ITEM} photos par article`,
+          })
+        }
+
+        picturesByItemIndex.set(itemIndex, itemPictures)
+      }
+
+      const cleanedItems = items.map((item, index) => {
+        const cleanDescription =
+          typeof item.description === "string" ? item.description.trim() : ""
+
+        const cleanQuantityFormat =
+          typeof item.quantity_format === "string" &&
+          item.quantity_format.trim() !== ""
+            ? item.quantity_format.trim().replace(/\s+/g, " ")
+            : null
+
+        const cleanReason =
+          typeof item.reason === "string" && item.reason.trim() !== ""
+            ? item.reason.trim()
+            : null
+
+        const cleanProductLink =
+          typeof item.product_link === "string" &&
+          item.product_link.trim() !== ""
+            ? item.product_link.trim()
+            : null
+
+        const cleanExpectedDate =
+          typeof item.needed_by_date === "string" &&
+          item.needed_by_date.trim() !== ""
+            ? item.needed_by_date.trim()
+            : null
+
+        const cleanQuantity =
+          item.quantity === undefined ||
+          item.quantity === null ||
+          item.quantity === ""
+            ? null
+            : Number(item.quantity)
+
+        const cleanUnitPrice =
+          item.requested_unit_price === "" ||
+          item.requested_unit_price === undefined ||
+          item.requested_unit_price === null
+            ? null
+            : Number(item.requested_unit_price)
+
+        if (!cleanDescription) {
+          throw new Error(`Article ${index + 1}: la description est requise`)
+        }
+
+        if (cleanDescription.length > 1000) {
+          throw new Error(`Article ${index + 1}: la description est trop longue`)
+        }
+
+        if (cleanQuantityFormat && cleanQuantityFormat.length > 80) {
+          throw new Error(
+            `Article ${index + 1}: le format de quantité est trop long`
+          )
+        }
+
+        if (cleanReason && cleanReason.length > 2000) {
+          throw new Error(
+            `Article ${index + 1}: la justification est trop longue`
+          )
+        }
+
+        if (cleanProductLink && cleanProductLink.length > 2000) {
+          throw new Error(
+            `Article ${index + 1}: le lien du produit est trop long`
+          )
+        }
+
+        if (cleanProductLink) {
+          try {
+            const url = new URL(cleanProductLink)
+
+            if (!["http:", "https:"].includes(url.protocol)) {
+              throw new Error("Invalid protocol")
+            }
+          } catch {
+            throw new Error(`Article ${index + 1}: le lien du produit est invalide`)
+          }
+        }
+
+        if (
+          cleanQuantity === null ||
+          !Number.isFinite(cleanQuantity) ||
+          cleanQuantity <= 0 ||
+          !Number.isInteger(cleanQuantity)
+        ) {
+          throw new Error(
+            `Article ${index + 1}: la quantité doit être un nombre entier supérieur à 0`
+          )
+        }
+
+        if (
+          cleanUnitPrice !== null &&
+          (!Number.isFinite(cleanUnitPrice) || cleanUnitPrice < 0)
+        ) {
+          throw new Error(`Article ${index + 1}: le prix doit être valide`)
+        }
+
+        if (cleanExpectedDate) {
+          const date = new Date(`${cleanExpectedDate}T00:00:00`)
+
+          if (
+            Number.isNaN(date.getTime()) ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(cleanExpectedDate)
+          ) {
+            throw new Error(
+              `Article ${index + 1}: la date souhaitée est invalide`
+            )
+          }
+        }
+
+        return {
+          clientItemIndex:
+            typeof item.client_item_index === "number" &&
+            Number.isInteger(item.client_item_index)
+              ? item.client_item_index
+              : index,
+          description: cleanDescription,
+          quantity: cleanQuantity,
+          quantityFormat: cleanQuantityFormat,
+          reason: cleanReason,
+          requestedUnitPrice: cleanUnitPrice,
+          requestedTotalPrice:
+            cleanUnitPrice !== null ? cleanUnitPrice * cleanQuantity : null,
+          productLink: cleanProductLink,
+          neededByDate: cleanExpectedDate,
+          urgency: getUrgencyFromExpectedDate(cleanExpectedDate),
+        }
+      })
+
+      const formToken = (req as any).purchaseRequestFormToken
+      const batchId = crypto.randomUUID()
+      const createdRequests: any[] = []
+      const createdEmailPayloads: {
+        request: any
+        pictureKeys: string[]
+        pictures: Express.Multer.File[]
+        buyerValidationUrl: string
+      }[] = []
+
+      await client.query("BEGIN")
+      transactionStarted = true
+
+      const tokenResult = await client.query(
+        `
+        UPDATE portal.purchase_request_form_tokens
+        SET used_at = now()
+        WHERE token = $1
+          AND used_at IS NULL
+          AND expires_at > now()
+        RETURNING id
+        `,
+        [formToken]
+      )
+
+      if (tokenResult.rows.length === 0) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
+
+        return res.status(403).json({
+          message: "Jeton de formulaire invalide ou expiré",
+        })
+      }
+
+      for (let index = 0; index < cleanedItems.length; index += 1) {
+        const item = cleanedItems[index]
+        const requestReference = await getNextPurchaseRequestReference(client)
+
+        const result = await client.query(
+          `
+          INSERT INTO portal.purchase_requests (
+            request_reference,
+            batch_id,
+            batch_item_index,
+            batch_item_count,
+            requested_by,
+            description,
+            quantity,
+            quantity_format,
+            reason,
+            urgency,
+            requested_unit_price,
+            requested_total_price,
+            product_link,
+            needed_by_date,
+            status,
+            request_email
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11, $12,
+            $13, $14, 'pending_buyer_validation', $15
+          )
+          RETURNING *
+          `,
+          [
+            requestReference,
+            batchId,
+            item.clientItemIndex,
+            cleanedItems.length,
+            cleanRequestedBy,
+            item.description,
+            item.quantity,
+            item.quantityFormat,
+            item.reason,
+            item.urgency,
+            item.requestedUnitPrice,
+            item.requestedTotalPrice,
+            item.productLink,
+            item.neededByDate,
+            cleanRequestEmail,
+          ]
+        )
+
+        let createdRequest = result.rows[0]
+        const pictures = picturesByItemIndex.get(index) ?? []
+
+        const pictureKeys = await Promise.all(
+          pictures.map((picture, pictureIndex) => {
+            const key = createPurchaseRequestPictureKey(
+              createdRequest.id,
+              picture,
+              pictureIndex
+            )
+
+            return uploadBufferToS3({
+              key,
+              buffer: picture.buffer,
+              contentType: picture.mimetype,
+            })
+          })
+        )
+
+        if (pictureKeys.length > 0) {
+          const updatedRequestResult = await client.query(
+            `
+            UPDATE portal.purchase_requests
+            SET picture_keys = $1
+            WHERE id = $2
+            RETURNING *
+            `,
+            [pictureKeys, createdRequest.id]
+          )
+
+          createdRequest = updatedRequestResult.rows[0]
+        }
+
+        const buyerValidationToken = await createBuyerValidationToken(
+          client,
+          createdRequest.id
+        )
+
+        createdRequests.push(createdRequest)
+        createdEmailPayloads.push({
+          request: createdRequest,
+          pictureKeys,
+          pictures,
+          buyerValidationUrl: buildBuyerValidationUrl(
+            req,
+            createdRequest.id,
+            buyerValidationToken
+          ),
+        })
+      }
+
+      await client.query("COMMIT")
+      transactionStarted = false
+
+      const batchEmailItems = await Promise.all(
+        createdEmailPayloads.map(async (emailPayload) => ({
+          request: emailPayload.request,
+          pictureLinks: await buildPictureEmailLinks(
+            emailPayload.pictureKeys,
+            emailPayload.pictures
+          ),
+          buyerValidationUrl: emailPayload.buyerValidationUrl,
+        }))
+      )
+
+      const firstDisplayRequestNumber = getPurchaseRequestDisplayNumber(
+        createdRequests[0]
+      )
+      const lastDisplayRequestNumber = getPurchaseRequestDisplayNumber(
+        createdRequests[createdRequests.length - 1]
+      )
+      const emailRecipients = getPurchaseRequestRecipients(createdRequests[0])
+
+      await sendPurchaseRequestEmailSafely(
+        emailRecipients,
+        `Ricardo - nouvelle demande d'achat groupée (${createdRequests.length} articles) #${firstDisplayRequestNumber} à #${lastDisplayRequestNumber}`,
+        buildNewPurchaseRequestBatchEmail(batchEmailItems),
+        buildNewPurchaseRequestBatchEmailHtml(batchEmailItems)
+      )
+
+      return res.status(201).json({
+        batch_id: batchId,
+        purchase_requests: createdRequests,
+      })
+    } catch (error) {
+      if (transactionStarted) {
+        await client.query("ROLLBACK")
+      }
+
+      const message =
+        error instanceof Error && error.message.startsWith("Article ")
+          ? error.message
+          : "Error creating purchase request batch"
+
+      if (error instanceof Error && error.message.startsWith("Article ")) {
+        return res.status(400).json({ message })
+      }
+
+      console.error("Error creating purchase request batch:", error)
+
+      return res.status(500).json({
+        message,
       })
     } finally {
       client.release()

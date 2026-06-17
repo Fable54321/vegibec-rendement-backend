@@ -91,6 +91,22 @@ export const uploadPurchaseRequestPictures = multer({
   },
 })
 
+export const uploadPurchaseRequestBatchPictures = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 50,
+    fileSize: 7 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      cb(new Error("Only image files are allowed"))
+      return
+    }
+
+    cb(null, true)
+  },
+})
+
 export const uploadPurchaseRequestDocuments = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -649,6 +665,12 @@ const formatPictureLinksForEmailHtml = (pictureLinks: PictureEmailLink[]) => {
   `
 }
 
+type BatchPurchaseRequestEmailItem = {
+  request: any
+  pictureLinks?: PictureEmailLink[]
+  buyerValidationUrl: string
+}
+
 export const buildNewPurchaseRequestEmail = (
   request: any,
   pictureLinks: PictureEmailLink[] = [],
@@ -783,6 +805,201 @@ export const buildNewPurchaseRequestEmailHtml = (
 
       <p><strong>Prochaine étape:</strong><br />
       Ricardo doit confirmer le prix avec le lien de validation.</p>
+    </div>
+  `.trim()
+}
+
+export const buildNewPurchaseRequestBatchEmail = (
+  items: BatchPurchaseRequestEmailItem[]
+) => {
+  const firstRequest = items[0]?.request ?? {}
+  const totalEstimatedPrice = items.reduce((total, item) => {
+    const value = Number(item.request.requested_total_price)
+
+    return Number.isFinite(value) ? total + value : total
+  }, 0)
+  const hasEstimatedTotal = items.some(
+    (item) => item.request.requested_total_price !== null
+  )
+
+  const itemSummaries = items
+    .map((item, index) => {
+      const request = item.request
+      const pictureLinks = item.pictureLinks ?? []
+      const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+      const pictureExpiryText =
+        pictureLinks.length > 0
+          ? "\nLes liens des photos expirent dans 7 jours."
+          : ""
+
+      return `
+Article ${index + 1} - demande #${displayRequestNumber}
+Description: ${request.description}
+Justification: ${request.reason || "Aucune justification indiquée"}
+Quantité: ${formatQuantity(request)}
+Prix unitaire estimé: ${formatMoney(request.requested_unit_price)}
+Prix total estimé: ${formatMoney(request.requested_total_price)}
+Lien produit: ${request.product_link || "Aucun lien indiqué"}
+Date requise: ${formatDateFr(request.needed_by_date)}
+Urgence: ${request.urgency || "Normal"}
+Photos:
+${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
+Lien de validation pour Ricardo:
+${item.buyerValidationUrl}
+      `.trim()
+    })
+    .join("\n\n---\n\n")
+
+  return `
+Une nouvelle demande d'achat avec plusieurs articles a été soumise.
+
+Nombre d'articles:
+${items.length}
+
+Demandeur:
+${firstRequest.requested_by || "Non indiqué"}
+
+Courriel du demandeur:
+${formatRequesterEmail(firstRequest)}
+
+Total estimé du lot:
+${hasEstimatedTotal ? formatMoney(totalEstimatedPrice) : "Non indiqué"}
+
+Articles:
+
+${itemSummaries}
+
+Prochaine étape:
+Ricardo doit confirmer le prix de chaque article avec son lien de validation.
+  `.trim()
+}
+
+export const buildNewPurchaseRequestBatchEmailHtml = (
+  items: BatchPurchaseRequestEmailItem[]
+) => {
+  const firstRequest = items[0]?.request ?? {}
+  const totalEstimatedPrice = items.reduce((total, item) => {
+    const value = Number(item.request.requested_total_price)
+
+    return Number.isFinite(value) ? total + value : total
+  }, 0)
+  const hasEstimatedTotal = items.some(
+    (item) => item.request.requested_total_price !== null
+  )
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h2>Nouvelle demande d'achat - ${items.length} articles</h2>
+
+      <p>Une nouvelle demande d'achat avec plusieurs articles a été soumise.</p>
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(
+        firstRequest.requested_by || "Non indiqué"
+      )}</p>
+      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
+        formatRequesterEmail(firstRequest)
+      )}</p>
+      <p><strong>Total estimé du lot:</strong><br />${
+        hasEstimatedTotal ? formatMoney(totalEstimatedPrice) : "Non indiqué"
+      }</p>
+
+      ${items
+        .map((item, index) => {
+          const request = item.request
+          const pictureLinks = item.pictureLinks ?? []
+          const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+          const productLinkUrl = getSafeHttpUrl(request.product_link)
+          const safeBuyerValidationUrl = escapeHtml(item.buyerValidationUrl)
+
+          return `
+            <div style="border:1px solid #cbd5e1;border-radius:8px;padding:14px 16px;margin:16px 0;background:#f8fafc;">
+              <h3 style="margin:0 0 10px 0;color:#166534;">
+                Article ${index + 1} - demande #${escapeHtml(displayRequestNumber)}
+              </h3>
+
+              <table style="width:100%;border-collapse:collapse;">
+                <tbody>
+                  <tr>
+                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;width:160px;">Description</td>
+                    <td style="padding:6px 0;">${escapeHtml(request.description)}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Justification</td>
+                    <td style="padding:6px 0;">${
+                      request.reason
+                        ? escapeHtml(request.reason)
+                        : "Aucune justification indiquée"
+                    }</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Quantité</td>
+                    <td style="padding:6px 0;">${escapeHtml(
+                      formatQuantity(request)
+                    )}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Prix estimé</td>
+                    <td style="padding:6px 0;">
+                      ${formatMoney(request.requested_unit_price)} / unité<br />
+                      Total: ${formatMoney(request.requested_total_price)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Date requise</td>
+                    <td style="padding:6px 0;">${formatDateFr(
+                      request.needed_by_date
+                    )}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Urgence</td>
+                    <td style="padding:6px 0;">${escapeHtml(
+                      request.urgency || "Normal"
+                    )}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Lien produit</td>
+                    <td style="padding:6px 0;">
+                      ${
+                        productLinkUrl
+                          ? `<a href="${escapeHtml(
+                              productLinkUrl
+                            )}" target="_blank" rel="noopener noreferrer">Voir le produit</a>`
+                          : "Aucun lien indiqué"
+                      }
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p><strong>Photos:</strong></p>
+              ${formatPictureLinksForEmailHtml(pictureLinks)}
+
+              <p>
+                <a
+                  href="${safeBuyerValidationUrl}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+                >
+                  Ricardo - vérifier le prix de l'article ${index + 1}
+                </a>
+              </p>
+
+              <p style="color:#475569;font-size:13px;">
+                Lien direct:<br />
+                <a href="${safeBuyerValidationUrl}" target="_blank" rel="noopener noreferrer">
+                  ${safeBuyerValidationUrl}
+                </a>
+              </p>
+            </div>
+          `
+        })
+        .join("")}
+
+      <hr />
+
+      <p><strong>Prochaine étape:</strong><br />
+      Ricardo doit confirmer le prix de chaque article avec son lien de validation.</p>
     </div>
   `.trim()
 }
