@@ -881,143 +881,192 @@ router.patch(
   ["/:id/admin-decision", "/:id/admin-decision/:token"],
   actionPurchaseRequestLimiter,
   async (req, res) => {
-  const client = await pool.connect()
-  try {
-    const { id } = req.params
-    const purchaseRequestId = Number(id)
-    const {  approved, admin_note, rejection_reason } = req.body
+    const client = await pool.connect()
 
+    try {
+      const { id } = req.params
+      const purchaseRequestId = Number(id)
 
-    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
-      return res.status(404).json({ message: "Purchase request not found" })
-    }
+      const { decision, admin_note, rejection_reason } = req.body ?? {}
 
-    if (typeof approved !== "boolean") {
-      return res.status(400).json({ message: "La décision est requise" })
-    }
+      if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
 
-    const adminApprovalToken = getAdminApprovalTokenFromRequest(req)
+      const validDecisions = ["approved", "rejected", "on_wait"]
 
-    await client.query("BEGIN")
+      if (!validDecisions.includes(decision)) {
+        return res.status(400).json({ message: "La décision est requise" })
+      }
 
-    const isAdminApprovalTokenValid = await validateAdminApprovalToken(
-      client,
-      purchaseRequestId,
-      adminApprovalToken
-    )
+      if (decision === "rejected" && !String(rejection_reason || "").trim()) {
+        return res.status(400).json({
+          message: "La raison du refus est requise",
+        })
+      }
 
-    if (!isAdminApprovalTokenValid || !adminApprovalToken) {
-      await client.query("ROLLBACK")
+      if (decision === "on_wait" && !String(admin_note || "").trim()) {
+        return res.status(400).json({
+          message: "La raison de la mise en attente est requise",
+        })
+      }
 
-      return res.status(403).json({
-        message: "Invalid or expired admin approval token",
-      })
-    }
+      const adminApprovalToken = getAdminApprovalTokenFromRequest(req)
 
-    const currentRequest = await client.query(
-      `
-      SELECT *
-      FROM portal.purchase_requests
-      WHERE id = $1
-      `,
-      [purchaseRequestId]
-    )
+      await client.query("BEGIN")
 
-    if (currentRequest.rows.length === 0) {
-      await client.query("ROLLBACK")
-
-      return res.status(404).json({ message: "Purchase request not found" })
-    }
-
-    if (currentRequest.rows[0].status !== "pending_admin_approval") {
-      await client.query("ROLLBACK")
-
-      return res.status(400).json({
-        message: "This request is not pending admin approval",
-      })
-    }
-
-    const newStatus = approved ? "ready_to_purchase" : "rejected"
-
-    const result = await client.query(
-      `
-      UPDATE portal.purchase_requests
-      SET
-        admin_decision_at = now(),
-        admin_note = $1,
-        status = $2,
-        rejection_reason = $3
-      WHERE id = $4
-      RETURNING *
-      `,
-      [
-        admin_note || null,
-        newStatus,
-        approved ? null : rejection_reason || null,
+      const isAdminApprovalTokenValid = await validateAdminApprovalToken(
+        client,
         purchaseRequestId,
-      ]
-    )
+        adminApprovalToken,
+      )
 
-    const updatedRequest = result.rows[0]
-    const purchaseToken =
-      updatedRequest.status === "ready_to_purchase"
-        ? await createPurchaseToken(client, updatedRequest.id)
-        : null
+      if (!isAdminApprovalTokenValid || !adminApprovalToken) {
+        await client.query("ROLLBACK")
 
-    await markAdminApprovalTokenUsed(
-      client,
-      purchaseRequestId,
-      adminApprovalToken
-    )
+        return res.status(403).json({
+          message: "Invalid or expired admin approval token",
+        })
+      }
 
-    await client.query("COMMIT")
+      const currentRequest = await client.query(
+        `
+        SELECT *
+        FROM portal.purchase_requests
+        WHERE id = $1
+        `,
+        [purchaseRequestId],
+      )
 
-const finalRequestUrl = buildFinalPurchaseRequestUrl(
-  req,
-  updatedRequest.id,
-  purchaseToken
+      if (currentRequest.rows.length === 0) {
+        await client.query("ROLLBACK")
+
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
+
+      if (currentRequest.rows[0].status !== "pending_admin_approval") {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message: "This request is not pending admin approval",
+        })
+      }
+
+      const newStatus =
+        decision === "approved"
+          ? "ready_to_purchase"
+          : decision === "rejected"
+            ? "rejected"
+            : "admin_on_wait"
+
+      const result = await client.query(
+        `
+        UPDATE portal.purchase_requests
+        SET
+          admin_decision_at = now(),
+          admin_note = $1,
+          status = $2,
+          rejection_reason = $3
+        WHERE id = $4
+        RETURNING *
+        `,
+        [
+          admin_note || null,
+          newStatus,
+          decision === "rejected" ? rejection_reason.trim() : null,
+          purchaseRequestId,
+        ],
+      )
+
+      const updatedRequest = result.rows[0]
+
+      const purchaseToken =
+        updatedRequest.status === "ready_to_purchase"
+          ? await createPurchaseToken(client, updatedRequest.id)
+          : null
+
+      await markAdminApprovalTokenUsed(
+        client,
+        purchaseRequestId,
+        adminApprovalToken,
+      )
+
+      await client.query("COMMIT")
+
+      const finalRequestUrl =
+  purchaseToken && updatedRequest.status === "ready_to_purchase"
+    ? buildFinalPurchaseRequestUrl(
+        req,
+        updatedRequest.id,
+        purchaseToken,
+      )
+    : null
+
+      const displayRequestNumber =
+        getPurchaseRequestDisplayNumber(updatedRequest)
+
+      const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+
+      if (decision === "approved" || decision === "rejected") {
+        await sendPurchaseRequestEmailSafely(
+          emailRecipients,
+          decision === "approved"
+            ? `Ricardo - demande d'achat #${displayRequestNumber} approuvée, achat à faire`
+            : `Ricardo - demande d'achat #${displayRequestNumber} refusée`,
+          buildBuyerDecisionEmail(updatedRequest, finalRequestUrl),
+          buildBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl),
+        )
+      }
+
+      if (decision === "on_wait") {
+        await sendPurchaseRequestEmailSafely(
+          emailRecipients,
+          `Ricardo - demande d'achat #${displayRequestNumber} mise en attente`,
+          `La demande d'achat #${displayRequestNumber} a été mise en attente par Michelle.
+
+Produit :
+${updatedRequest.description}
+
+Raison :
+${updatedRequest.admin_note || "Aucune raison indiquée"}`,
+        )
+      }
+
+      const requesterEmail =
+        typeof updatedRequest.request_email === "string"
+          ? updatedRequest.request_email.trim()
+          : ""
+
+      if (requesterEmail) {
+        const requesterMessage =
+          decision === "approved"
+            ? `Votre demande d'achat a été approuvée par Michelle et est maintenant entre les mains de Ricardo pour l'achat du produit :\n${updatedRequest.description}`
+            : decision === "rejected"
+              ? `Votre demande d'achat a été refusée par Michelle pour le produit :\n${updatedRequest.description}\n\nRaison du refus :\n${
+                  updatedRequest.rejection_reason || "Aucune raison indiquée"
+                }`
+              : `Votre demande d'achat a été mise en attente par Michelle pour le produit :\n${updatedRequest.description}\n\nRaison :\n${
+                  updatedRequest.admin_note || "Aucune raison indiquée"
+                }`
+
+        await sendPurchaseRequestEmailSafely(
+          requesterEmail,
+          `Réponse à votre demande d'achat`,
+          requesterMessage,
+        )
+      }
+
+      res.json(updatedRequest)
+    } catch (error) {
+      await client.query("ROLLBACK")
+
+      console.error("Error saving admin decision:", error)
+      res.status(500).json({ message: "Error saving admin decision" })
+    } finally {
+      client.release()
+    }
+  },
 )
-const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
-const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
-
-await sendPurchaseRequestEmailSafely(
-  emailRecipients,
-  approved
-    ? `Ricardo - demande d'achat #${displayRequestNumber} approuvée, achat à faire`
-    : `Ricardo - demande d'achat #${displayRequestNumber} refusée`,
-  buildBuyerDecisionEmail(updatedRequest, finalRequestUrl),
-  buildBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
-)
-
-const requesterEmail =
-  typeof updatedRequest.request_email === "string"
-    ? updatedRequest.request_email.trim()
-    : ""
-
-if (requesterEmail) {
-  const requesterMessage = approved
-    ? `Votre demande d'achat a été approuvée par Michelle et est maintenant entre les mains de Ricardo pour l'achat du produit :\n${updatedRequest.description}`
-    : `Votre demande d'achat a été refusée par Michelle pour le produit :\n${updatedRequest.description}\n\nRaison du refus :\n${
-        updatedRequest.rejection_reason || "Aucune raison indiquée"
-      }`
-
-  await sendPurchaseRequestEmailSafely(
-    emailRecipients,
-    `Réponse à votre demande d'achat`,
-    requesterMessage
-  )
-}
-
-res.json(updatedRequest)
-  } catch (error) {
-    await client.query("ROLLBACK")
-
-    console.error("Error saving admin decision:", error)
-    res.status(500).json({ message: "Error saving admin decision" })
-  } finally {
-    client.release()
-  }
-})
 
 router.patch(
   ["/:id/mark-purchased", "/:id/mark-purchased/:token"],

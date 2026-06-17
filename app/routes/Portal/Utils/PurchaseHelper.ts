@@ -1129,9 +1129,13 @@ export const buildBuyerPriceConfirmedEmailHtml = (
   `.trim()
 }
 
-export const buildBuyerDecisionEmail = (request: any, finalRequestUrl: string) => {
+export const buildBuyerDecisionEmail = (
+  request: any,
+  finalRequestUrl?: string | null
+) => {
   const approved = request.status === "ready_to_purchase"
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+
   const firstLine = approved
     ? `${PURCHASE_BUYER_NAME} - demande d'achat #${displayRequestNumber} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
     : `Demande d'achat #${displayRequestNumber} refusée par ${PURCHASE_ADMIN_NAME}`
@@ -1160,8 +1164,12 @@ ${formatMoney(request.buyer_confirmed_total_price)}
 Décision:
 ${approved ? "Approuvée pour achat" : "Refusée"}
 
-Lien de la demande:
-${finalRequestUrl}
+${
+  finalRequestUrl
+    ? `Lien de la demande:
+${finalRequestUrl}`
+    : ""
+}
 
 Note de Ricardo:
 ${request.buyer_note || "Aucune note"}
@@ -1179,14 +1187,18 @@ ${
 
 export const buildBuyerDecisionEmailHtml = (
   request: any,
-  finalRequestUrl: string
+  finalRequestUrl?: string | null
 ) => {
   const approved = request.status === "ready_to_purchase"
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+
   const firstLine = approved
     ? `${PURCHASE_BUYER_NAME} demande d'achat #${displayRequestNumber} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
     : `Demande d'achat #${displayRequestNumber} refusée par ${PURCHASE_ADMIN_NAME}`
-  const safeFinalRequestUrl = escapeHtml(finalRequestUrl)
+
+  const safeFinalRequestUrl = finalRequestUrl
+    ? escapeHtml(finalRequestUrl)
+    : ""
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
@@ -1208,23 +1220,29 @@ export const buildBuyerDecisionEmailHtml = (
         approved ? "Approuvée pour achat" : "Refusée"
       }</p>
 
-      <p>
-        <a
-          href="${safeFinalRequestUrl}"
-          target="_blank"
-          rel="noopener noreferrer"
-          style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
-        >
-          Ricardo - Rappel de la demande
-        </a>
-      </p>
+      ${
+        safeFinalRequestUrl
+          ? `
+            <p>
+              <a
+                href="${safeFinalRequestUrl}"
+                target="_blank"
+                rel="noopener noreferrer"
+                style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+              >
+                Ricardo - Rappel de la demande
+              </a>
+            </p>
 
-      <p style="color:#475569;font-size:13px;">
-        Lien direct:<br />
-        <a href="${safeFinalRequestUrl}" target="_blank" rel="noopener noreferrer">
-          ${safeFinalRequestUrl}
-        </a>
-      </p>
+            <p style="color:#475569;font-size:13px;">
+              Lien direct:<br />
+              <a href="${safeFinalRequestUrl}" target="_blank" rel="noopener noreferrer">
+                ${safeFinalRequestUrl}
+              </a>
+            </p>
+          `
+          : ""
+      }
 
       <p><strong>Note de Ricardo:</strong><br />${escapeHtml(
         request.buyer_note || "Aucune note"
