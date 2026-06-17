@@ -7,6 +7,8 @@ import {
   buildAdminApprovalEmailHtml,
   buildBuyerDecisionEmail,
   buildBuyerDecisionEmailHtml,
+  buildDirectApprovalBuyerDecisionEmail,
+  buildDirectApprovalBuyerDecisionEmailHtml,
   buildRequesterDateChangedEmail,
   buildRequesterDateChangedEmailHtml,
   buildAdminApprovalUrl,
@@ -700,6 +702,8 @@ const {
   reject,
   rejection_reason,
   expected_date,
+  direct_approval_requested,
+  direct_approval_approver,
 } = req.body
 
     if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
@@ -748,7 +752,17 @@ const {
       })
     }
 
-    let newStatus = "pending_admin_approval"
+const cleanDirectApprovalRequested = direct_approval_requested === true
+const cleanDirectApprovalApprover =
+  cleanDirectApprovalRequested &&
+  typeof direct_approval_approver === "string" &&
+  direct_approval_approver.trim()
+    ? direct_approval_approver.trim()
+    : null
+
+    let newStatus = cleanDirectApprovalRequested
+      ? "ready_to_purchase"
+      : "pending_admin_approval"
 
     if (needs_requester_info) {
       newStatus = "needs_requester_info"
@@ -798,8 +812,11 @@ const result = await client.query(
     status = $6,
     rejection_reason = $7,
     expected_date = $8,
-    date_changed = $9
-  WHERE id = $10
+    date_changed = $9,
+    direct_approval_requested = $10,
+    direct_approval_approver = $11,
+    direct_approval_requested_at = CASE WHEN $10 THEN now() ELSE NULL END
+  WHERE id = $12
   RETURNING *
   `,
   [
@@ -812,6 +829,8 @@ const result = await client.query(
     rejection_reason || null,
     finalExpectedDate,
     dateChanged,
+    cleanDirectApprovalRequested,
+    cleanDirectApprovalApprover,
     purchaseRequestId,
   ]
 )
@@ -820,6 +839,10 @@ const result = await client.query(
     const adminApprovalToken =
       updatedRequest.status === "pending_admin_approval"
         ? await createAdminApprovalToken(client, updatedRequest.id)
+        : null
+    const purchaseToken =
+      updatedRequest.status === "ready_to_purchase"
+        ? await createPurchaseToken(client, updatedRequest.id)
         : null
 
     await markBuyerValidationTokenUsed(
@@ -845,6 +868,23 @@ if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
     `Michelle - décision requise pour la demande d'achat #${displayRequestNumber}`,
     buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
     buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
+  )
+}
+
+if (updatedRequest.status === "ready_to_purchase" && purchaseToken) {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+  const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+  const finalRequestUrl = buildFinalPurchaseRequestUrl(
+    req,
+    updatedRequest.id,
+    purchaseToken
+  )
+
+  await sendPurchaseRequestEmailSafely(
+    emailRecipients,
+    `Ricardo - APPROBATION DIRECTE - demande d'achat #${displayRequestNumber}, achat a faire`,
+    buildDirectApprovalBuyerDecisionEmail(updatedRequest, finalRequestUrl),
+    buildDirectApprovalBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
   )
 }
 

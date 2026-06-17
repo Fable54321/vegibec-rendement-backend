@@ -1254,6 +1254,48 @@ export const buildBuyerDecisionEmailHtml = (
   `.trim()
 }
 
+const getDirectApprovalApprover = (request: any) => {
+  return typeof request.direct_approval_approver === "string" &&
+    request.direct_approval_approver.trim()
+    ? request.direct_approval_approver.trim()
+    : "Non indique"
+}
+
+export const buildDirectApprovalBuyerDecisionEmail = (
+  request: any,
+  finalRequestUrl?: string | null
+) => {
+  const approver = getDirectApprovalApprover(request)
+
+  return `
+IMPORTANT - APPROBATION DIRECTE
+Cette demande d'achat a ete approuvee directement par ${approver}.
+Elle saute l'approbation de Michelle et peut maintenant etre achetee.
+
+${buildBuyerDecisionEmail(request, finalRequestUrl)}
+  `.trim()
+}
+
+export const buildDirectApprovalBuyerDecisionEmailHtml = (
+  request: any,
+  finalRequestUrl?: string | null
+) => {
+  const approver = getDirectApprovalApprover(request)
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <div style="background:#dc2626;color:#ffffff;padding:16px 18px;border-radius:6px;margin:0 0 18px;font-size:18px;font-weight:800;text-transform:uppercase;">
+        APPROBATION DIRECTE - approuvee par ${escapeHtml(approver)}
+      </div>
+      <p style="color:#b91c1c;font-weight:700;font-size:16px;">
+        Cette demande saute l'approbation de Michelle et peut maintenant etre
+        achetee.
+      </p>
+      ${buildBuyerDecisionEmailHtml(request, finalRequestUrl)}
+    </div>
+  `.trim()
+}
+
 export const buildRequesterDateChangedEmail = (request: any) => {
   const originalDate = formatDateFr(request.needed_by_date)
   const expectedDate = formatDateFr(request.expected_date || request.needed_by_date)
