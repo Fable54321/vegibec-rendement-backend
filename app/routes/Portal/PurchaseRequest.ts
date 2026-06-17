@@ -367,6 +367,43 @@ router.get("/:id", readPurchaseRequestsLimiter, async (req, res) => {
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
+    const suppliedToken =
+      getBuyerValidationTokenFromRequest(req) ||
+      getAdminApprovalTokenFromRequest(req) ||
+      getPurchaseTokenFromRequest(req)
+
+    if (suppliedToken) {
+      const purchaseRequestId = Number(id)
+      const client = await pool.connect()
+
+      try {
+        const isTokenValid =
+          (await validateBuyerValidationToken(
+            client,
+            purchaseRequestId,
+            getBuyerValidationTokenFromRequest(req)
+          )) ||
+          (await validateAdminApprovalToken(
+            client,
+            purchaseRequestId,
+            getAdminApprovalTokenFromRequest(req)
+          )) ||
+          (await validatePurchaseToken(
+            client,
+            purchaseRequestId,
+            getPurchaseTokenFromRequest(req)
+          ))
+
+        if (!isTokenValid) {
+          return res.status(403).json({
+            message: "Le lien n'est plus valide",
+          })
+        }
+      } finally {
+        client.release()
+      }
+    }
+
 const result = await pool.query(
   `
   SELECT pr.*
