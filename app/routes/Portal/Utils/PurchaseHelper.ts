@@ -677,7 +677,7 @@ const formatRequestItemsForEmail = (
           `Prix total confirmé: ${formatMoney(item.buyer_confirmed_total_price)}`
         )
         lines.push(
-          `Fournisseur confirmé: ${item.buyer_confirmed_supplier || "Non indiqué"}`
+          `Fournisseur potentiel: ${item.buyer_confirmed_supplier || "Non indiqué"}`
         )
       }
 
@@ -1602,9 +1602,9 @@ ${expectedDate}
 Articles:
 
 ${formatRequestItemsForEmail(items, {
-  includeRequestedPrices: true,
-  includeConfirmedPrices: true,
-  includeProductLinks: true,
+  includeRequestedPrices: false,
+  includeConfirmedPrices: false,
+  includeProductLinks: false,
 })}
 
 Si cette nouvelle date pose un problème, veuillez communiquer avec Ricardo ou Michelle.
