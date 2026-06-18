@@ -261,19 +261,9 @@ const VALID_STATUSES = [
   "cancelled",
 ]
 
-const MAX_BATCH_PURCHASE_ITEMS = 10
-const MAX_PICTURES_PER_BATCH_ITEM = 5
 
-type BatchPurchaseRequestItem = {
-  client_item_index?: unknown
-  description?: unknown
-  quantity?: unknown
-  quantity_format?: unknown
-  reason?: unknown
-  requested_unit_price?: unknown
-  product_link?: unknown
-  needed_by_date?: unknown
-}
+
+
 
 const formTokenLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
