@@ -458,7 +458,7 @@ export const validateAdminApprovalToken = async (
     SELECT id
     FROM portal.purchase_request_admin_approval_tokens
     WHERE purchase_request_id = $1
-      AND token = $2
+      AND token_hash = $2
       AND used_at IS NULL
       AND expires_at > now()
     LIMIT 1
@@ -479,7 +479,7 @@ export const markAdminApprovalTokenUsed = async (
     UPDATE portal.purchase_request_admin_approval_tokens
     SET used_at = now()
     WHERE purchase_request_id = $1
-      AND token = $2
+      AND token_hash = $2
       AND used_at IS NULL
     `,
     [purchaseRequestId, token]
