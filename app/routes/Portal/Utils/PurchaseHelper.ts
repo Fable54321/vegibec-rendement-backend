@@ -301,7 +301,7 @@ export const createPurchaseToken = async (
     `
     INSERT INTO portal.purchase_request_purchase_tokens (
       purchase_request_id,
-      token,
+      token_hash,
       expires_at
     )
     VALUES (
@@ -399,7 +399,7 @@ export const validatePurchaseToken = async (
     SELECT id
     FROM portal.purchase_request_purchase_tokens
     WHERE purchase_request_id = $1
-      AND token = $2
+      AND token_hash = $2
       AND used_at IS NULL
       AND expires_at > now()
     LIMIT 1
@@ -420,7 +420,7 @@ export const markPurchaseTokenUsed = async (
     UPDATE portal.purchase_request_purchase_tokens
     SET used_at = now()
     WHERE purchase_request_id = $1
-      AND token = $2
+      AND token_hash = $2
       AND used_at IS NULL
     `,
     [purchaseRequestId, token]
