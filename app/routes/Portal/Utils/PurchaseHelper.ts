@@ -667,7 +667,6 @@ const formatRequestItemsForEmail = (
       if (options?.includeRequestedPrices) {
         lines.push(`Prix unitaire estimé: ${formatMoney(item.requested_unit_price)}`)
         lines.push(`Prix total estimé: ${formatMoney(item.requested_total_price)}`)
-        lines.push(`Fournisseur demandé: ${item.requested_supplier || "Non indiqué"}`)
       }
 
       if (options?.includeConfirmedPrices) {
@@ -747,12 +746,7 @@ const formatRequestItemsForEmailHtml = (
                       </td>
                     </tr>
 
-                    <tr>
-                      <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Fournisseur demandé</td>
-                      <td style="padding:6px 0;">${escapeHtml(
-                        item.requested_supplier || "Non indiqué"
-                      )}</td>
-                    </tr>
+                  
                   `
                   : ""
               }
