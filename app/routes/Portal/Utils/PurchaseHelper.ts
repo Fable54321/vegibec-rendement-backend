@@ -1728,9 +1728,7 @@ export const buildDirectApprovalBuyerDecisionEmailHtml = (
       </div>
 
       <p style="color:#b91c1c;font-weight:700;font-size:16px;">
-        Cette demande saute l'approbation de ${escapeHtml(
-          PURCHASE_ADMIN_NAME
-        )} et peut maintenant être achetée.
+        Cette demande a été approuvée directement par ${escapeHtml(approver)} et peut maintenant être achetée.
       </p>
 
       ${buildBuyerDecisionEmailHtml(request, finalRequestUrl)}
