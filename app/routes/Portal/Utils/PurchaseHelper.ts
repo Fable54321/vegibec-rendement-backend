@@ -274,7 +274,7 @@ export const createAdminApprovalToken = async (
     `
     INSERT INTO portal.purchase_request_admin_approval_tokens (
       purchase_request_id,
-      token,
+      token_hash,
       expires_at
     )
     VALUES (
