@@ -956,234 +956,336 @@ router.patch(
   ["/:id/buyer-validation", "/:id/buyer-validation/:token"],
   createPurchaseRequestLimiter,
   async (req, res) => {
-  const client = await pool.connect()
+    const client = await pool.connect()
+    let transactionStarted = false
 
-  try {
-    const { id } = req.params
-    const purchaseRequestId = Number(id)
+    try {
+      const { id } = req.params
+      const purchaseRequestId = Number(id)
 
-const {
-  buyer_user_id,
-  buyer_confirmed_unit_price,
-  buyer_confirmed_supplier,
-  buyer_note,
-  needs_requester_info,
-  reject,
-  rejection_reason,
-  expected_date,
-  direct_approval_requested,
-  direct_approval_approver,
-} = req.body
+      const {
+        buyer_user_id,
+        buyer_note,
+        needs_requester_info,
+        reject,
+        rejection_reason,
+        expected_date,
+        direct_approval_requested,
+        direct_approval_approver,
+        items,
+      } = req.body ?? {}
 
-    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
-      return res.status(404).json({ message: "Purchase request not found" })
-    }
+      if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
 
+      const buyerValidationToken = getBuyerValidationTokenFromRequest(req)
 
-    const buyerValidationToken = getBuyerValidationTokenFromRequest(req)
+      await client.query("BEGIN")
+      transactionStarted = true
 
-    await client.query("BEGIN")
+      const isBuyerValidationTokenValid = await validateBuyerValidationToken(
+        client,
+        purchaseRequestId,
+        buyerValidationToken
+      )
 
-    const isBuyerValidationTokenValid = await validateBuyerValidationToken(
-      client,
-      purchaseRequestId,
-      buyerValidationToken
-    )
+      if (!isBuyerValidationTokenValid || !buyerValidationToken) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
 
-    if (!isBuyerValidationTokenValid || !buyerValidationToken) {
-      await client.query("ROLLBACK")
+        return res.status(403).json({
+          message: "Invalid or expired buyer validation token",
+        })
+      }
 
-      return res.status(403).json({
-        message: "Invalid or expired buyer validation token",
-      })
-    }
+      const currentRequestResult = await client.query(
+        `
+        SELECT *
+        FROM portal.purchase_requests
+        WHERE id = $1
+        `,
+        [purchaseRequestId]
+      )
 
-    const currentRequest = await client.query(
-      `
-      SELECT *
-      FROM portal.purchase_requests
-      WHERE id = $1
-      `,
-      [purchaseRequestId]
-    )
+      if (currentRequestResult.rows.length === 0) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
 
-    if (currentRequest.rows.length === 0) {
-      await client.query("ROLLBACK")
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
 
-      return res.status(404).json({ message: "Purchase request not found" })
-    }
+      const currentRequest = currentRequestResult.rows[0]
 
-    if (currentRequest.rows[0].status !== "pending_buyer_validation") {
-      await client.query("ROLLBACK")
+      if (currentRequest.status !== "pending_buyer_validation") {
+        await client.query("ROLLBACK")
+        transactionStarted = false
 
-      return res.status(400).json({
-        message: "This request is not pending buyer validation",
-      })
-    }
+        return res.status(400).json({
+          message: "This request is not pending buyer validation",
+        })
+      }
 
-const cleanDirectApprovalRequested = direct_approval_requested === true
-const cleanDirectApprovalApprover =
-  cleanDirectApprovalRequested &&
-  typeof direct_approval_approver === "string" &&
-  direct_approval_approver.trim()
-    ? direct_approval_approver.trim()
-    : null
+      const cleanDirectApprovalRequested = direct_approval_requested === true
 
-    let newStatus = cleanDirectApprovalRequested
-      ? "ready_to_purchase"
-      : "pending_admin_approval"
+      const cleanDirectApprovalApprover =
+        cleanDirectApprovalRequested &&
+        typeof direct_approval_approver === "string" &&
+        direct_approval_approver.trim()
+          ? direct_approval_approver.trim()
+          : null
 
-    if (needs_requester_info) {
-      newStatus = "needs_requester_info"
-    }
+      if (
+        cleanDirectApprovalApprover &&
+        !["Michelle", "Ricardo"].includes(cleanDirectApprovalApprover)
+      ) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
 
-    if (reject) {
-      newStatus = "rejected"
-    }
+        return res.status(400).json({
+          message: "Approbateur direct invalide",
+        })
+      }
 
-    const quantity = Number(currentRequest.rows[0].quantity || 1)
+      let newStatus = cleanDirectApprovalRequested
+        ? "ready_to_purchase"
+        : "pending_admin_approval"
 
-const cleanExpectedDate =
-  typeof expected_date === "string" && expected_date.trim()
-    ? expected_date.trim()
-    : null
+      if (needs_requester_info) {
+        newStatus = "needs_requester_info"
+      }
 
-const cleanNeededByDate = currentRequest.rows[0].needed_by_date
-  ? new Date(currentRequest.rows[0].needed_by_date).toISOString().slice(0, 10)
-  : null
+      if (reject) {
+        newStatus = "rejected"
+      }
 
-const finalExpectedDate = cleanExpectedDate || cleanNeededByDate
+      const cleanExpectedDate =
+        typeof expected_date === "string" && expected_date.trim()
+          ? expected_date.trim()
+          : null
 
-const dateChanged =
-  finalExpectedDate !== null &&
-  cleanNeededByDate !== null &&
-  finalExpectedDate !== cleanNeededByDate
-
-    const cleanConfirmedUnitPrice =
-      buyer_confirmed_unit_price === "" ||
-      buyer_confirmed_unit_price === undefined
-        ? null
-        : Number(buyer_confirmed_unit_price)
-
-    const buyerConfirmedTotalPrice =
-      cleanConfirmedUnitPrice !== null ? cleanConfirmedUnitPrice * quantity : null
-
-const result = await client.query(
-  `
-  UPDATE portal.purchase_requests
-  SET
-    buyer_user_id = $1,
-    buyer_confirmed_unit_price = $2,
-    buyer_confirmed_total_price = $3,
-    buyer_confirmed_supplier = $4,
-    buyer_note = $5,
-    buyer_validated_at = now(),
-    status = $6,
-    rejection_reason = $7,
-    expected_date = $8,
-    date_changed = $9,
-    direct_approval_requested = $10,
-    direct_approval_approver = $11,
-    direct_approval_requested_at = CASE WHEN $10 THEN now() ELSE NULL END
-  WHERE id = $12
-  RETURNING *
-  `,
-  [
-    buyer_user_id,
-    cleanConfirmedUnitPrice,
-    buyerConfirmedTotalPrice,
-    buyer_confirmed_supplier || null,
-    buyer_note || null,
-    newStatus,
-    rejection_reason || null,
-    finalExpectedDate,
-    dateChanged,
-    cleanDirectApprovalRequested,
-    cleanDirectApprovalApprover,
-    purchaseRequestId,
-  ]
-)
-
-    const updatedRequest = result.rows[0]
-    const adminApprovalToken =
-      updatedRequest.status === "pending_admin_approval"
-        ? await createAdminApprovalToken(client, updatedRequest.id)
-        : null
-    const purchaseToken =
-      updatedRequest.status === "ready_to_purchase"
-        ? await createPurchaseToken(client, updatedRequest.id)
+      const cleanNeededByDate = currentRequest.needed_by_date
+        ? new Date(currentRequest.needed_by_date).toISOString().slice(0, 10)
         : null
 
-    await markBuyerValidationTokenUsed(
-      client,
-      purchaseRequestId,
-      buyerValidationToken
-    )
+      const finalExpectedDate = cleanExpectedDate || cleanNeededByDate
 
-    await client.query("COMMIT")
+      const dateChanged =
+        finalExpectedDate !== null &&
+        cleanNeededByDate !== null &&
+        finalExpectedDate !== cleanNeededByDate
 
-if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
-  const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
-  const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
-  const adminApprovalUrl = buildAdminApprovalUrl(
-    req,
-    updatedRequest.id,
-    adminApprovalToken
-  )
+      const cleanItems = Array.isArray(items) ? items : []
 
+      if (!needs_requester_info && !reject && cleanItems.length === 0) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
 
-  await sendPurchaseRequestEmailSafely(
-    emailRecipients,
-    `Michelle - décision requise pour la demande d'achat #${displayRequestNumber}`,
-    buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
-    buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
-  )
-}
+        return res.status(400).json({
+          message: "Au moins un article doit être validé",
+        })
+      }
 
-if (updatedRequest.status === "ready_to_purchase" && purchaseToken) {
-  const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
-  const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
-  const finalRequestUrl = buildFinalPurchaseRequestUrl(
-    req,
-    updatedRequest.id,
-    purchaseToken
-  )
+      for (const item of cleanItems) {
+        const itemId = Number(item.id ?? item.item_id)
 
-  await sendPurchaseRequestEmailSafely(
-    emailRecipients,
-    `Ricardo - APPROBATION DIRECTE - demande d'achat #${displayRequestNumber}, achat a faire`,
-    buildDirectApprovalBuyerDecisionEmail(updatedRequest, finalRequestUrl),
-    buildDirectApprovalBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
-  )
-}
+        const cleanConfirmedUnitPrice =
+          item.buyer_confirmed_unit_price === "" ||
+          item.buyer_confirmed_unit_price === undefined ||
+          item.buyer_confirmed_unit_price === null
+            ? null
+            : Number(item.buyer_confirmed_unit_price)
 
-const requesterEmail =
-  typeof updatedRequest.request_email === "string"
-    ? updatedRequest.request_email.trim()
-    : ""
+        const cleanConfirmedSupplier =
+          typeof item.buyer_confirmed_supplier === "string" &&
+          item.buyer_confirmed_supplier.trim()
+            ? item.buyer_confirmed_supplier.trim()
+            : null
 
-if (updatedRequest.date_changed && requesterEmail) {
-  const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+        if (!Number.isInteger(itemId) || itemId <= 0) {
+          await client.query("ROLLBACK")
+          transactionStarted = false
 
-  await sendPurchaseRequestEmailSafely(
-    requesterEmail,
-    `Mise a jour de la date pour votre demande d'achat #${displayRequestNumber}`,
-    buildRequesterDateChangedEmail(updatedRequest),
-    buildRequesterDateChangedEmailHtml(updatedRequest),
-    getPurchaseRequestReplyToRecipients()
-  )
-}
+          return res.status(400).json({
+            message: "Article invalide",
+          })
+        }
 
-res.json(updatedRequest)
-  } catch (error) {
-    await client.query("ROLLBACK")
+        if (
+          cleanConfirmedUnitPrice !== null &&
+          (!Number.isFinite(cleanConfirmedUnitPrice) ||
+            cleanConfirmedUnitPrice < 0)
+        ) {
+          await client.query("ROLLBACK")
+          transactionStarted = false
 
-    console.error("Error validating purchase request:", error)
-    res.status(500).json({ message: "Error validating purchase request" })
-  } finally {
-    client.release()
+          return res.status(400).json({
+            message: "Prix confirmé invalide",
+          })
+        }
+
+        const updateItemResult = await client.query(
+          `
+          UPDATE portal.purchase_request_items
+          SET
+            buyer_confirmed_unit_price = $1,
+            buyer_confirmed_supplier = $2,
+            status = $3,
+            updated_at = now()
+          WHERE id = $4
+            AND purchase_request_id = $5
+          RETURNING *
+          `,
+          [
+            cleanConfirmedUnitPrice,
+            cleanConfirmedSupplier,
+            newStatus,
+            itemId,
+            purchaseRequestId,
+          ]
+        )
+
+        if (updateItemResult.rows.length === 0) {
+          await client.query("ROLLBACK")
+          transactionStarted = false
+
+          return res.status(400).json({
+            message: "Un article est introuvable pour cette demande",
+          })
+        }
+      }
+
+      const updateRequestResult = await client.query(
+        `
+        UPDATE portal.purchase_requests
+        SET
+          buyer_user_id = $1,
+          buyer_note = $2,
+          buyer_validated_at = now(),
+          status = $3,
+          rejection_reason = $4,
+          expected_date = $5,
+          date_changed = $6,
+          direct_approval_requested = $7,
+          direct_approval_approver = $8,
+          direct_approval_requested_at = CASE WHEN $7 THEN now() ELSE NULL END,
+          updated_at = now()
+        WHERE id = $9
+        RETURNING *
+        `,
+        [
+          buyer_user_id || null,
+          buyer_note || null,
+          newStatus,
+          rejection_reason || null,
+          finalExpectedDate,
+          dateChanged,
+          cleanDirectApprovalRequested,
+          cleanDirectApprovalApprover,
+          purchaseRequestId,
+        ]
+      )
+
+      const updatedRequestHeader = updateRequestResult.rows[0]
+
+      const adminApprovalToken =
+        updatedRequestHeader.status === "pending_admin_approval"
+          ? await createAdminApprovalToken(client, updatedRequestHeader.id)
+          : null
+
+      const purchaseToken =
+        updatedRequestHeader.status === "ready_to_purchase"
+          ? await createPurchaseToken(client, updatedRequestHeader.id)
+          : null
+
+      await markBuyerValidationTokenUsed(
+        client,
+        purchaseRequestId,
+        buyerValidationToken
+      )
+
+      const updatedRequest = await getPurchaseRequestWithItems(
+        client,
+        purchaseRequestId
+      )
+
+      if (!updatedRequest) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
+
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
+
+      await client.query("COMMIT")
+      transactionStarted = false
+
+      if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
+        const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+        const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+        const adminApprovalUrl = buildAdminApprovalUrl(
+          req,
+          updatedRequest.id,
+          adminApprovalToken
+        )
+
+        await sendPurchaseRequestEmailSafely(
+          emailRecipients,
+          `Michelle - décision requise pour la demande d'achat #${displayRequestNumber}`,
+          buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
+          buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
+        )
+      }
+
+      if (updatedRequest.status === "ready_to_purchase" && purchaseToken) {
+        const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+        const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+        const finalRequestUrl = buildFinalPurchaseRequestUrl(
+          req,
+          updatedRequest.id,
+          purchaseToken
+        )
+
+        await sendPurchaseRequestEmailSafely(
+          emailRecipients,
+          `Ricardo - APPROBATION DIRECTE - demande d'achat #${displayRequestNumber}, achat à faire`,
+          buildDirectApprovalBuyerDecisionEmail(updatedRequest, finalRequestUrl),
+          buildDirectApprovalBuyerDecisionEmailHtml(updatedRequest, finalRequestUrl)
+        )
+      }
+
+      const requesterEmail =
+        typeof updatedRequest.requester_email === "string"
+          ? updatedRequest.requester_email.trim()
+          : ""
+
+      if (updatedRequest.date_changed && requesterEmail) {
+        const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+
+        await sendPurchaseRequestEmailSafely(
+          requesterEmail,
+          `Mise à jour de la date pour votre demande d'achat #${displayRequestNumber}`,
+          buildRequesterDateChangedEmail(updatedRequest),
+          buildRequesterDateChangedEmailHtml(updatedRequest),
+          getPurchaseRequestReplyToRecipients()
+        )
+      }
+
+      return res.json(updatedRequest)
+    } catch (error) {
+      if (transactionStarted) {
+        await client.query("ROLLBACK")
+      }
+
+      console.error("Error validating purchase request:", error)
+
+      return res.status(500).json({
+        message: "Error validating purchase request",
+      })
+    } finally {
+      client.release()
+    }
   }
-})
+)
 
 
 router.patch(
