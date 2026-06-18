@@ -9,8 +9,6 @@ import {
   buildBuyerDecisionEmailHtml,
   buildDirectApprovalBuyerDecisionEmail,
   buildDirectApprovalBuyerDecisionEmailHtml,
-  buildNewPurchaseRequestBatchEmail,
-  buildNewPurchaseRequestBatchEmailHtml,
   buildRequesterDateChangedEmail,
   buildRequesterDateChangedEmailHtml,
   buildAdminApprovalUrl,
@@ -32,7 +30,6 @@ import {
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
   sendPurchaseRequestEmailSafely,
-  uploadPurchaseRequestBatchPictures,
   uploadPurchaseRequestPictures,
   validateAdminApprovalToken,
   validateBuyerValidationToken,
@@ -43,35 +40,221 @@ import { uploadBufferToS3 } from "../../services/s3.services"
 import { sendEmail } from "../Visitors/Utils/testSMTP"
 import { PoolClient } from "pg"
 
+
+type PurchaseRequestIncomingItem = {
+  description?: unknown
+  quantity?: unknown
+  quantity_format?: unknown
+  reason?: unknown
+  requested_unit_price?: unknown
+  requested_supplier?: unknown
+  product_link?: unknown
+}
+
+const MAX_PURCHASE_REQUEST_ITEMS = 25
+
+const parsePurchaseRequestItems = (body: any): PurchaseRequestIncomingItem[] => {
+  if (Array.isArray(body.items)) {
+    return body.items
+  }
+
+  if (typeof body.items === "string" && body.items.trim() !== "") {
+    return JSON.parse(body.items)
+  }
+
+  // Temporary backward compatibility for the old single-item form.
+  return [
+    {
+      description: body.description,
+      quantity: body.quantity,
+      quantity_format: body.quantity_format,
+      reason: body.reason,
+      requested_unit_price: body.requested_unit_price,
+      requested_supplier: body.requested_supplier,
+      product_link: body.product_link,
+    },
+  ]
+}
+
+const cleanPurchaseRequestItems = (items: PurchaseRequestIncomingItem[]) => {
+  if (
+    !Array.isArray(items) ||
+    items.length < 1 ||
+    items.length > MAX_PURCHASE_REQUEST_ITEMS
+  ) {
+    throw new Error(
+      `La demande doit contenir entre 1 et ${MAX_PURCHASE_REQUEST_ITEMS} article(s)`
+    )
+  }
+
+  return items.map((item, index) => {
+    const itemNumber = index + 1
+
+    const cleanDescription =
+      typeof item.description === "string" ? item.description.trim() : ""
+
+    const cleanQuantityFormat =
+      typeof item.quantity_format === "string" &&
+      item.quantity_format.trim() !== ""
+        ? item.quantity_format.trim().replace(/\s+/g, " ")
+        : null
+
+    const cleanReason =
+      typeof item.reason === "string" && item.reason.trim() !== ""
+        ? item.reason.trim()
+        : null
+
+    const cleanRequestedSupplier =
+      typeof item.requested_supplier === "string" &&
+      item.requested_supplier.trim() !== ""
+        ? item.requested_supplier.trim()
+        : null
+
+    const cleanProductLink =
+      typeof item.product_link === "string" && item.product_link.trim() !== ""
+        ? item.product_link.trim()
+        : null
+
+    const cleanQuantity =
+      item.quantity === undefined || item.quantity === null || item.quantity === ""
+        ? null
+        : Number(item.quantity)
+
+    const cleanUnitPrice =
+      item.requested_unit_price === "" ||
+      item.requested_unit_price === undefined ||
+      item.requested_unit_price === null
+        ? null
+        : Number(item.requested_unit_price)
+
+    if (!cleanDescription) {
+      throw new Error(`Article ${itemNumber}: la description est requise`)
+    }
+
+    if (cleanDescription.length > 1000) {
+      throw new Error(`Article ${itemNumber}: la description est trop longue`)
+    }
+
+    if (
+      cleanQuantity === null ||
+      !Number.isFinite(cleanQuantity) ||
+      cleanQuantity <= 0 ||
+      !Number.isInteger(cleanQuantity)
+    ) {
+      throw new Error(
+        `Article ${itemNumber}: la quantité doit être un nombre entier supérieur à 0`
+      )
+    }
+
+    if (cleanQuantityFormat && cleanQuantityFormat.length > 80) {
+      throw new Error(`Article ${itemNumber}: le format de quantité est trop long`)
+    }
+
+    if (cleanReason && cleanReason.length > 2000) {
+      throw new Error(`Article ${itemNumber}: la justification est trop longue`)
+    }
+
+    if (cleanRequestedSupplier && cleanRequestedSupplier.length > 200) {
+      throw new Error(`Article ${itemNumber}: le fournisseur est trop long`)
+    }
+
+    if (cleanProductLink && cleanProductLink.length > 2000) {
+      throw new Error(`Article ${itemNumber}: le lien du produit est trop long`)
+    }
+
+    if (cleanProductLink) {
+      try {
+        const url = new URL(cleanProductLink)
+
+        if (!["http:", "https:"].includes(url.protocol)) {
+          throw new Error("Invalid protocol")
+        }
+      } catch {
+        throw new Error(`Article ${itemNumber}: le lien du produit est invalide`)
+      }
+    }
+
+    if (
+      cleanUnitPrice !== null &&
+      (!Number.isFinite(cleanUnitPrice) || cleanUnitPrice < 0)
+    ) {
+      throw new Error(`Article ${itemNumber}: le prix doit être un nombre valide`)
+    }
+
+    return {
+      item_index: itemNumber,
+      description: cleanDescription,
+      quantity: cleanQuantity,
+      quantity_format: cleanQuantityFormat,
+      reason: cleanReason,
+      requested_unit_price: cleanUnitPrice,
+      requested_supplier: cleanRequestedSupplier,
+      product_link: cleanProductLink,
+    }
+  })
+}
+
 const router = express.Router()
 const TEMP_PURCHASE_REQUEST_RECIPIENT = "programmation@vegibec.com"
 const CONFLICT_REQUESTER_EMAIL = "achats@vegibec.com"
 
-const getPurchaseRequestRecipients = (request?: { request_email?: unknown }) => {
-  const requesterEmail =
-    typeof request?.request_email === "string"
-      ? request.request_email.trim().toLowerCase()
-      : ""
-  const recipientEnvNames =
-    requesterEmail === CONFLICT_REQUESTER_EMAIL
-      ? ["PURCHASE_BUYER_EMAIL"]
-      : ["PURCHASE_BUYER_EMAIL", "PURCHASE_EMAIL_COPY"]
-
-  return getEmailRecipients(...recipientEnvNames, TEMP_PURCHASE_REQUEST_RECIPIENT)
+type PurchaseRequestRecipientSource = {
+  requester_email?: unknown
 }
 
-const getPurchaseRequestReplyToRecipients = () =>
-  getEmailRecipients(
-    "PURCHASE_BUYER_EMAIL",
-    "PURCHASE_EMAIL_COPY",
-    TEMP_PURCHASE_REQUEST_RECIPIENT
+const toRecipientArray = (recipients: string | string[]) => {
+  if (Array.isArray(recipients)) {
+    return recipients
+  }
+
+  return recipients
+    .split(",")
+    .map((email) => email.trim())
+    .filter(Boolean)
+}
+
+const getPurchaseRequestRecipients = (
+  request?: PurchaseRequestRecipientSource
+) => {
+  const requesterEmail =
+    typeof request?.requester_email === "string"
+      ? request.requester_email.trim().toLowerCase()
+      : ""
+
+  const recipients = toRecipientArray(
+    getEmailRecipients(
+      "PURCHASE_BUYER_EMAIL",
+      "PURCHASE_EMAIL_COPY",
+      TEMP_PURCHASE_REQUEST_RECIPIENT
+    )
   )
+
+  if (
+    requesterEmail &&
+    requesterEmail !== CONFLICT_REQUESTER_EMAIL &&
+    !recipients.includes(requesterEmail)
+  ) {
+    recipients.push(requesterEmail)
+  }
+
+  return recipients
+}
+
+const getPurchaseRequestReplyToRecipients = () => {
+  return toRecipientArray(
+    getEmailRecipients(
+      "PURCHASE_BUYER_EMAIL",
+      "PURCHASE_EMAIL_COPY",
+      TEMP_PURCHASE_REQUEST_RECIPIENT
+    )
+  )
+}
 
 const VALID_STATUSES = [
   "pending_buyer_validation",
   "needs_requester_info",
   "pending_admin_approval",
-  "approved",
+  "admin_on_wait",
   "rejected",
   "ready_to_purchase",
   "purchased",
@@ -126,37 +309,15 @@ const readPurchaseRequestsLimiter = rateLimit({
 
 async function getNextPurchaseRequestReference(client: PoolClient) {
   const result = await client.query<{
-    period_key: string
-    next_number: number
+    request_reference: string
+    request_year: number
+    request_month: number
+    request_month_sequence: number
   }>(
     `
-    WITH current_period AS (
-      SELECT date_trunc('month', now() AT TIME ZONE 'America/Toronto')::date AS period_month
-    ),
-    next_sequence AS (
-      INSERT INTO portal.purchase_request_monthly_sequences (
-        period_month,
-        last_number,
-        updated_at
-      )
-      SELECT
-        period_month,
-        1,
-        now()
-      FROM current_period
-      ON CONFLICT (period_month)
-      DO UPDATE SET
-        last_number = portal.purchase_request_monthly_sequences.last_number + 1,
-        updated_at = now()
-      RETURNING
-        period_month,
-        last_number
-    )
-    SELECT
-      to_char(period_month, 'YYYY-MM') AS period_key,
-      last_number AS next_number
-    FROM next_sequence
-    `,
+    SELECT *
+    FROM portal.next_purchase_request_reference()
+    `
   )
 
   const row = result.rows[0]
@@ -165,7 +326,34 @@ async function getNextPurchaseRequestReference(client: PoolClient) {
     throw new Error("Could not generate purchase request reference")
   }
 
-  return `${row.period_key}-${String(row.next_number).padStart(3, "0")}`
+  return row
+}
+
+async function getPurchaseRequestWithItems(
+  client: PoolClient,
+  purchaseRequestId: number
+) {
+  const result = await client.query(
+    `
+    SELECT
+      pr.*,
+      COALESCE(
+        jsonb_agg(
+          to_jsonb(pri)
+          ORDER BY pri.item_index
+        ) FILTER (WHERE pri.id IS NOT NULL),
+        '[]'::jsonb
+      ) AS items
+    FROM portal.purchase_requests pr
+    LEFT JOIN portal.purchase_request_items pri
+      ON pri.purchase_request_id = pr.id
+    WHERE pr.id = $1
+    GROUP BY pr.id
+    `,
+    [purchaseRequestId]
+  )
+
+  return result.rows[0] ?? null
 }
 
 router.post("/send-email", createPurchaseRequestLimiter, async (req, res) => {
@@ -183,7 +371,7 @@ router.post("/send-email", createPurchaseRequestLimiter, async (req, res) => {
     }
 
     const replyToRecipients = getPurchaseRequestRecipients({
-      request_email: cleanTo,
+      requester_email: cleanTo,
     })
 
     const emailInfo = await sendEmail({
@@ -243,17 +431,26 @@ router.get("/", readPurchaseRequestsLimiter, async (req, res) => {
   try {
     const { status } = req.query
 
-    let query = `
-      SELECT 
-        pr.*,
-        buyer.name AS buyer_name,
-        buyer.surname AS buyer_surname,
-        admin.name AS admin_name,
-        admin.surname AS admin_surname
-      FROM portal.purchase_requests pr
-      LEFT JOIN public.users buyer ON buyer.id = pr.buyer_user_id
-      LEFT JOIN public.users admin ON admin.id = pr.admin_user_id
-    `
+ let query = `
+  SELECT 
+    pr.*,
+    buyer.name AS buyer_name,
+    buyer.surname AS buyer_surname,
+    admin.name AS admin_name,
+    admin.surname AS admin_surname,
+    COALESCE(
+      jsonb_agg(
+        to_jsonb(pri)
+        ORDER BY pri.item_index
+      ) FILTER (WHERE pri.id IS NOT NULL),
+      '[]'::jsonb
+    ) AS items
+  FROM portal.purchase_requests pr
+  LEFT JOIN portal.purchase_request_items pri
+    ON pri.purchase_request_id = pr.id
+  LEFT JOIN public.users buyer ON buyer.id = pr.buyer_user_id
+  LEFT JOIN public.users admin ON admin.id = pr.admin_user_id
+`
 
     const params: unknown[] = []
 
@@ -266,7 +463,15 @@ router.get("/", readPurchaseRequestsLimiter, async (req, res) => {
       query += ` WHERE pr.status = $1`
     }
 
-    query += ` ORDER BY pr.created_at DESC`
+    query += `
+  GROUP BY
+    pr.id,
+    buyer.name,
+    buyer.surname,
+    admin.name,
+    admin.surname
+  ORDER BY pr.created_at DESC
+`
 
     const result = await pool.query(query, params)
 
@@ -342,20 +547,16 @@ router.get(
           })
         }
 
-        const result = await client.query(
-          `
-          SELECT pr.*
-          FROM portal.purchase_requests pr
-          WHERE pr.id = $1
-          `,
-          [purchaseRequestId]
-        )
+const purchaseRequest = await getPurchaseRequestWithItems(
+  client,
+  purchaseRequestId
+)
 
-        if (result.rows.length === 0) {
-          return res.status(404).json({ message: "Purchase request not found" })
-        }
+if (!purchaseRequest) {
+  return res.status(404).json({ message: "Purchase request not found" })
+}
 
-        return res.json(result.rows[0])
+return res.json(purchaseRequest)
       } finally {
         client.release()
       }
@@ -411,20 +612,19 @@ router.get("/:id", readPurchaseRequestsLimiter, async (req, res) => {
       }
     }
 
-const result = await pool.query(
-  `
-  SELECT pr.*
-  FROM portal.purchase_requests pr
-  WHERE pr.id = $1
-  `,
-  [Number(id)]
-)
+const client = await pool.connect()
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Purchase request not found" })
-    }
+try {
+  const purchaseRequest = await getPurchaseRequestWithItems(client, Number(id))
 
-    res.json(result.rows[0])
+  if (!purchaseRequest) {
+    return res.status(404).json({ message: "Purchase request not found" })
+  }
+
+  res.json(purchaseRequest)
+} finally {
+  client.release()
+}
   } catch (error) {
     console.error("Error fetching purchase request:", error)
     res.status(500).json({ message: "Error fetching purchase request" })
@@ -483,19 +683,12 @@ router.post(
       const body = req.body ?? {}
       const pictures = (req.files as Express.Multer.File[]) ?? []
 
-    const {
-  requested_by,
-  description,
-  quantity,
-  quantity_format,
-  reason,
-  requested_unit_price,
-  requested_supplier,
-  product_link,
-  needed_by_date,
-  companyWebsite,
-  email,
-} = body
+      const {
+        requested_by,
+        needed_by_date,
+        companyWebsite,
+        email,
+      } = body
 
       if (companyWebsite) {
         return res.status(400).json({ message: "Invalid request" })
@@ -504,45 +697,19 @@ router.post(
       const cleanRequestedBy =
         typeof requested_by === "string" ? requested_by.trim() : ""
 
-      const cleanDescription =
-        typeof description === "string" ? description.trim() : ""
-
-      const cleanQuantityFormat =
-  typeof quantity_format === "string" && quantity_format.trim() !== ""
-    ? quantity_format.trim().replace(/\s+/g, " ")
-    : null  
-
-      const cleanReason =
-        typeof reason === "string" && reason.trim() !== ""
-          ? reason.trim()
-          : null
-
-      const cleanRequestedSupplier =
-        typeof requested_supplier === "string" &&
-        requested_supplier.trim() !== ""
-          ? requested_supplier.trim()
-          : null
-
-      const cleanProductLink =
-        typeof product_link === "string" && product_link.trim() !== ""
-          ? product_link.trim()
-          : null
-
-      const cleanExpectedDate =
-        typeof needed_by_date === "string" && needed_by_date.trim() !== ""
-          ? needed_by_date.trim()
-          : null
-
-      // Email is optional.
-      // Null, undefined, and empty string are accepted and saved as null.
-      const cleanRequestEmail =
+      const cleanRequesterEmail =
         typeof email === "string" && email.trim() !== ""
           ? email.trim().toLowerCase()
           : null
 
-      if (!cleanRequestedBy || !cleanDescription) {
+      const cleanNeededByDate =
+        typeof needed_by_date === "string" && needed_by_date.trim() !== ""
+          ? needed_by_date.trim()
+          : null
+
+      if (!cleanRequestedBy) {
         return res.status(400).json({
-          message: "Le demandeur et la description du produit sont requis",
+          message: "Le demandeur est requis",
         })
       }
 
@@ -552,105 +719,27 @@ router.post(
         })
       }
 
-      if (cleanDescription.length > 1000) {
-        return res.status(400).json({
-          message: "La description est trop longue",
-        })
-      }
-
-      if (cleanQuantityFormat && cleanQuantityFormat.length > 80) {
-  return res.status(400).json({
-    message: "Le format de quantité est trop long",
-  })
-}
-
-      if (cleanReason && cleanReason.length > 2000) {
-        return res.status(400).json({
-          message: "La justification est trop longue",
-        })
-      }
-
-      if (cleanRequestedSupplier && cleanRequestedSupplier.length > 200) {
-        return res.status(400).json({
-          message: "Le fournisseur est trop long",
-        })
-      }
-
-      if (cleanProductLink && cleanProductLink.length > 2000) {
-        return res.status(400).json({
-          message: "Le lien du produit est trop long",
-        })
-      }
-
-      if (cleanRequestEmail && cleanRequestEmail.length > 254) {
+      if (cleanRequesterEmail && cleanRequesterEmail.length > 254) {
         return res.status(400).json({
           message: "L'adresse courriel est trop longue",
         })
       }
 
       if (
-        cleanRequestEmail &&
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanRequestEmail)
+        cleanRequesterEmail &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanRequesterEmail)
       ) {
         return res.status(400).json({
           message: "L'adresse courriel est invalide",
         })
       }
 
-      if (cleanProductLink) {
-        try {
-          const url = new URL(cleanProductLink)
-
-          if (!["http:", "https:"].includes(url.protocol)) {
-            return res.status(400).json({
-              message: "Le lien du produit doit commencer par http ou https",
-            })
-          }
-        } catch {
-          return res.status(400).json({
-            message: "Le lien du produit est invalide",
-          })
-        }
-      }
-
-const cleanQuantity =
-  quantity === undefined || quantity === null || quantity === ""
-    ? null
-    : Number(quantity)
-
-if (
-  cleanQuantity === null ||
-  !Number.isFinite(cleanQuantity) ||
-  cleanQuantity <= 0 ||
-  !Number.isInteger(cleanQuantity)
-) {
-  return res.status(400).json({
-    message: "La quantité doit être un nombre entier supérieur à 0",
-  })
-}
-
-      const cleanUnitPrice =
-        requested_unit_price === "" ||
-        requested_unit_price === undefined ||
-        requested_unit_price === null
-          ? null
-          : Number(requested_unit_price)
-
-      if (
-        cleanUnitPrice !== null &&
-        (!Number.isFinite(cleanUnitPrice) || cleanUnitPrice < 0)
-      ) {
-        return res.status(400).json({
-          message: "Le prix doit être un nombre valide",
-        })
-      }
-
-      if (cleanExpectedDate) {
-        const date = new Date(`${cleanExpectedDate}T00:00:00`)
+      if (cleanNeededByDate) {
+        const date = new Date(`${cleanNeededByDate}T00:00:00`)
 
         if (
           Number.isNaN(date.getTime()) ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(cleanExpectedDate)
+          !/^\d{4}-\d{2}-\d{2}$/.test(cleanNeededByDate)
         ) {
           return res.status(400).json({
             message: "La date souhaitée est invalide",
@@ -658,10 +747,30 @@ if (
         }
       }
 
-      const requestedTotalPrice =
-        cleanUnitPrice !== null ? cleanUnitPrice * cleanQuantity : null
+      let parsedItems: PurchaseRequestIncomingItem[]
 
-      const urgency = getUrgencyFromExpectedDate(cleanExpectedDate)
+      try {
+        parsedItems = parsePurchaseRequestItems(body)
+      } catch {
+        return res.status(400).json({
+          message: "La liste des articles est invalide",
+        })
+      }
+
+      let cleanedItems: ReturnType<typeof cleanPurchaseRequestItems>
+
+      try {
+        cleanedItems = cleanPurchaseRequestItems(parsedItems)
+      } catch (error) {
+        return res.status(400).json({
+          message:
+            error instanceof Error
+              ? error.message
+              : "La liste des articles est invalide",
+        })
+      }
+
+      const urgency = getUrgencyFromExpectedDate(cleanNeededByDate)
       const formToken = (req as any).purchaseRequestFormToken
 
       await client.query("BEGIN")
@@ -690,49 +799,79 @@ if (
 
       const requestReference = await getNextPurchaseRequestReference(client)
 
-      const result = await client.query(
+      const requestResult = await client.query(
         `
         INSERT INTO portal.purchase_requests (
-        request_reference,
+          request_reference,
+          request_year,
+          request_month,
+          request_month_sequence,
           requested_by,
-          description,
-          quantity,
-          quantity_format,
-          reason,
+          requester_email,
           urgency,
-          requested_unit_price,
-          requested_total_price,
-          requested_supplier,
-          product_link,
           needed_by_date,
-          status,
-          request_email
+          status
         )
         VALUES (
-          $1, $2, $3, $4, $5, $6,
-          $7, $8, $9, $10, $11, $12,
-          'pending_buyer_validation', $13
+          $1, $2, $3, $4,
+          $5, $6, $7, $8,
+          'pending_buyer_validation'
         )
         RETURNING *
         `,
         [
-          requestReference,
+          requestReference.request_reference,
+          requestReference.request_year,
+          requestReference.request_month,
+          requestReference.request_month_sequence,
           cleanRequestedBy,
-          cleanDescription,
-          cleanQuantity,
-          cleanQuantityFormat,
-          cleanReason,
+          cleanRequesterEmail,
           urgency,
-          cleanUnitPrice,
-          requestedTotalPrice,
-          cleanRequestedSupplier,
-          cleanProductLink,
-          cleanExpectedDate,
-          cleanRequestEmail,
+          cleanNeededByDate,
         ]
       )
 
-      let createdRequest = result.rows[0]
+      let createdRequest = requestResult.rows[0]
+
+      const insertedItemsResult = await client.query(
+        `
+        INSERT INTO portal.purchase_request_items (
+          purchase_request_id,
+          item_index,
+          description,
+          reason,
+          quantity,
+          quantity_format,
+          requested_unit_price,
+          requested_supplier,
+          product_link,
+          status
+        )
+        SELECT
+          $1,
+          item_index,
+          description,
+          reason,
+          quantity,
+          quantity_format,
+          requested_unit_price,
+          requested_supplier,
+          product_link,
+          'pending_buyer_validation'
+        FROM jsonb_to_recordset($2::jsonb) AS item (
+          item_index INTEGER,
+          description TEXT,
+          reason TEXT,
+          quantity NUMERIC,
+          quantity_format TEXT,
+          requested_unit_price NUMERIC,
+          requested_supplier TEXT,
+          product_link TEXT
+        )
+        RETURNING *
+        `,
+        [createdRequest.id, JSON.stringify(cleanedItems)]
+      )
 
       const pictureKeys = await Promise.all(
         pictures.map((picture, index) => {
@@ -778,26 +917,32 @@ if (
       await client.query("COMMIT")
       transactionStarted = false
 
+      const createdRequestWithItems = {
+        ...createdRequest,
+        items: insertedItemsResult.rows,
+      }
+
       const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
-      const displayRequestNumber = getPurchaseRequestDisplayNumber(createdRequest)
-      const emailRecipients = getPurchaseRequestRecipients(createdRequest)
+      const displayRequestNumber =
+        getPurchaseRequestDisplayNumber(createdRequestWithItems)
+      const emailRecipients = getPurchaseRequestRecipients(createdRequestWithItems)
 
       await sendPurchaseRequestEmailSafely(
         emailRecipients,
         `Ricardo - nouvelle demande d'achat #${displayRequestNumber} à valider`,
         buildNewPurchaseRequestEmail(
-          createdRequest,
+          createdRequestWithItems,
           pictureLinks,
           buyerValidationUrl
         ),
         buildNewPurchaseRequestEmailHtml(
-          createdRequest,
+          createdRequestWithItems,
           pictureLinks,
           buyerValidationUrl
         )
       )
 
-      return res.status(201).json(createdRequest)
+      return res.status(201).json(createdRequestWithItems)
     } catch (error) {
       if (transactionStarted) {
         await client.query("ROLLBACK")
@@ -814,436 +959,7 @@ if (
   }
 )
 
-router.post(
-  "/batch",
-  createPurchaseRequestLimiter,
-  uploadPurchaseRequestBatchPictures.any(),
-  requireValidFormToken,
-  async (req, res) => {
-    const client = await pool.connect()
-    let transactionStarted = false
 
-    try {
-      const body = req.body ?? {}
-      const files = (req.files as Express.Multer.File[]) ?? []
-      const { requested_by, email, companyWebsite } = body
-
-      if (companyWebsite) {
-        return res.status(400).json({ message: "Invalid request" })
-      }
-
-      const cleanRequestedBy =
-        typeof requested_by === "string" ? requested_by.trim() : ""
-
-      const cleanRequestEmail =
-        typeof email === "string" && email.trim() !== ""
-          ? email.trim().toLowerCase()
-          : null
-
-      if (!cleanRequestedBy) {
-        return res.status(400).json({
-          message: "Le demandeur est requis",
-        })
-      }
-
-      if (cleanRequestedBy.length > 150) {
-        return res.status(400).json({
-          message: "Le nom du demandeur est trop long",
-        })
-      }
-
-      if (cleanRequestEmail && cleanRequestEmail.length > 254) {
-        return res.status(400).json({
-          message: "L'adresse courriel est trop longue",
-        })
-      }
-
-      if (
-        cleanRequestEmail &&
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanRequestEmail)
-      ) {
-        return res.status(400).json({
-          message: "L'adresse courriel est invalide",
-        })
-      }
-
-      let items: BatchPurchaseRequestItem[]
-
-      try {
-        items =
-          typeof body.items === "string" ? JSON.parse(body.items) : body.items
-      } catch {
-        return res.status(400).json({
-          message: "La liste des articles est invalide",
-        })
-      }
-
-      if (
-        !Array.isArray(items) ||
-        items.length < 2 ||
-        items.length > MAX_BATCH_PURCHASE_ITEMS
-      ) {
-        return res.status(400).json({
-          message: `La demande doit contenir entre 2 et ${MAX_BATCH_PURCHASE_ITEMS} articles`,
-        })
-      }
-
-      const picturesByItemIndex = new Map<number, Express.Multer.File[]>()
-
-      for (const file of files) {
-        const fieldMatch = /^pictures_(\d+)$/.exec(file.fieldname)
-
-        if (!fieldMatch) {
-          return res.status(400).json({
-            message: "Champ de photo invalide",
-          })
-        }
-
-        const itemIndex = Number(fieldMatch[1])
-
-        if (
-          !Number.isInteger(itemIndex) ||
-          itemIndex < 0 ||
-          itemIndex >= items.length
-        ) {
-          return res.status(400).json({
-            message: "Photo associée à un article invalide",
-          })
-        }
-
-        const itemPictures = picturesByItemIndex.get(itemIndex) ?? []
-        itemPictures.push(file)
-
-        if (itemPictures.length > MAX_PICTURES_PER_BATCH_ITEM) {
-          return res.status(400).json({
-            message: `Maximum ${MAX_PICTURES_PER_BATCH_ITEM} photos par article`,
-          })
-        }
-
-        picturesByItemIndex.set(itemIndex, itemPictures)
-      }
-
-      const cleanedItems = items.map((item, index) => {
-        const cleanDescription =
-          typeof item.description === "string" ? item.description.trim() : ""
-
-        const cleanQuantityFormat =
-          typeof item.quantity_format === "string" &&
-          item.quantity_format.trim() !== ""
-            ? item.quantity_format.trim().replace(/\s+/g, " ")
-            : null
-
-        const cleanReason =
-          typeof item.reason === "string" && item.reason.trim() !== ""
-            ? item.reason.trim()
-            : null
-
-        const cleanProductLink =
-          typeof item.product_link === "string" &&
-          item.product_link.trim() !== ""
-            ? item.product_link.trim()
-            : null
-
-        const cleanExpectedDate =
-          typeof item.needed_by_date === "string" &&
-          item.needed_by_date.trim() !== ""
-            ? item.needed_by_date.trim()
-            : null
-
-        const cleanQuantity =
-          item.quantity === undefined ||
-          item.quantity === null ||
-          item.quantity === ""
-            ? null
-            : Number(item.quantity)
-
-        const cleanUnitPrice =
-          item.requested_unit_price === "" ||
-          item.requested_unit_price === undefined ||
-          item.requested_unit_price === null
-            ? null
-            : Number(item.requested_unit_price)
-
-        if (!cleanDescription) {
-          throw new Error(`Article ${index + 1}: la description est requise`)
-        }
-
-        if (cleanDescription.length > 1000) {
-          throw new Error(`Article ${index + 1}: la description est trop longue`)
-        }
-
-        if (cleanQuantityFormat && cleanQuantityFormat.length > 80) {
-          throw new Error(
-            `Article ${index + 1}: le format de quantité est trop long`
-          )
-        }
-
-        if (cleanReason && cleanReason.length > 2000) {
-          throw new Error(
-            `Article ${index + 1}: la justification est trop longue`
-          )
-        }
-
-        if (cleanProductLink && cleanProductLink.length > 2000) {
-          throw new Error(
-            `Article ${index + 1}: le lien du produit est trop long`
-          )
-        }
-
-        if (cleanProductLink) {
-          try {
-            const url = new URL(cleanProductLink)
-
-            if (!["http:", "https:"].includes(url.protocol)) {
-              throw new Error("Invalid protocol")
-            }
-          } catch {
-            throw new Error(`Article ${index + 1}: le lien du produit est invalide`)
-          }
-        }
-
-        if (
-          cleanQuantity === null ||
-          !Number.isFinite(cleanQuantity) ||
-          cleanQuantity <= 0 ||
-          !Number.isInteger(cleanQuantity)
-        ) {
-          throw new Error(
-            `Article ${index + 1}: la quantité doit être un nombre entier supérieur à 0`
-          )
-        }
-
-        if (
-          cleanUnitPrice !== null &&
-          (!Number.isFinite(cleanUnitPrice) || cleanUnitPrice < 0)
-        ) {
-          throw new Error(`Article ${index + 1}: le prix doit être valide`)
-        }
-
-        if (cleanExpectedDate) {
-          const date = new Date(`${cleanExpectedDate}T00:00:00`)
-
-          if (
-            Number.isNaN(date.getTime()) ||
-            !/^\d{4}-\d{2}-\d{2}$/.test(cleanExpectedDate)
-          ) {
-            throw new Error(
-              `Article ${index + 1}: la date souhaitée est invalide`
-            )
-          }
-        }
-
-        return {
-          clientItemIndex:
-            typeof item.client_item_index === "number" &&
-            Number.isInteger(item.client_item_index)
-              ? item.client_item_index
-              : index,
-          description: cleanDescription,
-          quantity: cleanQuantity,
-          quantityFormat: cleanQuantityFormat,
-          reason: cleanReason,
-          requestedUnitPrice: cleanUnitPrice,
-          requestedTotalPrice:
-            cleanUnitPrice !== null ? cleanUnitPrice * cleanQuantity : null,
-          productLink: cleanProductLink,
-          neededByDate: cleanExpectedDate,
-          urgency: getUrgencyFromExpectedDate(cleanExpectedDate),
-        }
-      })
-
-      const formToken = (req as any).purchaseRequestFormToken
-      const batchId = crypto.randomUUID()
-      const createdRequests: any[] = []
-      const createdEmailPayloads: {
-        request: any
-        pictureKeys: string[]
-        pictures: Express.Multer.File[]
-        buyerValidationUrl: string
-      }[] = []
-
-      await client.query("BEGIN")
-      transactionStarted = true
-
-      const tokenResult = await client.query(
-        `
-        UPDATE portal.purchase_request_form_tokens
-        SET used_at = now()
-        WHERE token = $1
-          AND used_at IS NULL
-          AND expires_at > now()
-        RETURNING id
-        `,
-        [formToken]
-      )
-
-      if (tokenResult.rows.length === 0) {
-        await client.query("ROLLBACK")
-        transactionStarted = false
-
-        return res.status(403).json({
-          message: "Jeton de formulaire invalide ou expiré",
-        })
-      }
-
-      for (let index = 0; index < cleanedItems.length; index += 1) {
-        const item = cleanedItems[index]
-        const requestReference = await getNextPurchaseRequestReference(client)
-
-        const result = await client.query(
-          `
-          INSERT INTO portal.purchase_requests (
-            request_reference,
-            batch_id,
-            batch_item_index,
-            batch_item_count,
-            requested_by,
-            description,
-            quantity,
-            quantity_format,
-            reason,
-            urgency,
-            requested_unit_price,
-            requested_total_price,
-            product_link,
-            needed_by_date,
-            status,
-            request_email
-          )
-          VALUES (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10, $11, $12,
-            $13, $14, 'pending_buyer_validation', $15
-          )
-          RETURNING *
-          `,
-          [
-            requestReference,
-            batchId,
-            item.clientItemIndex,
-            cleanedItems.length,
-            cleanRequestedBy,
-            item.description,
-            item.quantity,
-            item.quantityFormat,
-            item.reason,
-            item.urgency,
-            item.requestedUnitPrice,
-            item.requestedTotalPrice,
-            item.productLink,
-            item.neededByDate,
-            cleanRequestEmail,
-          ]
-        )
-
-        let createdRequest = result.rows[0]
-        const pictures = picturesByItemIndex.get(index) ?? []
-
-        const pictureKeys = await Promise.all(
-          pictures.map((picture, pictureIndex) => {
-            const key = createPurchaseRequestPictureKey(
-              createdRequest.id,
-              picture,
-              pictureIndex
-            )
-
-            return uploadBufferToS3({
-              key,
-              buffer: picture.buffer,
-              contentType: picture.mimetype,
-            })
-          })
-        )
-
-        if (pictureKeys.length > 0) {
-          const updatedRequestResult = await client.query(
-            `
-            UPDATE portal.purchase_requests
-            SET picture_keys = $1
-            WHERE id = $2
-            RETURNING *
-            `,
-            [pictureKeys, createdRequest.id]
-          )
-
-          createdRequest = updatedRequestResult.rows[0]
-        }
-
-        const buyerValidationToken = await createBuyerValidationToken(
-          client,
-          createdRequest.id
-        )
-
-        createdRequests.push(createdRequest)
-        createdEmailPayloads.push({
-          request: createdRequest,
-          pictureKeys,
-          pictures,
-          buyerValidationUrl: buildBuyerValidationUrl(
-            req,
-            createdRequest.id,
-            buyerValidationToken
-          ),
-        })
-      }
-
-      await client.query("COMMIT")
-      transactionStarted = false
-
-      const batchEmailItems = await Promise.all(
-        createdEmailPayloads.map(async (emailPayload) => ({
-          request: emailPayload.request,
-          pictureLinks: await buildPictureEmailLinks(
-            emailPayload.pictureKeys,
-            emailPayload.pictures
-          ),
-          buyerValidationUrl: emailPayload.buyerValidationUrl,
-        }))
-      )
-
-      const firstDisplayRequestNumber = getPurchaseRequestDisplayNumber(
-        createdRequests[0]
-      )
-      const lastDisplayRequestNumber = getPurchaseRequestDisplayNumber(
-        createdRequests[createdRequests.length - 1]
-      )
-      const emailRecipients = getPurchaseRequestRecipients(createdRequests[0])
-
-      await sendPurchaseRequestEmailSafely(
-        emailRecipients,
-        `Ricardo - nouvelle demande d'achat groupée (${createdRequests.length} articles) #${firstDisplayRequestNumber} à #${lastDisplayRequestNumber}`,
-        buildNewPurchaseRequestBatchEmail(batchEmailItems),
-        buildNewPurchaseRequestBatchEmailHtml(batchEmailItems)
-      )
-
-      return res.status(201).json({
-        batch_id: batchId,
-        purchase_requests: createdRequests,
-      })
-    } catch (error) {
-      if (transactionStarted) {
-        await client.query("ROLLBACK")
-      }
-
-      const message =
-        error instanceof Error && error.message.startsWith("Article ")
-          ? error.message
-          : "Error creating purchase request batch"
-
-      if (error instanceof Error && error.message.startsWith("Article ")) {
-        return res.status(400).json({ message })
-      }
-
-      console.error("Error creating purchase request batch:", error)
-
-      return res.status(500).json({
-        message,
-      })
-    } finally {
-      client.release()
-    }
-  }
-)
 
 
 router.patch(

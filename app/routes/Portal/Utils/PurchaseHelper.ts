@@ -18,6 +18,42 @@ export type PictureEmailLink = {
   url: string
 }
 
+export type PurchaseRequestEmailItem = {
+  id?: number
+  item_index?: number
+  description?: string | null
+  reason?: string | null
+  quantity?: number | string | null
+  quantity_format?: string | null
+  requested_unit_price?: number | string | null
+  requested_total_price?: number | string | null
+  requested_supplier?: string | null
+  product_link?: string | null
+  buyer_confirmed_unit_price?: number | string | null
+  buyer_confirmed_total_price?: number | string | null
+  buyer_confirmed_supplier?: string | null
+  status?: string | null
+}
+
+export type PurchaseRequestEmailData = {
+  id?: number
+  request_reference?: string | null
+  requested_by?: string | null
+  requester_email?: string | null
+  requested_at?: string | Date | null
+  needed_by_date?: string | Date | null
+  expected_date?: string | Date | null
+  urgency?: string | null
+  status?: string | null
+  buyer_validated_at?: string | Date | null
+  buyer_note?: string | null
+  admin_note?: string | null
+  rejection_reason?: string | null
+  direct_approval_approver?: string | null
+  items?: PurchaseRequestEmailItem[]
+  created_at?: string | Date | null
+}
+
 const getPictureExtension = (file: Express.Multer.File) => {
   const extension = path.extname(file.originalname).toLowerCase()
 
@@ -91,21 +127,7 @@ export const uploadPurchaseRequestPictures = multer({
   },
 })
 
-export const uploadPurchaseRequestBatchPictures = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    files: 50,
-    fileSize: 7 * 1024 * 1024,
-  },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) {
-      cb(new Error("Only image files are allowed"))
-      return
-    }
 
-    cb(null, true)
-  },
-})
 
 export const uploadPurchaseRequestDocuments = multer({
   storage: multer.memoryStorage(),
@@ -574,25 +596,220 @@ const formatMoney = (value: number | string | null | undefined) => {
   return `${numberValue.toFixed(2)} $`
 }
 
-const formatQuantity = (request: any) => {
+const formatQuantity = (item: PurchaseRequestEmailItem) => {
   const quantity =
-    request.quantity === null || request.quantity === undefined || request.quantity === ""
+    item.quantity === null || item.quantity === undefined || item.quantity === ""
       ? "Non indiquée"
-      : String(request.quantity)
-  const rawQuantityFormat =
-    request.quantity_format ?? request.quantityFormat ?? request.format
+      : String(item.quantity)
+
   const quantityFormat =
-    typeof rawQuantityFormat === "string" ? rawQuantityFormat.trim() : ""
+    typeof item.quantity_format === "string" ? item.quantity_format.trim() : ""
 
   return quantityFormat ? `${quantity} - ${quantityFormat}` : quantity
+}
+
+const getEmailItems = (request: PurchaseRequestEmailData) => {
+  return Array.isArray(request.items) ? request.items : []
+}
+
+const sumMoneyField = (
+  items: PurchaseRequestEmailItem[],
+  field: keyof PurchaseRequestEmailItem
+) => {
+  let hasValue = false
+
+  const total = items.reduce((sum, item) => {
+    const value = Number(item[field])
+
+    if (!Number.isFinite(value)) {
+      return sum
+    }
+
+    hasValue = true
+    return sum + value
+  }, 0)
+
+  return hasValue ? total : null
+}
+
+const getRequestedItemsTotal = (request: PurchaseRequestEmailData) => {
+  return sumMoneyField(getEmailItems(request), "requested_total_price")
+}
+
+const getConfirmedItemsTotal = (request: PurchaseRequestEmailData) => {
+  return sumMoneyField(getEmailItems(request), "buyer_confirmed_total_price")
+}
+
+
+const formatRequestItemsForEmail = (
+  items: PurchaseRequestEmailItem[],
+  options?: {
+    includeRequestedPrices?: boolean
+    includeConfirmedPrices?: boolean
+    includeProductLinks?: boolean
+  }
+) => {
+  if (items.length === 0) {
+    return "Aucun article indiqué"
+  }
+
+  return items
+    .map((item, index) => {
+      const itemNumber = item.item_index ?? index + 1
+
+      const lines = [
+        `Article ${itemNumber}`,
+        `Description: ${item.description || "Non indiquée"}`,
+        `Justification: ${item.reason || "Aucune justification indiquée"}`,
+        `Quantité: ${formatQuantity(item)}`,
+      ]
+
+      if (options?.includeRequestedPrices) {
+        lines.push(`Prix unitaire estimé: ${formatMoney(item.requested_unit_price)}`)
+        lines.push(`Prix total estimé: ${formatMoney(item.requested_total_price)}`)
+        lines.push(`Fournisseur demandé: ${item.requested_supplier || "Non indiqué"}`)
+      }
+
+      if (options?.includeConfirmedPrices) {
+        lines.push(
+          `Prix unitaire confirmé: ${formatMoney(item.buyer_confirmed_unit_price)}`
+        )
+        lines.push(
+          `Prix total confirmé: ${formatMoney(item.buyer_confirmed_total_price)}`
+        )
+        lines.push(
+          `Fournisseur confirmé: ${item.buyer_confirmed_supplier || "Non indiqué"}`
+        )
+      }
+
+      if (options?.includeProductLinks) {
+        lines.push(`Lien produit: ${item.product_link || "Aucun lien indiqué"}`)
+      }
+
+      return lines.join("\n")
+    })
+    .join("\n\n---\n\n")
+}
+
+
+const formatRequestItemsForEmailHtml = (
+  items: PurchaseRequestEmailItem[],
+  options?: {
+    includeRequestedPrices?: boolean
+    includeConfirmedPrices?: boolean
+    includeProductLinks?: boolean
+  }
+) => {
+  if (items.length === 0) {
+    return `<p>Aucun article indiqué</p>`
+  }
+
+  return items
+    .map((item, index) => {
+      const itemNumber = item.item_index ?? index + 1
+      const productLinkUrl = getSafeHttpUrl(item.product_link)
+
+      return `
+        <div style="border:1px solid #cbd5e1;border-radius:8px;padding:14px 16px;margin:16px 0;background:#f8fafc;">
+          <h3 style="margin:0 0 10px 0;color:#166534;">
+            Article ${escapeHtml(itemNumber)}
+          </h3>
+
+          <table style="width:100%;border-collapse:collapse;">
+            <tbody>
+              <tr>
+                <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;width:180px;">Description</td>
+                <td style="padding:6px 0;">${escapeHtml(
+                  item.description || "Non indiquée"
+                )}</td>
+              </tr>
+
+              <tr>
+                <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Justification</td>
+                <td style="padding:6px 0;">${escapeHtml(
+                  item.reason || "Aucune justification indiquée"
+                )}</td>
+              </tr>
+
+              <tr>
+                <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Quantité</td>
+                <td style="padding:6px 0;">${escapeHtml(formatQuantity(item))}</td>
+              </tr>
+
+              ${
+                options?.includeRequestedPrices
+                  ? `
+                    <tr>
+                      <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Prix estimé</td>
+                      <td style="padding:6px 0;">
+                        ${formatMoney(item.requested_unit_price)} / unité<br />
+                        Total: ${formatMoney(item.requested_total_price)}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Fournisseur demandé</td>
+                      <td style="padding:6px 0;">${escapeHtml(
+                        item.requested_supplier || "Non indiqué"
+                      )}</td>
+                    </tr>
+                  `
+                  : ""
+              }
+
+              ${
+                options?.includeConfirmedPrices
+                  ? `
+                    <tr>
+                      <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Prix confirmé</td>
+                      <td style="padding:6px 0;">
+                        ${formatMoney(item.buyer_confirmed_unit_price)} / unité<br />
+                        Total: ${formatMoney(item.buyer_confirmed_total_price)}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Fournisseur confirmé</td>
+                      <td style="padding:6px 0;">${escapeHtml(
+                        item.buyer_confirmed_supplier || "Non indiqué"
+                      )}</td>
+                    </tr>
+                  `
+                  : ""
+              }
+
+              ${
+                options?.includeProductLinks
+                  ? `
+                    <tr>
+                      <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Lien produit</td>
+                      <td style="padding:6px 0;">
+                        ${
+                          productLinkUrl
+                            ? `<a href="${escapeHtml(
+                                productLinkUrl
+                              )}" target="_blank" rel="noopener noreferrer">Voir le produit</a>`
+                            : "Aucun lien indiqué"
+                        }
+                      </td>
+                    </tr>
+                  `
+                  : ""
+              }
+            </tbody>
+          </table>
+        </div>
+      `
+    })
+    .join("")
 }
 
 export const getPurchaseRequestDisplayNumber = (request: any) =>
   request.request_reference ?? String(request.id)
 
 const formatRequesterEmail = (request: any) => {
-  return typeof request.request_email === "string" && request.request_email.trim()
-    ? request.request_email.trim()
+  return typeof request.requester_email === "string" && request.requester_email.trim()
+    ? request.requester_email.trim()
     : "Non indiqué"
 }
 
@@ -665,54 +882,50 @@ const formatPictureLinksForEmailHtml = (pictureLinks: PictureEmailLink[]) => {
   `
 }
 
-type BatchPurchaseRequestEmailItem = {
-  request: any
-  pictureLinks?: PictureEmailLink[]
-  buyerValidationUrl: string
-}
+
 
 export const buildNewPurchaseRequestEmail = (
-  request: any,
+  request: PurchaseRequestEmailData,
   pictureLinks: PictureEmailLink[] = [],
   buyerValidationUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
+
   const pictureExpiryText =
     pictureLinks.length > 0 ? "\n\nLes liens des photos expirent dans 7 jours." : ""
 
   return `
 Une nouvelle demande d'achat a été soumise.
 
-Numéro de demande: #${displayRequestNumber}
+Numéro de demande:
+#${displayRequestNumber}
 
 Demandeur:
-${request.requested_by}
+${request.requested_by || "Non indiqué"}
 
 Courriel du demandeur:
 ${formatRequesterEmail(request)}
 
-Description:
-${request.description}
+Nombre d'articles:
+${items.length}
 
-Justification: ${request.reason || "Aucune justification indiquée"}
-
-Quantité:
-${formatQuantity(request)}
-
-Prix unitaire estimé:
-${formatMoney(request.requested_unit_price)}
-
-Prix total estimé:
-${formatMoney(request.requested_total_price)}
-
-Lien produit:
-${request.product_link || "Aucun lien indiqué"}
+Total estimé de la demande:
+${requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)}
 
 Date requise:
 ${formatDateFr(request.needed_by_date)}
 
 Urgence:
 ${request.urgency || "Normal"}
+
+Articles:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeProductLinks: true,
+})}
 
 Photos:
 ${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
@@ -721,17 +934,18 @@ Lien de validation pour Ricardo:
 ${buyerValidationUrl}
 
 Prochaine étape:
-Ricardo doit confirmer le prix avec le lien de validation.
+Ricardo doit confirmer les prix des articles avec le lien de validation.
   `.trim()
 }
 
 export const buildNewPurchaseRequestEmailHtml = (
-  request: any,
+  request: PurchaseRequestEmailData,
   pictureLinks: PictureEmailLink[] = [],
   buyerValidationUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
-  const productLinkUrl = getSafeHttpUrl(request.product_link)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
   const safeBuyerValidationUrl = escapeHtml(buyerValidationUrl)
 
   return `
@@ -740,43 +954,34 @@ export const buildNewPurchaseRequestEmailHtml = (
 
       <p>Une nouvelle demande d'achat a été soumise.</p>
 
-      <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+      <p><strong>Demandeur:</strong><br />${escapeHtml(
+        request.requested_by || "Non indiqué"
+      )}</p>
+
       <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
         formatRequesterEmail(request)
       )}</p>
 
-      <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
+      <p><strong>Nombre d'articles:</strong><br />${items.length}</p>
 
-       <p><strong>Justification:</strong><br />${
-        request.reason ? escapeHtml(request.reason) : "Aucune justification indiquée"
+      <p><strong>Total estimé de la demande:</strong><br />${
+        requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)
       }</p>
-
-      <p><strong>Quantité:</strong><br />${escapeHtml(formatQuantity(request))}</p>
-
-      <p><strong>Prix unitaire estimé:</strong><br />${formatMoney(
-        request.requested_unit_price
-      )}</p>
-
-      <p><strong>Prix total estimé:</strong><br />${formatMoney(
-        request.requested_total_price
-      )}</p>
-
-      <p>
-        <strong>Lien produit:</strong><br />
-        ${
-          productLinkUrl
-            ? `<a href="${escapeHtml(
-                productLinkUrl
-              )}" target="_blank" rel="noopener noreferrer">Voir le produit</a>`
-            : "Aucun lien indiqué"
-        }
-      </p>
 
       <p><strong>Date requise:</strong><br />${formatDateFr(
         request.needed_by_date
       )}</p>
 
-      <p><strong>Urgence:</strong><br />${escapeHtml(request.urgency || "Normal")}</p>
+      <p><strong>Urgence:</strong><br />${escapeHtml(
+        request.urgency || "Normal"
+      )}</p>
+
+      <h3>Articles</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeProductLinks: true,
+      })}
 
       <p><strong>Photos:</strong></p>
       ${formatPictureLinksForEmailHtml(pictureLinks)}
@@ -788,7 +993,7 @@ export const buildNewPurchaseRequestEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Ricardo - vérifier le prix
+          Ricardo - vérifier les prix
         </a>
       </p>
 
@@ -799,217 +1004,25 @@ export const buildNewPurchaseRequestEmailHtml = (
         </a>
       </p>
 
-     
-
       <hr />
 
       <p><strong>Prochaine étape:</strong><br />
-      Ricardo doit confirmer le prix avec le lien de validation.</p>
+      Ricardo doit confirmer les prix des articles avec le lien de validation.</p>
     </div>
   `.trim()
 }
 
-export const buildNewPurchaseRequestBatchEmail = (
-  items: BatchPurchaseRequestEmailItem[]
-) => {
-  const firstRequest = items[0]?.request ?? {}
-  const totalEstimatedPrice = items.reduce((total, item) => {
-    const value = Number(item.request.requested_total_price)
-
-    return Number.isFinite(value) ? total + value : total
-  }, 0)
-  const hasEstimatedTotal = items.some(
-    (item) => item.request.requested_total_price !== null
-  )
-
-  const itemSummaries = items
-    .map((item, index) => {
-      const request = item.request
-      const pictureLinks = item.pictureLinks ?? []
-      const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
-      const pictureExpiryText =
-        pictureLinks.length > 0
-          ? "\nLes liens des photos expirent dans 7 jours."
-          : ""
-
-      return `
-Article ${index + 1} - demande #${displayRequestNumber}
-Description: ${request.description}
-Justification: ${request.reason || "Aucune justification indiquée"}
-Quantité: ${formatQuantity(request)}
-Prix unitaire estimé: ${formatMoney(request.requested_unit_price)}
-Prix total estimé: ${formatMoney(request.requested_total_price)}
-Lien produit: ${request.product_link || "Aucun lien indiqué"}
-Date requise: ${formatDateFr(request.needed_by_date)}
-Urgence: ${request.urgency || "Normal"}
-Photos:
-${formatPictureLinksForEmail(pictureLinks)}${pictureExpiryText}
-Lien de validation pour Ricardo:
-${item.buyerValidationUrl}
-      `.trim()
-    })
-    .join("\n\n---\n\n")
-
-  return `
-Une nouvelle demande d'achat avec plusieurs articles a été soumise.
-
-Nombre d'articles:
-${items.length}
-
-Demandeur:
-${firstRequest.requested_by || "Non indiqué"}
-
-Courriel du demandeur:
-${formatRequesterEmail(firstRequest)}
-
-Total estimé du lot:
-${hasEstimatedTotal ? formatMoney(totalEstimatedPrice) : "Non indiqué"}
-
-Articles:
-
-${itemSummaries}
-
-Prochaine étape:
-Ricardo doit confirmer le prix de chaque article avec son lien de validation.
-  `.trim()
-}
-
-export const buildNewPurchaseRequestBatchEmailHtml = (
-  items: BatchPurchaseRequestEmailItem[]
-) => {
-  const firstRequest = items[0]?.request ?? {}
-  const totalEstimatedPrice = items.reduce((total, item) => {
-    const value = Number(item.request.requested_total_price)
-
-    return Number.isFinite(value) ? total + value : total
-  }, 0)
-  const hasEstimatedTotal = items.some(
-    (item) => item.request.requested_total_price !== null
-  )
-
-  return `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Nouvelle demande d'achat - ${items.length} articles</h2>
-
-      <p>Une nouvelle demande d'achat avec plusieurs articles a été soumise.</p>
-
-      <p><strong>Demandeur:</strong><br />${escapeHtml(
-        firstRequest.requested_by || "Non indiqué"
-      )}</p>
-      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
-        formatRequesterEmail(firstRequest)
-      )}</p>
-      <p><strong>Total estimé du lot:</strong><br />${
-        hasEstimatedTotal ? formatMoney(totalEstimatedPrice) : "Non indiqué"
-      }</p>
-
-      ${items
-        .map((item, index) => {
-          const request = item.request
-          const pictureLinks = item.pictureLinks ?? []
-          const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
-          const productLinkUrl = getSafeHttpUrl(request.product_link)
-          const safeBuyerValidationUrl = escapeHtml(item.buyerValidationUrl)
-
-          return `
-            <div style="border:1px solid #cbd5e1;border-radius:8px;padding:14px 16px;margin:16px 0;background:#f8fafc;">
-              <h3 style="margin:0 0 10px 0;color:#166534;">
-                Article ${index + 1} - demande #${escapeHtml(displayRequestNumber)}
-              </h3>
-
-              <table style="width:100%;border-collapse:collapse;">
-                <tbody>
-                  <tr>
-                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;width:160px;">Description</td>
-                    <td style="padding:6px 0;">${escapeHtml(request.description)}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Justification</td>
-                    <td style="padding:6px 0;">${
-                      request.reason
-                        ? escapeHtml(request.reason)
-                        : "Aucune justification indiquée"
-                    }</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Quantité</td>
-                    <td style="padding:6px 0;">${escapeHtml(
-                      formatQuantity(request)
-                    )}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Prix estimé</td>
-                    <td style="padding:6px 0;">
-                      ${formatMoney(request.requested_unit_price)} / unité<br />
-                      Total: ${formatMoney(request.requested_total_price)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Date requise</td>
-                    <td style="padding:6px 0;">${formatDateFr(
-                      request.needed_by_date
-                    )}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Urgence</td>
-                    <td style="padding:6px 0;">${escapeHtml(
-                      request.urgency || "Normal"
-                    )}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Lien produit</td>
-                    <td style="padding:6px 0;">
-                      ${
-                        productLinkUrl
-                          ? `<a href="${escapeHtml(
-                              productLinkUrl
-                            )}" target="_blank" rel="noopener noreferrer">Voir le produit</a>`
-                          : "Aucun lien indiqué"
-                      }
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <p><strong>Photos:</strong></p>
-              ${formatPictureLinksForEmailHtml(pictureLinks)}
-
-              <p>
-                <a
-                  href="${safeBuyerValidationUrl}"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
-                >
-                  Ricardo - vérifier le prix de l'article ${index + 1}
-                </a>
-              </p>
-
-              <p style="color:#475569;font-size:13px;">
-                Lien direct:<br />
-                <a href="${safeBuyerValidationUrl}" target="_blank" rel="noopener noreferrer">
-                  ${safeBuyerValidationUrl}
-                </a>
-              </p>
-            </div>
-          `
-        })
-        .join("")}
-
-      <hr />
-
-      <p><strong>Prochaine étape:</strong><br />
-      Ricardo doit confirmer le prix de chaque article avec son lien de validation.</p>
-    </div>
-  `.trim()
-}
 
 export const buildAdminApprovalEmail = (
-  request: any,
+  request: PurchaseRequestEmailData,
   adminApprovalUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
+  const confirmedTotal = getConfirmedItemsTotal(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
+
   const priceIncreaseWarning = priceIncreaseInfo
     ? `
 
@@ -1024,62 +1037,65 @@ Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
   return `
 Une demande d'achat est prête pour la décision de Michelle.
 
-Numéro de demande: #${displayRequestNumber}
+Numéro de demande:
+#${displayRequestNumber}
 
 Demandeur:
-${request.requested_by}
+${request.requested_by || "Non indiqué"}
 
 Courriel du demandeur:
 ${formatRequesterEmail(request)}
 
-Description:
-${request.description}
+Nombre d'articles:
+${items.length}
 
-Quantité:
-${formatQuantity(request)}
+Total estimé:
+${requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)}
 
-Prix unitaire confirmé:
-${formatMoney(request.buyer_confirmed_unit_price)}
-
-Prix total confirmé:
-${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
-
-Fournisseur potentiel:
-${request.buyer_confirmed_supplier || "Non indiqué"}
+Total confirmé:
+${confirmedTotal === null ? "Non indiqué" : formatMoney(confirmedTotal)}${priceIncreaseWarning}
 
 Note de Ricardo:
 ${request.buyer_note || "Aucune note"}
 
 Date requise:
-${formatDateFr(request.needed_by_date)}
+${formatDateFr(request.expected_date || request.needed_by_date)}
 
 Urgence:
 ${request.urgency || "Normal"}
+
+Articles:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeConfirmedPrices: true,
+  includeProductLinks: true,
+})}
 
 Lien de décision pour Michelle:
 ${adminApprovalUrl}
 
 Prochaine étape:
-Michelle doit approuver ou refuser la demande.
+Michelle doit approuver, mettre en attente ou refuser la demande.
   `.trim()
 }
 
 export const buildAdminApprovalEmailHtml = (
-  request: any,
+  request: PurchaseRequestEmailData,
   adminApprovalUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
+  const confirmedTotal = getConfirmedItemsTotal(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
-  const confirmedTotalPriceStyle = priceIncreaseInfo
-    ? "color:#b91c1c;font-weight:700;"
-    : ""
   const safeAdminApprovalUrl = escapeHtml(adminApprovalUrl)
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
       <h2>Demande d'achat #${escapeHtml(displayRequestNumber)} prête pour Michelle</h2>
 
-      <p>Michelle doit approuver ou refuser cette demande.</p>
+      <p>Michelle doit approuver, mettre en attente ou refuser cette demande.</p>
 
       ${
         priceIncreaseInfo
@@ -1094,32 +1110,43 @@ export const buildAdminApprovalEmailHtml = (
           : ""
       }
 
-      <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+      <p><strong>Demandeur:</strong><br />${escapeHtml(
+        request.requested_by || "Non indiqué"
+      )}</p>
+
       <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
         formatRequesterEmail(request)
       )}</p>
-      <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
-      <p><strong>Quantité:</strong><br />${escapeHtml(formatQuantity(request))}</p>
-      <p><strong>Prix unitaire confirmé:</strong><br />${formatMoney(
-        request.buyer_confirmed_unit_price
-      )}</p>
-      <p><strong>Prix total confirmé:</strong><br />
-        <span style="${confirmedTotalPriceStyle}">${formatMoney(
-          request.buyer_confirmed_total_price
-        )}</span>
-      </p>
-      <p><strong>Fournisseur potentiel:</strong><br />${escapeHtml(
-        request.buyer_confirmed_supplier || "Non indiqué"
-      )}</p>
+
+      <p><strong>Nombre d'articles:</strong><br />${items.length}</p>
+
+      <p><strong>Total estimé:</strong><br />${
+        requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)
+      }</p>
+
+      <p><strong>Total confirmé:</strong><br />${
+        confirmedTotal === null ? "Non indiqué" : formatMoney(confirmedTotal)
+      }</p>
+
       <p><strong>Note de Ricardo:</strong><br />${escapeHtml(
         request.buyer_note || "Aucune note"
       )}</p>
+
       <p><strong>Date requise:</strong><br />${formatDateFr(
-        request.needed_by_date
+        request.expected_date || request.needed_by_date
       )}</p>
+
       <p><strong>Urgence:</strong><br />${escapeHtml(
         request.urgency || "Normal"
       )}</p>
+
+      <h3>Articles</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeConfirmedPrices: true,
+        includeProductLinks: true,
+      })}
 
       <p>
         <a
@@ -1150,6 +1177,7 @@ const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
     approved: "Approuvée",
     rejected: "Refusée",
     ready_to_purchase: "Prête à acheter",
+    admin_on_wait: "Mise en attente par Michelle",
     purchased: "Achetée",
     cancelled: "Annulée",
   }
@@ -1157,11 +1185,11 @@ const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
   return status ? labels[status] || status : "Non indiqué"
 }
 
-const getPriceIncreaseInfo = (request: any) => {
-  const requestedTotalPrice = Number(request.requested_total_price)
-  const confirmedTotalPrice = Number(request.buyer_confirmed_total_price)
+const getPriceIncreaseInfo = (request: PurchaseRequestEmailData) => {
+  const requestedTotalPrice = getRequestedItemsTotal(request)
+  const confirmedTotalPrice = getConfirmedItemsTotal(request)
 
-  if (!Number.isFinite(requestedTotalPrice) || !Number.isFinite(confirmedTotalPrice)) {
+  if (requestedTotalPrice === null || confirmedTotalPrice === null) {
     return null
   }
 
@@ -1175,18 +1203,23 @@ const getPriceIncreaseInfo = (request: any) => {
     confirmedTotalPrice,
   }
 }
-
 export const buildBuyerPriceConfirmedEmail = (
-  request: any,
+  request: PurchaseRequestEmailData,
   adminApprovalUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
+  const confirmedTotal = getConfirmedItemsTotal(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
+
   const priceIncreaseWarning = priceIncreaseInfo
     ? `
 
 Attention:
 Le prix total confirmé est plus élevé que le prix total estimé de la demande.
+Prix estimé: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}
+Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
 Écart: ${formatMoney(priceIncreaseInfo.difference)}
 `
     : ""
@@ -1205,23 +1238,14 @@ ${request.requested_by || "Non indiqué"}
 Courriel du demandeur:
 ${formatRequesterEmail(request)}
 
-Description:
-${request.description || "Non indiquée"}
+Nombre d'articles:
+${items.length}
 
-Raison:
-${request.reason || "Aucune justification indiquée"}
+Total estimé dans la demande:
+${requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)}
 
-Quantité:
-${formatQuantity(request)}
-
-Prix total estimé dans la demande:
-${formatMoney(request.requested_total_price)}
-
-Prix unitaire confirmé:
-${formatMoney(request.buyer_confirmed_unit_price)}
-
-Prix total confirmé:
-${formatMoney(request.buyer_confirmed_total_price)}${priceIncreaseWarning}
+Total confirmé par Ricardo:
+${confirmedTotal === null ? "Non indiqué" : formatMoney(confirmedTotal)}${priceIncreaseWarning}
 
 Statut:
 ${getPurchaseRequestStatusLabel(request.status)}
@@ -1236,22 +1260,33 @@ Urgence:
 ${request.urgency || "Normal"}
 
 Date requise:
-${formatDateFr(request.expected_at || request.needed_by_date)}
+${formatDateFr(request.expected_date || request.needed_by_date)}
+
+Articles:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeConfirmedPrices: true,
+  includeProductLinks: true,
+})}
 
 Lien de décision pour Michelle:
 ${adminApprovalUrl}
   `.trim()
 }
-
 export const buildBuyerPriceConfirmedEmailHtml = (
-  request: any,
+  request: PurchaseRequestEmailData,
   adminApprovalUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
+  const confirmedTotal = getConfirmedItemsTotal(request)
   const priceIncreaseInfo = getPriceIncreaseInfo(request)
   const confirmedTotalPriceStyle = priceIncreaseInfo
     ? "color:#b91c1c;font-weight:700;"
     : ""
+
   const safeAdminApprovalUrl = escapeHtml(adminApprovalUrl)
 
   return `
@@ -1267,15 +1302,13 @@ export const buildBuyerPriceConfirmedEmailHtml = (
           ? `
             <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
               <strong>Attention: prix plus élevé que la demande initiale.</strong><br />
+              Prix estimé: ${formatMoney(priceIncreaseInfo.requestedTotalPrice)}<br />
+              Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}<br />
               Écart: ${formatMoney(priceIncreaseInfo.difference)}
             </div>
           `
           : ""
       }
-
-      <p><strong>Description:</strong><br />${escapeHtml(
-        request.description || "Non indiquée"
-      )}</p>
 
       <p><strong>Demandeur:</strong><br />${escapeHtml(
         request.requested_by || "Non indiqué"
@@ -1285,26 +1318,16 @@ export const buildBuyerPriceConfirmedEmailHtml = (
         formatRequesterEmail(request)
       )}</p>
 
-      <p><strong>Raison:</strong><br />${escapeHtml(
-        request.reason || "Aucune justification indiquée"
-      )}</p>
+      <p><strong>Nombre d'articles:</strong><br />${items.length}</p>
 
-      <p><strong>Quantité:</strong><br />${escapeHtml(
-        formatQuantity(request)
-      )}</p>
+      <p><strong>Total estimé dans la demande:</strong><br />${
+        requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)
+      }</p>
 
-      <p><strong>Prix total estimé dans la demande:</strong><br />${formatMoney(
-        request.requested_total_price
-      )}</p>
-
-      <p><strong>Prix unitaire confirmé:</strong><br />${formatMoney(
-        request.buyer_confirmed_unit_price
-      )}</p>
-
-      <p><strong>Prix total confirmé:</strong><br />
-        <span style="${confirmedTotalPriceStyle}">${formatMoney(
-          request.buyer_confirmed_total_price
-        )}</span>
+      <p><strong>Total confirmé par Ricardo:</strong><br />
+        <span style="${confirmedTotalPriceStyle}">
+          ${confirmedTotal === null ? "Non indiqué" : formatMoney(confirmedTotal)}
+        </span>
       </p>
 
       <p><strong>Statut:</strong><br />${escapeHtml(
@@ -1324,8 +1347,16 @@ export const buildBuyerPriceConfirmedEmailHtml = (
       )}</p>
 
       <p><strong>Date requise:</strong><br />${formatDateFr(
-        request.expected_at || request.needed_date
+        request.expected_date || request.needed_by_date
       )}</p>
+
+      <h3>Articles</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeConfirmedPrices: true,
+        includeProductLinks: true,
+      })}
 
       <p>
         <a
@@ -1349,11 +1380,13 @@ export const buildBuyerPriceConfirmedEmailHtml = (
 }
 
 export const buildBuyerDecisionEmail = (
-  request: any,
+  request: PurchaseRequestEmailData,
   finalRequestUrl?: string | null
 ) => {
   const approved = request.status === "ready_to_purchase"
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const confirmedTotal = getConfirmedItemsTotal(request)
 
   const firstLine = approved
     ? `${PURCHASE_BUYER_NAME} - demande d'achat #${displayRequestNumber} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
@@ -1363,22 +1396,19 @@ export const buildBuyerDecisionEmail = (
 ${firstLine}
 
 Demandeur:
-${request.requested_by}
+${request.requested_by || "Non indiqué"}
 
 Courriel du demandeur:
 ${formatRequesterEmail(request)}
 
-Description:
-${request.description}
-
-Quantité:
-${formatQuantity(request)}
+Nombre d'articles:
+${items.length}
 
 Date requise:
-${formatDateFr(request.needed_date)}
+${formatDateFr(request.expected_date || request.needed_by_date)}
 
 Prix total confirmé:
-${formatMoney(request.buyer_confirmed_total_price)}
+${confirmedTotal === null ? "Non indiqué" : formatMoney(confirmedTotal)}
 
 Décision:
 ${approved ? "Approuvée pour achat" : "Refusée"}
@@ -1396,6 +1426,14 @@ ${request.buyer_note || "Aucune note"}
 Raison du refus:
 ${request.rejection_reason || "Non applicable"}
 
+Articles:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeConfirmedPrices: true,
+  includeProductLinks: true,
+})}
+
 ${
   approved
     ? "Prochaine étape:\nRicardo doit procéder à l'achat."
@@ -1405,14 +1443,16 @@ ${
 }
 
 export const buildBuyerDecisionEmailHtml = (
-  request: any,
+  request: PurchaseRequestEmailData,
   finalRequestUrl?: string | null
 ) => {
   const approved = request.status === "ready_to_purchase"
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const confirmedTotal = getConfirmedItemsTotal(request)
 
   const firstLine = approved
-    ? `${PURCHASE_BUYER_NAME} demande d'achat #${displayRequestNumber} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
+    ? `${PURCHASE_BUYER_NAME} - demande d'achat #${displayRequestNumber} approuvée par ${PURCHASE_ADMIN_NAME} et prête à être achetée`
     : `Demande d'achat #${displayRequestNumber} refusée par ${PURCHASE_ADMIN_NAME}`
 
   const safeFinalRequestUrl = finalRequestUrl
@@ -1425,16 +1465,24 @@ export const buildBuyerDecisionEmailHtml = (
         ${escapeHtml(firstLine)}
       </h1>
 
-      <p><strong>Demandeur:</strong><br />${escapeHtml(request.requested_by)}</p>
+      <p><strong>Demandeur:</strong><br />${escapeHtml(
+        request.requested_by || "Non indiqué"
+      )}</p>
+
       <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
         formatRequesterEmail(request)
       )}</p>
-      <p><strong>Description:</strong><br />${escapeHtml(request.description)}</p>
-      <p><strong>Quantité:</strong><br />${escapeHtml(formatQuantity(request))}</p>
-      <p><strong>Date requise:</strong><br />${formatDateFr(request.needed_date)}</p>
-      <p><strong>Prix total confirmé:</strong><br />${formatMoney(
-        request.buyer_confirmed_total_price
+
+      <p><strong>Nombre d'articles:</strong><br />${items.length}</p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_date || request.needed_by_date
       )}</p>
+
+      <p><strong>Prix total confirmé:</strong><br />${
+        confirmedTotal === null ? "Non indiqué" : formatMoney(confirmedTotal)
+      }</p>
+
       <p><strong>Décision:</strong><br />${
         approved ? "Approuvée pour achat" : "Refusée"
       }</p>
@@ -1466,37 +1514,55 @@ export const buildBuyerDecisionEmailHtml = (
       <p><strong>Note de Ricardo:</strong><br />${escapeHtml(
         request.buyer_note || "Aucune note"
       )}</p>
+
       <p><strong>Raison du refus:</strong><br />${escapeHtml(
         request.rejection_reason || "Non applicable"
       )}</p>
+
+      <h3>Articles</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeConfirmedPrices: true,
+        includeProductLinks: true,
+      })}
+
+      <p><strong>Prochaine étape:</strong><br />
+        ${
+          approved
+            ? "Ricardo doit procéder à l'achat."
+            : "Ricardo ne doit pas procéder à l'achat."
+        }
+      </p>
     </div>
   `.trim()
 }
 
-const getDirectApprovalApprover = (request: any) => {
+const getDirectApprovalApprover = (request: PurchaseRequestEmailData) => {
   return typeof request.direct_approval_approver === "string" &&
     request.direct_approval_approver.trim()
     ? request.direct_approval_approver.trim()
-    : "Non indique"
+    : "Non indiqué"
 }
 
 export const buildDirectApprovalBuyerDecisionEmail = (
-  request: any,
+  request: PurchaseRequestEmailData,
   finalRequestUrl?: string | null
 ) => {
   const approver = getDirectApprovalApprover(request)
 
   return `
 IMPORTANT - APPROBATION DIRECTE
+
 Cette demande d'achat a été approuvée directement par ${approver}.
-Elle saute l'approbation de Michelle et peut maintenant etre achetée.
+Elle coutourne l'approbation de ${PURCHASE_ADMIN_NAME} et peut maintenant être achetée.
 
 ${buildBuyerDecisionEmail(request, finalRequestUrl)}
   `.trim()
 }
 
 export const buildDirectApprovalBuyerDecisionEmailHtml = (
-  request: any,
+  request: PurchaseRequestEmailData,
   finalRequestUrl?: string | null
 ) => {
   const approver = getDirectApprovalApprover(request)
@@ -1504,64 +1570,104 @@ export const buildDirectApprovalBuyerDecisionEmailHtml = (
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
       <div style="background:#dc2626;color:#ffffff;padding:16px 18px;border-radius:6px;margin:0 0 18px;font-size:18px;font-weight:800;text-transform:uppercase;">
-        APPROBATION DIRECTE - approuvee par ${escapeHtml(approver)}
+        APPROBATION DIRECTE - approuvée par ${escapeHtml(approver)}
       </div>
+
       <p style="color:#b91c1c;font-weight:700;font-size:16px;">
-        Cette demande saute l'approbation de Michelle et peut maintenant etre
-        achetee.
+        Cette demande saute l'approbation de ${escapeHtml(
+          PURCHASE_ADMIN_NAME
+        )} et peut maintenant être achetée.
       </p>
+
       ${buildBuyerDecisionEmailHtml(request, finalRequestUrl)}
     </div>
   `.trim()
 }
 
-export const buildRequesterDateChangedEmail = (request: any) => {
+export const buildRequesterDateChangedEmail = (
+  request: PurchaseRequestEmailData
+) => {
   const originalDate = formatDateFr(request.needed_by_date)
   const expectedDate = formatDateFr(request.expected_date || request.needed_by_date)
+  const items = getEmailItems(request)
 
   return `
 Bonjour${request.requested_by ? ` ${request.requested_by}` : ""},
 
-La date demandée pour le produit suivant ne pourra pas etre respectée :
+La date demandée pour cette demande d'achat ne pourra pas être respectée.
 
-${request.description}
+Numéro de demande:
+#${getPurchaseRequestDisplayNumber(request)}
 
-Date demandee initialement : ${originalDate}
-Nouvelle date prevue : ${expectedDate}
+Date demandée initialement:
+${originalDate}
 
-Si cette nouvelle date pose un probleme, veuillez communiquer avec Ricardo ou Michelle.
+Nouvelle date prévue:
+${expectedDate}
+
+Articles:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeConfirmedPrices: true,
+  includeProductLinks: true,
+})}
+
+Si cette nouvelle date pose un problème, veuillez communiquer avec Ricardo ou Michelle.
 
 Merci,
 Vegibec
   `.trim()
 }
 
-export const buildRequesterDateChangedEmailHtml = (request: any) => {
+export const buildRequesterDateChangedEmailHtml = (
+  request: PurchaseRequestEmailData
+) => {
+  const items = getEmailItems(request)
+
   return `
     <div style="font-family: Arial, sans-serif; color: #1f2933; line-height: 1.5;">
-      <p>Bonjour${request.requested_by ? ` ${escapeHtml(request.requested_by)}` : ""},</p>
+      <p>Bonjour${
+        request.requested_by ? ` ${escapeHtml(request.requested_by)}` : ""
+      },</p>
+
       <p>
-        La date demandée pour le produit suivant ne pourra pas etre respectée.
+        La date demandée pour cette demande d'achat ne pourra pas être respectée.
       </p>
-      <p><strong>Produit:</strong><br />${escapeHtml(request.description)}</p>
+
+      <p><strong>Numéro de demande:</strong><br />#${escapeHtml(
+        getPurchaseRequestDisplayNumber(request)
+      )}</p>
+
       <p><strong>Date demandée initialement:</strong><br />${formatDateFr(
         request.needed_by_date
       )}</p>
+
       <p><strong>Nouvelle date prévue:</strong><br />${formatDateFr(
         request.expected_date || request.needed_by_date
       )}</p>
+
+      <h3>Articles</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeConfirmedPrices: true,
+        includeProductLinks: true,
+      })}
+
       <p>
         Si cette nouvelle date pose un problème, veuillez communiquer avec
         Ricardo ou Michelle.
         La réponse à ce courriel est dirigée vers leurs deux boîtes courriel.
       </p>
+
       <p>Merci,<br />Vegibec</p>
     </div>
   `.trim()
 }
 
 export const sendPurchaseRequestEmailSafely = async (
-  to: string,
+  to: string | string[],
   subject: string,
   text: string,
   html?: string,
