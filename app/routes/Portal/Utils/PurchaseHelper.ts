@@ -1608,20 +1608,20 @@ export const buildRequesterDecisionEmail = (
   return `
 Bonjour${request.requested_by ? ` ${request.requested_by}` : ""},
 
-Votre demande d'achat #${displayRequestNumber} a ete ${
-    approved ? "approuvee" : "refusee"
+Votre demande d'achat #${displayRequestNumber} a été ${
+    approved ? "approuvée" : "refusée"
   } par ${PURCHASE_ADMIN_NAME}.
 
 Statut:
-${approved ? "Approuvee pour achat" : "Refusee"}
+${approved ? "Approuvée pour achat" : "Refusée"}
 
 Date requise:
 ${formatDateFr(request.expected_date || request.needed_by_date)}
 
 ${
   approved
-    ? "Prochaine etape:\nLa demande est maintenant entre les mains de Ricardo pour l'achat."
-    : `Raison du refus:\n${request.rejection_reason || "Aucune raison indiquee"}`
+    ? "Prochaine étape:\nLa demande est maintenant entre les mains de Ricardo pour l'achat."
+    : `Raison du refus:\n${request.rejection_reason || "Aucune raison indiquée"}`
 }
 
 Articles:
