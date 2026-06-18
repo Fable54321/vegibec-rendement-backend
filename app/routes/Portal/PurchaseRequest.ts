@@ -51,7 +51,7 @@ type PurchaseRequestIncomingItem = {
   product_link?: unknown
 }
 
-const MAX_PURCHASE_REQUEST_ITEMS = 25
+const MAX_PURCHASE_REQUEST_ITEMS = 10
 
 const parsePurchaseRequestItems = (body: any): PurchaseRequestIncomingItem[] => {
   if (Array.isArray(body.items)) {

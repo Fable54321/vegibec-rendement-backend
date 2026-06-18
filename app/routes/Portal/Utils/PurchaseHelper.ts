@@ -114,7 +114,7 @@ export const createPurchaseRequestDocumentKey = (
 export const uploadPurchaseRequestPictures = multer({
   storage: multer.memoryStorage(),
   limits: {
-    files: 5,
+    files: 10,
     fileSize: 7 * 1024 * 1024,
   },
   fileFilter: (_req, file, cb) => {
