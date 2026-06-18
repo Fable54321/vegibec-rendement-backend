@@ -609,19 +609,55 @@ const formatQuantity = (item: PurchaseRequestEmailItem) => {
 }
 
 const getEmailItems = (request: PurchaseRequestEmailData) => {
-  return Array.isArray(request.items) ? request.items : []
+  if (Array.isArray(request.items)) return request.items
+
+  if (typeof request.items === "string") {
+    try {
+      const parsedItems = JSON.parse(request.items)
+      return Array.isArray(parsedItems) ? parsedItems : []
+    } catch {
+      return []
+    }
+  }
+
+  return []
 }
 
-const sumMoneyField = (
+const getFiniteNumber = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === "") return null
+
+  const numberValue = Number(value)
+
+  return Number.isFinite(numberValue) ? numberValue : null
+}
+
+const getItemTotalPrice = (
+  item: PurchaseRequestEmailItem,
+  totalField: "requested_total_price" | "buyer_confirmed_total_price",
+  unitField: "requested_unit_price" | "buyer_confirmed_unit_price"
+) => {
+  const explicitTotal = getFiniteNumber(item[totalField])
+
+  if (explicitTotal !== null) return explicitTotal
+
+  const quantity = getFiniteNumber(item.quantity)
+  const unitPrice = getFiniteNumber(item[unitField])
+
+  if (quantity === null || unitPrice === null) return null
+
+  return quantity * unitPrice
+}
+
+const sumMoneyValues = (
   items: PurchaseRequestEmailItem[],
-  field: keyof PurchaseRequestEmailItem
+  getValue: (item: PurchaseRequestEmailItem) => number | null
 ) => {
   let hasValue = false
 
   const total = items.reduce((sum, item) => {
-    const value = Number(item[field])
+    const value = getValue(item)
 
-    if (!Number.isFinite(value)) {
+    if (value === null) {
       return sum
     }
 
@@ -633,11 +669,19 @@ const sumMoneyField = (
 }
 
 const getRequestedItemsTotal = (request: PurchaseRequestEmailData) => {
-  return sumMoneyField(getEmailItems(request), "requested_total_price")
+  return sumMoneyValues(getEmailItems(request), (item) =>
+    getItemTotalPrice(item, "requested_total_price", "requested_unit_price")
+  )
 }
 
 const getConfirmedItemsTotal = (request: PurchaseRequestEmailData) => {
-  return sumMoneyField(getEmailItems(request), "buyer_confirmed_total_price")
+  return sumMoneyValues(getEmailItems(request), (item) =>
+    getItemTotalPrice(
+      item,
+      "buyer_confirmed_total_price",
+      "buyer_confirmed_unit_price"
+    )
+  )
 }
 
 
@@ -666,7 +710,11 @@ const formatRequestItemsForEmail = (
 
       if (options?.includeRequestedPrices) {
         lines.push(`Prix unitaire estimé: ${formatMoney(item.requested_unit_price)}`)
-        lines.push(`Prix total estimé: ${formatMoney(item.requested_total_price)}`)
+        lines.push(
+          `Prix total estimé: ${formatMoney(
+            getItemTotalPrice(item, "requested_total_price", "requested_unit_price")
+          )}`
+        )
       }
 
       if (options?.includeConfirmedPrices) {
@@ -674,7 +722,13 @@ const formatRequestItemsForEmail = (
           `Prix unitaire confirmé: ${formatMoney(item.buyer_confirmed_unit_price)}`
         )
         lines.push(
-          `Prix total confirmé: ${formatMoney(item.buyer_confirmed_total_price)}`
+          `Prix total confirmé: ${formatMoney(
+            getItemTotalPrice(
+              item,
+              "buyer_confirmed_total_price",
+              "buyer_confirmed_unit_price"
+            )
+          )}`
         )
         lines.push(
           `Fournisseur potentiel: ${item.buyer_confirmed_supplier || "Non indiqué"}`
@@ -742,7 +796,13 @@ const formatRequestItemsForEmailHtml = (
                       <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Prix estimé</td>
                       <td style="padding:6px 0;">
                         ${formatMoney(item.requested_unit_price)} / unité<br />
-                        Total: ${formatMoney(item.requested_total_price)}
+                        Total: ${formatMoney(
+                          getItemTotalPrice(
+                            item,
+                            "requested_total_price",
+                            "requested_unit_price"
+                          )
+                        )}
                       </td>
                     </tr>
 
@@ -758,7 +818,13 @@ const formatRequestItemsForEmailHtml = (
                       <td style="padding:6px 8px 6px 0;font-weight:700;vertical-align:top;">Prix confirmé</td>
                       <td style="padding:6px 0;">
                         ${formatMoney(item.buyer_confirmed_unit_price)} / unité<br />
-                        Total: ${formatMoney(item.buyer_confirmed_total_price)}
+                        Total: ${formatMoney(
+                          getItemTotalPrice(
+                            item,
+                            "buyer_confirmed_total_price",
+                            "buyer_confirmed_unit_price"
+                          )
+                        )}
                       </td>
                     </tr>
 
@@ -1528,6 +1594,100 @@ export const buildBuyerDecisionEmailHtml = (
             : "Ricardo ne doit pas procéder à l'achat."
         }
       </p>
+    </div>
+  `.trim()
+}
+
+export const buildRequesterDecisionEmail = (
+  request: PurchaseRequestEmailData
+) => {
+  const approved = request.status === "ready_to_purchase"
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+
+  return `
+Bonjour${request.requested_by ? ` ${request.requested_by}` : ""},
+
+Votre demande d'achat #${displayRequestNumber} a ete ${
+    approved ? "approuvee" : "refusee"
+  } par ${PURCHASE_ADMIN_NAME}.
+
+Statut:
+${approved ? "Approuvee pour achat" : "Refusee"}
+
+Date requise:
+${formatDateFr(request.expected_date || request.needed_by_date)}
+
+${
+  approved
+    ? "Prochaine etape:\nLa demande est maintenant entre les mains de Ricardo pour l'achat."
+    : `Raison du refus:\n${request.rejection_reason || "Aucune raison indiquee"}`
+}
+
+Articles:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeConfirmedPrices: true,
+  includeProductLinks: true,
+})}
+
+Merci,
+Vegibec
+  `.trim()
+}
+
+export const buildRequesterDecisionEmailHtml = (
+  request: PurchaseRequestEmailData
+) => {
+  const approved = request.status === "ready_to_purchase"
+  const items = getEmailItems(request)
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <p>Bonjour${
+        request.requested_by ? ` ${escapeHtml(request.requested_by)}` : ""
+      },</p>
+
+      <p>
+        Votre demande d'achat #${escapeHtml(
+          getPurchaseRequestDisplayNumber(request)
+        )} a ete ${approved ? "approuvee" : "refusee"} par ${escapeHtml(
+          PURCHASE_ADMIN_NAME
+        )}.
+      </p>
+
+      <p><strong>Statut:</strong><br />${
+        approved ? "Approuvee pour achat" : "Refusee"
+      }</p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_date || request.needed_by_date
+      )}</p>
+
+      ${
+        approved
+          ? `
+            <p><strong>Prochaine etape:</strong><br />
+              La demande est maintenant entre les mains de Ricardo pour l'achat.
+            </p>
+          `
+          : `
+            <p><strong>Raison du refus:</strong><br />${escapeHtml(
+              request.rejection_reason || "Aucune raison indiquee"
+            )}</p>
+          `
+      }
+
+      <h3>Articles</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeConfirmedPrices: true,
+        includeProductLinks: true,
+      })}
+
+      <p>Merci,<br />Vegibec</p>
     </div>
   `.trim()
 }

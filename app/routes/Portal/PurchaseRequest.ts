@@ -11,6 +11,8 @@ import {
   buildDirectApprovalBuyerDecisionEmailHtml,
   buildRequesterDateChangedEmail,
   buildRequesterDateChangedEmailHtml,
+  buildRequesterDecisionEmail,
+  buildRequesterDecisionEmailHtml,
   buildAdminApprovalUrl,
   buildBuyerValidationUrl,
   buildFinalPurchaseRequestUrl,
@@ -1389,7 +1391,7 @@ router.patch(
         ],
       )
 
-      const updatedRequest = result.rows[0]
+      let updatedRequest = result.rows[0]
 
       const purchaseToken =
         updatedRequest.status === "ready_to_purchase"
@@ -1401,6 +1403,19 @@ router.patch(
         purchaseRequestId,
         adminApprovalToken,
       )
+
+      const updatedRequestWithItems = await getPurchaseRequestWithItems(
+        client,
+        purchaseRequestId,
+      )
+
+      if (!updatedRequestWithItems) {
+        await client.query("ROLLBACK")
+
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
+
+      updatedRequest = updatedRequestWithItems
 
       await client.query("COMMIT")
 
@@ -1444,26 +1459,19 @@ ${updatedRequest.admin_note || "Aucune raison indiquée"}`,
       }
 
       const requesterEmail =
-        typeof updatedRequest.request_email === "string"
-          ? updatedRequest.request_email.trim()
+        typeof updatedRequest.requester_email === "string"
+          ? updatedRequest.requester_email.trim()
           : ""
 
-      if (requesterEmail) {
-        const requesterMessage =
-          decision === "approved"
-            ? `Votre demande d'achat a été approuvée par Michelle et est maintenant entre les mains de Ricardo pour l'achat du produit :\n${updatedRequest.description}`
-            : decision === "rejected"
-              ? `Votre demande d'achat a été refusée par Michelle pour le produit :\n${updatedRequest.description}\n\nRaison du refus :\n${
-                  updatedRequest.rejection_reason || "Aucune raison indiquée"
-                }`
-              : `Votre demande d'achat a été mise en attente par Michelle pour le produit :\n${updatedRequest.description}\n\nRaison :\n${
-                  updatedRequest.admin_note || "Aucune raison indiquée"
-                }`
-
+      if (requesterEmail && (decision === "approved" || decision === "rejected")) {
         await sendPurchaseRequestEmailSafely(
           requesterEmail,
-          `Réponse à votre demande d'achat`,
-          requesterMessage,
+          decision === "approved"
+            ? `Votre demande d'achat #${displayRequestNumber} a ete approuvee`
+            : `Votre demande d'achat #${displayRequestNumber} a ete refusee`,
+          buildRequesterDecisionEmail(updatedRequest),
+          buildRequesterDecisionEmailHtml(updatedRequest),
+          getPurchaseRequestReplyToRecipients(),
         )
       }
 
