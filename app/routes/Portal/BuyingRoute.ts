@@ -577,11 +577,18 @@ transactionStarted = false
       await client.query("ROLLBACK")
     }
 
-    if ((error as { code?: string }).code === "23505") {
-      return res.status(409).json({
-        message: "A purchase order with this reference already exists",
-      })
-    }
+   if ((error as { code?: string; constraint?: string; detail?: string }).code === "23505") {
+  console.error("Purchase order unique constraint error:", {
+    constraint: (error as { constraint?: string }).constraint,
+    detail: (error as { detail?: string }).detail,
+  })
+
+  return res.status(409).json({
+    message: "A purchase order with this reference already exists",
+    constraint: (error as { constraint?: string }).constraint,
+    detail: (error as { detail?: string }).detail,
+  })
+}
 
     console.error("Error creating purchase order:", error)
 
