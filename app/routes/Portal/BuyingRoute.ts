@@ -335,69 +335,66 @@ if (!allowedPurchaseStatuses.includes(currentRequest.rows[0].status)) {
       })
     }
 
-    const orderMonthKey = getOrderMonthKey(ordered_at)
+const requestReference = cleanText(currentRequest.rows[0].request_reference)
 
-    await client.query(
-      `
-      SELECT pg_advisory_xact_lock(hashtext($1))
-      `,
-      [`portal.purchase_orders.${orderMonthKey}`],
-    )
+
+
+
+if (!requestReference) {
+  await client.query("ROLLBACK")
+  transactionStarted = false
+
+  return res.status(500).json({
+    message: "Purchase request is missing request_reference",
+  })
+}
+
+const requestSequence = Number(requestReference.split("-").at(-1))
+
+if (!Number.isInteger(requestSequence) || requestSequence <= 0) {
+  await client.query("ROLLBACK")
+  transactionStarted = false
+
+  return res.status(500).json({
+    message: "Invalid purchase request reference sequence",
+  })
+}
+
+await client.query(
+  `
+  SELECT pg_advisory_xact_lock(hashtext($1))
+  `,
+  [`portal.purchase_orders.request.${purchaseRequestId}`],
+)
 
 const existingOrdersForRequest = await client.query(
   `
   SELECT
-    purchase_order_sequence,
     COALESCE(MAX(purchase_order_subsequence), 0) AS max_subsequence,
     COUNT(*) AS order_count
   FROM portal.purchase_orders
   WHERE purchase_request_id = $1
-  GROUP BY purchase_order_sequence
-  ORDER BY purchase_order_sequence
-  LIMIT 1
   `,
   [purchaseRequestId],
 )
 
 const requestAlreadyHasPurchaseOrders =
-  existingOrdersForRequest.rows.length > 0
+  Number(existingOrdersForRequest.rows[0].order_count) > 0
 
 const shouldUseSubsequence =
   isPartialPurchase || requestAlreadyHasPurchaseOrders
 
-let purchaseOrderSequence: number
-
-if (requestAlreadyHasPurchaseOrders) {
-  purchaseOrderSequence = Number(
-    existingOrdersForRequest.rows[0].purchase_order_sequence,
-  )
-} else {
-  const sequenceResult = await client.query(
-    `
-    SELECT COALESCE(MAX(purchase_order_sequence), 0) + 1 AS next_sequence
-    FROM portal.purchase_orders
-    WHERE purchase_order_reference LIKE $1
-    `,
-    [`${orderMonthKey}-%`],
-  )
-
-  purchaseOrderSequence = Number(sequenceResult.rows[0].next_sequence)
-}
-
 let purchaseOrderSubsequence: number | null = null
 
 if (shouldUseSubsequence) {
-  purchaseOrderSubsequence = requestAlreadyHasPurchaseOrders
-    ? Number(existingOrdersForRequest.rows[0].max_subsequence) + 1
-    : 1
+  purchaseOrderSubsequence =
+    Number(existingOrdersForRequest.rows[0].max_subsequence) + 1
 }
-
-const baseReference = `${orderMonthKey}-${String(purchaseOrderSequence).padStart(3, "0")}`
 
 const purchaseOrderReference =
   purchaseOrderSubsequence === null
-    ? baseReference
-    : `${baseReference}-${String(purchaseOrderSubsequence).padStart(2, "0")}`
+    ? requestReference
+    : `${requestReference}-${String(purchaseOrderSubsequence).padStart(2, "0")}`
 
     const purchaseOrderResult = await client.query(
       `
@@ -436,7 +433,7 @@ const purchaseOrderReference =
      [
   purchaseRequestId,
   purchaseOrderReference,
-  purchaseOrderSequence,
+  requestSequence,
   purchaseOrderSubsequence,
   supplierSnapshot.supplierId,
   supplierSnapshot.supplierName,
