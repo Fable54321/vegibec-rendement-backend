@@ -505,44 +505,39 @@ if (requestItemResult.rows.length === 0) {
         })
       }
 
-      const finalTotalPrice =
-        cleanFinalUnitPrice !== null
-          ? cleanOrderedQuantity * cleanFinalUnitPrice
-          : null
+    
 
-      const itemResult = await client.query(
-        `
-        INSERT INTO portal.purchase_order_items (
-          purchase_order_id,
-          purchase_request_item_id,
-          ordered_quantity,
-          final_unit_price,
-          final_total_price,
-          item_code,
-          number_of_pallets,
-          item_description,
-          ordered_unit,
-          location
-        )
-        VALUES (
-          $1, $2, $3, $4, $5,
-          $6, $7, $8, $9, $10
-        )
-        RETURNING *
-        `,
-        [
-          purchaseOrder.id,
-          cleanPurchaseRequestItemId,
-          cleanOrderedQuantity,
-          cleanFinalUnitPrice,
-          finalTotalPrice,
-          cleanText(item.item_code),
-          cleanNumber(item.number_of_pallets),
-          cleanText(item.item_description),
-          cleanText(item.ordered_unit),
-          cleanText(item.location),
-        ],
-      )
+   const itemResult = await client.query(
+  `
+  INSERT INTO portal.purchase_order_items (
+    purchase_order_id,
+    purchase_request_item_id,
+    ordered_quantity,
+    final_unit_price,
+    item_code,
+    number_of_pallets,
+    item_description,
+    ordered_unit,
+    location
+  )
+  VALUES (
+    $1, $2, $3, $4, $5,
+    $6, $7, $8, $9
+  )
+  RETURNING *
+  `,
+  [
+    purchaseOrder.id,
+    cleanPurchaseRequestItemId,
+    cleanOrderedQuantity,
+    cleanFinalUnitPrice,
+    cleanText(item.item_code),
+    cleanNumber(item.number_of_pallets),
+    cleanText(item.item_description),
+    cleanText(item.ordered_unit),
+    cleanText(item.location),
+  ],
+)
 
       insertedItems.push(itemResult.rows[0])
     }
