@@ -160,6 +160,7 @@ router.post(
     }
 
     const {
+      purchase_mode,
       supplier_id,
       supplier_name,
       supplier_address_snapshot,
@@ -171,7 +172,7 @@ router.post(
       invoice_number,
       delivery_method,
       shipping_address_snapshot,
-      purchase_reference,
+      supplier_reference,
       purchase_note,
       purchased_by_user_id,
       ordered_at,
@@ -197,6 +198,14 @@ router.post(
         message: "At least one purchase order item is required",
       })
     }
+
+    const isPartialPurchase = purchase_mode === "partial"
+
+if (purchase_mode !== "full" && purchase_mode !== "partial") {
+  return res.status(400).json({
+    message: "purchase_mode must be either 'full' or 'partial'",
+  })
+}
 
     await client.query("BEGIN")
     transactionStarted = true
@@ -235,7 +244,9 @@ if (!isPurchaseTokenValid || !purchaseToken) {
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
-    if (currentRequest.rows[0].status !== "ready_to_purchase") {
+   const allowedPurchaseStatuses = ["ready_to_purchase", "partially_purchased"]
+
+if (!allowedPurchaseStatuses.includes(currentRequest.rows[0].status)) {
       await client.query("ROLLBACK")
       transactionStarted = false
 
@@ -301,17 +312,60 @@ if (!isPurchaseTokenValid || !purchaseToken) {
       [`portal.purchase_orders.${orderMonthKey}`],
     )
 
-    const sequenceResult = await client.query(
-      `
-      SELECT COALESCE(MAX(purchase_order_sequence), 0) + 1 AS next_sequence
-      FROM portal.purchase_orders
-      WHERE purchase_order_reference LIKE $1
-      `,
-      [`${orderMonthKey}-%`],
-    )
+const existingOrdersForRequest = await client.query(
+  `
+  SELECT
+    purchase_order_sequence,
+    COALESCE(MAX(purchase_order_subsequence), 0) AS max_subsequence,
+    COUNT(*) AS order_count
+  FROM portal.purchase_orders
+  WHERE purchase_request_id = $1
+  GROUP BY purchase_order_sequence
+  ORDER BY purchase_order_sequence
+  LIMIT 1
+  `,
+  [purchaseRequestId],
+)
 
-    const nextSequence = Number(sequenceResult.rows[0].next_sequence)
-    const purchaseOrderReference = `${orderMonthKey}-${String(nextSequence).padStart(3, "0")}`
+const requestAlreadyHasPurchaseOrders =
+  existingOrdersForRequest.rows.length > 0
+
+const shouldUseSubsequence =
+  isPartialPurchase || requestAlreadyHasPurchaseOrders
+
+let purchaseOrderSequence: number
+
+if (requestAlreadyHasPurchaseOrders) {
+  purchaseOrderSequence = Number(
+    existingOrdersForRequest.rows[0].purchase_order_sequence,
+  )
+} else {
+  const sequenceResult = await client.query(
+    `
+    SELECT COALESCE(MAX(purchase_order_sequence), 0) + 1 AS next_sequence
+    FROM portal.purchase_orders
+    WHERE purchase_order_reference LIKE $1
+    `,
+    [`${orderMonthKey}-%`],
+  )
+
+  purchaseOrderSequence = Number(sequenceResult.rows[0].next_sequence)
+}
+
+let purchaseOrderSubsequence: number | null = null
+
+if (shouldUseSubsequence) {
+  purchaseOrderSubsequence = requestAlreadyHasPurchaseOrders
+    ? Number(existingOrdersForRequest.rows[0].max_subsequence) + 1
+    : 1
+}
+
+const baseReference = `${orderMonthKey}-${String(purchaseOrderSequence).padStart(3, "0")}`
+
+const purchaseOrderReference =
+  purchaseOrderSubsequence === null
+    ? baseReference
+    : `${baseReference}-${String(purchaseOrderSubsequence).padStart(2, "0")}`
 
     const purchaseOrderResult = await client.query(
       `
@@ -319,6 +373,7 @@ if (!isPurchaseTokenValid || !purchaseToken) {
         purchase_request_id,
         purchase_order_reference,
         purchase_order_sequence,
+        purchase_order_subsequence,
         supplier_id,
         supplier,
         supplier_name,
@@ -326,7 +381,7 @@ if (!isPurchaseTokenValid || !purchaseToken) {
         supplier_phone,
         purchased_by_user_id,
         purchased_at,
-        purchase_reference,
+        supplier_reference,
         purchase_note,
         buyer_name,
         buyer_email,
@@ -343,32 +398,34 @@ if (!isPurchaseTokenValid || !purchaseToken) {
         $6, $7, $8, $9, COALESCE($10::timestamptz, now()),
         $11, $12, $13, $14, $15,
         $16, $17, $18, $19, $20,
+        $21,
         'ordered'
       )
       RETURNING *
       `,
-      [
-        purchaseRequestId,
-        purchaseOrderReference,
-        nextSequence,
-        supplierSnapshot.supplierId,
-        supplierSnapshot.supplierName,
-        supplierSnapshot.supplierName,
-        supplierSnapshot.supplierAddressSnapshot,
-        supplierSnapshot.supplierPhone,
-        cleanPurchasedByUserId,
-        cleanDate(ordered_at),
-        cleanText(purchase_reference),
-        cleanText(purchase_note),
-        cleanText(buyer_name),
-        cleanText(buyer_email),
-        cleanDate(requested_delivery_date),
-        cleanDate(received_at),
-        cleanText(invoice_number),
-        cleanText(delivery_method),
-        cleanText(shipping_address_snapshot),
-        cleanText(currency_code) ?? "CAD",
-      ],
+     [
+  purchaseRequestId,
+  purchaseOrderReference,
+  purchaseOrderSequence,
+  purchaseOrderSubsequence,
+  supplierSnapshot.supplierId,
+  supplierSnapshot.supplierName,
+  supplierSnapshot.supplierName,
+  supplierSnapshot.supplierAddressSnapshot,
+  supplierSnapshot.supplierPhone,
+  cleanPurchasedByUserId,
+  cleanDate(ordered_at),
+  cleanText(supplier_reference),
+  cleanText(purchase_note),
+  cleanText(buyer_name),
+  cleanText(buyer_email),
+  cleanDate(requested_delivery_date),
+  cleanDate(received_at),
+  cleanText(invoice_number),
+  cleanText(delivery_method),
+  cleanText(shipping_address_snapshot),
+  cleanText(currency_code) ?? "CAD",
+]
     )
 
     const purchaseOrder = purchaseOrderResult.rows[0]
@@ -461,20 +518,33 @@ if (requestItemResult.rows.length === 0) {
       insertedItems.push(itemResult.rows[0])
     }
 
-    const updatedRequest = await client.query(
-      `
-      UPDATE portal.purchase_requests
-      SET status = 'purchased'
-      WHERE id = $1
-      RETURNING *
-      `,
-      [purchaseRequestId],
-    )
+const nextRequestStatus = isPartialPurchase
+  ? "partially_purchased"
+  : "purchased"
+
+const updatedRequest = await client.query(
+  `
+  UPDATE portal.purchase_requests
+  SET status = $2
+  WHERE id = $1
+  RETURNING *
+  `,
+  [purchaseRequestId, nextRequestStatus],
+)
+
+if (nextRequestStatus === "purchased") {
+  await markPurchaseTokenUsed(client, purchaseRequestId, purchaseToken)
+}
+
+await client.query("COMMIT")
+transactionStarted = false
+
+   
 
     await client.query("COMMIT")
     transactionStarted = false
 
-    await markPurchaseTokenUsed(client, purchaseRequestId, purchaseToken)
+    
 
     return res.status(201).json({
       purchase_request: updatedRequest.rows[0],
@@ -488,7 +558,7 @@ if (requestItemResult.rows.length === 0) {
 
     if ((error as { code?: string }).code === "23505") {
       return res.status(409).json({
-        message: "This purchase request already has a purchase order",
+        message: "A purchase order with this reference already exists",
       })
     }
 
