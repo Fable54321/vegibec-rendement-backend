@@ -37,7 +37,7 @@ import {
   validateBuyerValidationToken,
   validatePurchaseToken,
 } from "../../routes/Portal/Utils/PurchaseHelper"
-import { actionPurchaseRequestLimiter } from "../Portal/BuyingRoute"
+import { actionPurchaseRequestLimiter } from "../Portal/Utils/purchaseRequestLimiters"
 import { uploadBufferToS3 } from "../../services/s3.services"
 import { sendEmail } from "../Visitors/Utils/testSMTP"
 import { PoolClient } from "pg"
@@ -321,7 +321,7 @@ async function getNextPurchaseRequestReference(client: PoolClient) {
   return row
 }
 
-async function getPurchaseRequestWithItems(
+export async function getPurchaseRequestWithItems(
   client: PoolClient,
   purchaseRequestId: number
 ) {
@@ -481,8 +481,6 @@ router.get(
     "/:id/validation-prix/:token",
     "/:id/admin-decision/:token",
     "/:id/approbation-achat/:token",
-    "/:id/mark-purchased/:token",
-    "/:id/acheter/:token",
   ],
   readPurchaseRequestsLimiter,
   async (req, res) => {
@@ -525,13 +523,7 @@ router.get(
           )
         }
 
-        if (isMarkPurchasedRoute) {
-          isTokenValid = await validatePurchaseToken(
-            client,
-            purchaseRequestId,
-            getPurchaseTokenFromRequest(req)
-          )
-        }
+       
 
         if (!isTokenValid) {
           return res.status(403).json({

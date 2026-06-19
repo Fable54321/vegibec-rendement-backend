@@ -1,6 +1,9 @@
 import express from "express"
 import { pool } from "../../db"
-import rateLimit from "express-rate-limit"
+
+import { actionPurchaseRequestLimiter } from "../Portal/Utils/purchaseRequestLimiters"
+import { getPurchaseTokenFromRequest, validatePurchaseToken, markPurchaseTokenUsed } from "./Utils/PurchaseHelper"
+import { getPurchaseRequestWithItems } from "./PurchaseRequest"
 
 const router = express.Router()
 
@@ -83,17 +86,68 @@ type PurchaseOrderItemPayload = {
   location?: unknown
 }
 
-export const actionPurchaseRequestLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Trop d'actions envoyées. Réessayez plus tard.",
-  },
-})
 
-router.post("/:id", actionPurchaseRequestLimiter, async (req, res) => {
+router.get(
+  ["/:id/:token", "/:id/acheter/:token"],
+  actionPurchaseRequestLimiter,
+  async (req, res) => {
+    const client = await pool.connect()
+
+    try {
+      const { id } = req.params
+      const purchaseRequestId = Number(id)
+
+      if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
+
+      const purchaseToken = getPurchaseTokenFromRequest(req)
+
+      const isPurchaseTokenValid = await validatePurchaseToken(
+        client,
+        purchaseRequestId,
+        purchaseToken,
+      )
+
+      if (!isPurchaseTokenValid || !purchaseToken) {
+        return res.status(403).json({
+          message: "Le lien n'est plus valide",
+        })
+      }
+
+      const purchaseRequest = await getPurchaseRequestWithItems(
+        client,
+        purchaseRequestId,
+      )
+
+      if (!purchaseRequest) {
+        return res.status(404).json({ message: "Purchase request not found" })
+      }
+
+      if (purchaseRequest.status !== "ready_to_purchase") {
+        return res.status(400).json({
+          message: "This request is not ready to purchase",
+        })
+      }
+
+      return res.json(purchaseRequest)
+    } catch (error) {
+      console.error("Error fetching purchase request for buying:", error)
+
+      return res.status(500).json({
+        message: "Error fetching purchase request for buying",
+      })
+    } finally {
+      client.release()
+    }
+  },
+)
+
+
+router.post(
+  ["/:id/:token", "/:id/acheter/:token"],
+  actionPurchaseRequestLimiter,
+  async (req, res) => {
   const client = await pool.connect()
   let transactionStarted = false
 
@@ -146,6 +200,23 @@ router.post("/:id", actionPurchaseRequestLimiter, async (req, res) => {
 
     await client.query("BEGIN")
     transactionStarted = true
+
+    const purchaseToken = getPurchaseTokenFromRequest(req)
+
+const isPurchaseTokenValid = await validatePurchaseToken(
+  client,
+  purchaseRequestId,
+  purchaseToken,
+)
+
+if (!isPurchaseTokenValid || !purchaseToken) {
+  await client.query("ROLLBACK")
+  transactionStarted = false
+
+  return res.status(403).json({
+    message: "Invalid or expired purchase token",
+  })
+}
 
     const currentRequest = await client.query(
       `
@@ -336,6 +407,25 @@ router.post("/:id", actionPurchaseRequestLimiter, async (req, res) => {
         })
       }
 
+      const requestItemResult = await client.query(
+  `
+  SELECT id
+  FROM portal.purchase_request_items
+  WHERE id = $1
+    AND purchase_request_id = $2
+  `,
+  [cleanPurchaseRequestItemId, purchaseRequestId],
+)
+
+if (requestItemResult.rows.length === 0) {
+  await client.query("ROLLBACK")
+  transactionStarted = false
+
+  return res.status(400).json({
+    message: "One of the items does not belong to this purchase request",
+  })
+}
+
       if (!cleanOrderedQuantity) {
         await client.query("ROLLBACK")
         transactionStarted = false
@@ -399,6 +489,8 @@ router.post("/:id", actionPurchaseRequestLimiter, async (req, res) => {
 
     await client.query("COMMIT")
     transactionStarted = false
+
+    await markPurchaseTokenUsed(client, purchaseRequestId, purchaseToken)
 
     return res.status(201).json({
       purchase_request: updatedRequest.rows[0],
