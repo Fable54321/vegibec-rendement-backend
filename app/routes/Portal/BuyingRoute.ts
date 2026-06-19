@@ -244,23 +244,7 @@ if (!isPurchaseTokenValid || !purchaseToken) {
       })
     }
 
-    const existingOrder = await client.query(
-      `
-      SELECT id
-      FROM portal.purchase_orders
-      WHERE purchase_request_id = $1
-      `,
-      [purchaseRequestId],
-    )
 
-    if (existingOrder.rows.length > 0) {
-      await client.query("ROLLBACK")
-      transactionStarted = false
-
-      return res.status(409).json({
-        message: "This purchase request already has a purchase order",
-      })
-    }
 
     let supplierSnapshot = {
       supplierId: cleanSupplierId,
