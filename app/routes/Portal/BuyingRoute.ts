@@ -88,6 +88,64 @@ type PurchaseOrderItemPayload = {
 }
 
 
+
+router.get("/:purchaseOrderId/pdf", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const purchaseOrderId = Number(req.params.purchaseOrderId)
+
+    if (!Number.isInteger(purchaseOrderId) || purchaseOrderId <= 0) {
+      return res.status(400).json({ message: "Invalid purchase order id" })
+    }
+
+    const purchaseOrderResult = await client.query(
+      `
+      SELECT *
+      FROM portal.purchase_orders
+      WHERE id = $1
+      `,
+      [purchaseOrderId],
+    )
+
+    if (purchaseOrderResult.rows.length === 0) {
+      return res.status(404).json({ message: "Purchase order not found" })
+    }
+
+    const itemsResult = await client.query(
+      `
+      SELECT *
+      FROM portal.purchase_order_items
+      WHERE purchase_order_id = $1
+      ORDER BY id
+      `,
+      [purchaseOrderId],
+    )
+
+    const pdfBytes = await generatePurchaseOrderPdf({
+      ...purchaseOrderResult.rows[0],
+      items: itemsResult.rows,
+    })
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="bon-commande-${purchaseOrderResult.rows[0].purchase_order_reference}.pdf"`,
+    )
+
+    return res.send(Buffer.from(pdfBytes))
+  } catch (error) {
+    console.error("Error generating purchase order PDF:", error)
+
+    return res.status(500).json({
+      message: "Error generating purchase order PDF",
+    })
+  } finally {
+    client.release()
+  }
+})
+
+
 router.get(
   ["/:id/:token", "/:id/acheter/:token"],
   actionPurchaseRequestLimiter,
@@ -602,60 +660,5 @@ transactionStarted = false
 })
 
 
-router.get("/:purchaseOrderId/pdf", async (req, res) => {
-  const client = await pool.connect()
-
-  try {
-    const purchaseOrderId = Number(req.params.purchaseOrderId)
-
-    if (!Number.isInteger(purchaseOrderId) || purchaseOrderId <= 0) {
-      return res.status(400).json({ message: "Invalid purchase order id" })
-    }
-
-    const purchaseOrderResult = await client.query(
-      `
-      SELECT *
-      FROM portal.purchase_orders
-      WHERE id = $1
-      `,
-      [purchaseOrderId],
-    )
-
-    if (purchaseOrderResult.rows.length === 0) {
-      return res.status(404).json({ message: "Purchase order not found" })
-    }
-
-    const itemsResult = await client.query(
-      `
-      SELECT *
-      FROM portal.purchase_order_items
-      WHERE purchase_order_id = $1
-      ORDER BY id
-      `,
-      [purchaseOrderId],
-    )
-
-    const pdfBytes = await generatePurchaseOrderPdf({
-      ...purchaseOrderResult.rows[0],
-      items: itemsResult.rows,
-    })
-
-    res.setHeader("Content-Type", "application/pdf")
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="bon-commande-${purchaseOrderResult.rows[0].purchase_order_reference}.pdf"`,
-    )
-
-    return res.send(Buffer.from(pdfBytes))
-  } catch (error) {
-    console.error("Error generating purchase order PDF:", error)
-
-    return res.status(500).json({
-      message: "Error generating purchase order PDF",
-    })
-  } finally {
-    client.release()
-  }
-})
 
 export default router

@@ -31,15 +31,8 @@ type PurchaseOrderPdfData = {
   items: PurchaseOrderPdfItem[]
 }
 
-const formatDisplayReference = (purchaseOrder: PurchaseOrderPdfData) => {
-  if (purchaseOrder.purchase_order_subsequence === null) {
-    return purchaseOrder.purchase_order_reference
-  }
 
-  return `${purchaseOrder.purchase_order_reference}-${String(
-    purchaseOrder.purchase_order_subsequence,
-  ).padStart(2, "0")}`
-}
+
 
 const formatMoney = (value: number | null | undefined) => {
   if (value === null || value === undefined) return ""
@@ -85,13 +78,14 @@ export const generatePurchaseOrderPdf = async (
     })
   }
 
-  const displayReference = formatDisplayReference(purchaseOrder)
+  const displayReference = `${purchaseOrder.purchase_order_reference}
+`
 
-  drawText(displayReference, 475, 692, { size: 14, bold: true })
+  drawText(displayReference, 470, 740, { size: 14, bold: true })
 
-  drawText(purchaseOrder.supplier_name, 70, 620, { bold: true })
-  drawText(purchaseOrder.supplier_address_snapshot, 70, 606)
-  drawText(purchaseOrder.supplier_phone, 70, 570)
+  drawText(purchaseOrder.supplier_name, 26, 670, { size: 13, bold: true })
+  drawText(purchaseOrder.supplier_address_snapshot, 26, 656, { size: 13 })
+  drawText(purchaseOrder.supplier_phone, 26, 620, { size: 13 })
 
   drawText(purchaseOrder.shipping_address_snapshot, 330, 606)
 
