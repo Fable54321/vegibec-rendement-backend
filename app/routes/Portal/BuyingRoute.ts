@@ -213,20 +213,13 @@ router.post(
       shipping_address_snapshot,
       supplier_reference,
       purchase_note,
-      purchased_by_user_id,
       ordered_at,
       currency_code,
       items,
     } = req.body ?? {}
 
     const cleanSupplierId = cleanPositiveInteger(supplier_id)
-    const cleanPurchasedByUserId = cleanPositiveInteger(purchased_by_user_id)
-
-    if (!cleanPurchasedByUserId) {
-      return res.status(400).json({
-        message: "Missing purchased_by_user_id",
-      })
-    }
+   
 
     const orderItems = Array.isArray(items)
       ? (items as PurchaseOrderItemPayload[])
@@ -418,7 +411,6 @@ const purchaseOrderReference =
         supplier_name,
         supplier_address_snapshot,
         supplier_phone,
-        purchased_by_user_id,
         purchased_at,
         supplier_reference,
         purchase_note,
@@ -437,7 +429,6 @@ const purchaseOrderReference =
         $6, $7, $8, $9, COALESCE($10::timestamptz, now()),
         $11, $12, $13, $14, $15,
         $16, $17, $18, $19, $20,
-        $21,
         'ordered'
       )
       RETURNING *
@@ -452,7 +443,6 @@ const purchaseOrderReference =
   supplierSnapshot.supplierName,
   supplierSnapshot.supplierAddressSnapshot,
   supplierSnapshot.supplierPhone,
-  cleanPurchasedByUserId,
   cleanDate(ordered_at),
   cleanText(supplier_reference),
   cleanText(purchase_note),
