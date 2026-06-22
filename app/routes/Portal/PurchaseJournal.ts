@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { pool } from "../../db"
-import { getPurchaseRequestStatusLabel } from "./Utils/PurchaseHelper"
+import { getPurchaseRequestStatusLabel, createPurchaseToken, buildFinalPurchaseRequestUrl } from "./Utils/PurchaseHelper"
 
 const router = Router()
 
@@ -15,7 +15,20 @@ type PurchaseRequestStatus =
   | "purchased"
   | "cancelled"
 
-function getAvailableAction(status: PurchaseRequestStatus, id: number) {
+  const BUYING_PORTAL_URL =
+  process.env.BUYING_PORTAL_URL ?? "http://localhost:5173"
+
+function buildBuyingHref(id: number, token: string | null | undefined) {
+  if (!token) return `/buying/${id}/acheter`
+
+  return `${BUYING_PORTAL_URL}/requete/${id}/acheter/${token}`
+}
+
+function getAvailableAction(
+  status: PurchaseRequestStatus,
+  id: number,
+  purchaseToken?: string | null,
+) {
   switch (status) {
     case "pending_buyer_validation":
       return {
@@ -49,21 +62,21 @@ function getAvailableAction(status: PurchaseRequestStatus, id: number) {
         disabled: false,
       }
 
-    case "ready_to_purchase":
-      return {
-        label: "Acheter",
-        href: `/buying/${id}/acheter`,
-        kind: "purchase",
-        disabled: false,
-      }
+   case "ready_to_purchase":
+  return {
+    label: "Acheter",
+    href: `/purchase-journal/${id}/purchase-link`,
+    kind: "purchase",
+    disabled: false,
+  }
 
-    case "partially_purchased":
-      return {
-        label: "Continuer l'achat",
-        href: `/buying/${id}/acheter`,
-        kind: "purchase",
-        disabled: false,
-      }
+  case "partially_purchased":
+  return {
+    label: "Continuer l'achat",
+    href: `/purchase-journal/${id}/purchase-link`,
+    kind: "purchase",
+    disabled: false,
+  }
 
     case "purchased":
       return {
@@ -207,7 +220,7 @@ router.get("/", async (req, res) => {
       cancelled_at: null,
       status_label: getPurchaseRequestStatusLabel(row.status),
 
-      available_action: getAvailableAction(row.status, row.id),
+      available_action: getAvailableAction(row.status, row.id, row.purchase_token),
     }))
 
     return res.json(rows)
@@ -217,6 +230,60 @@ router.get("/", async (req, res) => {
     return res.status(500).json({
       message: "Unable to load purchase journal",
     })
+  }
+})
+
+router.post("/:id/purchase-link", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const purchaseRequestId = Number(req.params.id)
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const requestResult = await client.query(
+      `
+      SELECT id, status
+      FROM portal.purchase_requests
+      WHERE id = $1
+      `,
+      [purchaseRequestId],
+    )
+
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const request = requestResult.rows[0]
+
+    if (
+      request.status !== "ready_to_purchase" &&
+      request.status !== "partially_purchased"
+    ) {
+      return res.status(400).json({
+        message: "This request is not ready to purchase",
+      })
+    }
+
+    const token = await createPurchaseToken(client, purchaseRequestId)
+
+    return res.json({
+      href: buildFinalPurchaseRequestUrl(req, purchaseRequestId, token),
+    })
+  } catch (error) {
+    console.error("Purchase link generation error:", error)
+
+    return res.status(500).json({
+      message: "Unable to generate purchase link",
+    })
+  } finally {
+    client.release()
   }
 })
 
