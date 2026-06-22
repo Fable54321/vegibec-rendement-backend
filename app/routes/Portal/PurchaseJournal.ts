@@ -147,12 +147,7 @@ LEFT JOIN (
     po.purchase_request_id,
     COUNT(DISTINCT po.id)::int AS purchase_order_count,
     COALESCE(
-      SUM(
-        COALESCE(
-          poi.ordered_total_price,
-          poi.quantity * poi.ordered_unit_price
-        )
-      ),
+      SUM(poi.quantity * poi.ordered_unit_price),
       0
     )::numeric AS purchase_orders_total
   FROM portal.purchase_orders po
@@ -300,15 +295,10 @@ router.get("/:id", async (req, res) => {
   LEFT JOIN (
     SELECT
       purchase_order_id,
-      COALESCE(
-        SUM(
-          COALESCE(
-            ordered_total_price,
-            quantity * ordered_unit_price
-          )
-        ),
-        0
-      )::numeric AS subtotal_price
+COALESCE(
+  SUM(quantity * ordered_unit_price),
+  0
+)::numeric AS subtotal_price
     FROM portal.purchase_order_items
     GROUP BY purchase_order_id
   ) order_totals
@@ -329,25 +319,25 @@ router.get("/:id", async (req, res) => {
     let purchaseOrderItems: Record<number, unknown[]> = {}
 
     if (purchaseOrderIds.length > 0) {
-      const purchaseOrderItemsResult = await client.query(
-        `
-        SELECT
-          poi.id,
-          poi.purchase_order_id,
-          poi.item_id,
-          poi.item_description,
-          poi.quantity,
-          poi.ordered_unit,
-          poi.ordered_unit_price,
-          poi.ordered_total_price,
-          poi.location,
-          poi.created_at
-        FROM portal.purchase_order_items poi
-        WHERE poi.purchase_order_id = ANY($1::int[])
-        ORDER BY poi.purchase_order_id ASC, poi.id ASC
-        `,
-        [purchaseOrderIds],
-      )
+   const purchaseOrderItemsResult = await client.query(
+  `
+  SELECT
+    poi.id,
+    poi.purchase_order_id,
+    poi.item_id,
+    poi.item_description,
+    poi.quantity,
+    poi.ordered_unit,
+    poi.ordered_unit_price,
+    (poi.quantity * poi.ordered_unit_price)::numeric AS ordered_total_price,
+    poi.location,
+    poi.created_at
+  FROM portal.purchase_order_items poi
+  WHERE poi.purchase_order_id = ANY($1::int[])
+  ORDER BY poi.purchase_order_id ASC, poi.id ASC
+  `,
+  [purchaseOrderIds],
+)
 
       purchaseOrderItems = purchaseOrderItemsResult.rows.reduce(
         (acc, item) => {
