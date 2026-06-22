@@ -1,5 +1,6 @@
 import { Router } from "express"
 import { pool } from "../../db"
+import { getPurchaseRequestStatusLabel } from "./Utils/PurchaseHelper"
 
 const router = Router()
 
@@ -10,6 +11,7 @@ type PurchaseRequestStatus =
   | "admin_on_wait"
   | "rejected"
   | "ready_to_purchase"
+  | "partially_purchased"
   | "purchased"
   | "cancelled"
 
@@ -50,6 +52,14 @@ function getAvailableAction(status: PurchaseRequestStatus, id: number) {
     case "ready_to_purchase":
       return {
         label: "Acheter",
+        href: `/buying/${id}/acheter`,
+        kind: "purchase",
+        disabled: false,
+      }
+
+    case "partially_purchased":
+      return {
+        label: "Continuer l'achat",
         href: `/buying/${id}/acheter`,
         kind: "purchase",
         disabled: false,
@@ -195,6 +205,7 @@ router.get("/", async (req, res) => {
       admin_decided_at: row.admin_decision_at,
       purchased_at: row.last_purchased_at,
       cancelled_at: null,
+      status_label: getPurchaseRequestStatusLabel(row.status),
 
       available_action: getAvailableAction(row.status, row.id),
     }))
@@ -447,6 +458,7 @@ router.get("/:id", async (req, res) => {
             ? purchaseOrdersResult.rows[0].purchased_at
             : null,
         cancelled_at: null,
+        status_label: getPurchaseRequestStatusLabel(request.status),
 
         available_action: getAvailableAction(request.status, request.id),
       },

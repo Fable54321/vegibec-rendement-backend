@@ -1229,7 +1229,9 @@ export const buildAdminApprovalEmailHtml = (
   `.trim()
 }
 
-const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
+export const getPurchaseRequestStatusLabel = (
+  status: string | null | undefined
+) => {
   const labels: Record<string, string> = {
     pending_buyer_validation: "En attente de validation par Ricardo",
     needs_requester_info: "Information demandée au demandeur",
