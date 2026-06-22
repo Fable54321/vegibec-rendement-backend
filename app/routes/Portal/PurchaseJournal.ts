@@ -323,19 +323,25 @@ COALESCE(
     let purchaseOrderItems: Record<number, unknown[]> = {}
 
     if (purchaseOrderIds.length > 0) {
-   const purchaseOrderItemsResult = await client.query(
+const purchaseOrderItemsResult = await client.query(
   `
   SELECT
     poi.id,
     poi.purchase_order_id,
-    poi.item_id,
+    poi.purchase_request_item_id AS item_id,
+    poi.item_code,
     poi.item_description,
-    poi.quantity,
+    poi.ordered_quantity AS quantity,
     poi.ordered_unit,
-    poi.ordered_unit_price,
-    (poi.quantity * poi.ordered_unit_price)::numeric AS ordered_total_price,
+    poi.final_unit_price AS ordered_unit_price,
+    COALESCE(
+      poi.final_total_price,
+      poi.ordered_quantity * poi.final_unit_price
+    )::numeric AS ordered_total_price,
+    poi.number_of_pallets,
     poi.location,
-    poi.created_at
+    poi.created_at,
+    poi.updated_at
   FROM portal.purchase_order_items poi
   WHERE poi.purchase_order_id = ANY($1::int[])
   ORDER BY poi.purchase_order_id ASC, poi.id ASC
