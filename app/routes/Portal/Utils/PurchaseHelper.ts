@@ -1237,6 +1237,7 @@ const getPurchaseRequestStatusLabel = (status: string | null | undefined) => {
     approved: "Approuvée",
     rejected: "Refusée",
     ready_to_purchase: "Prête à acheter",
+    partially_purchased: "Partiellement achetée",
     admin_on_wait: "Mise en attente par Michelle",
     purchased: "Achetée",
     cancelled: "Annulée",
