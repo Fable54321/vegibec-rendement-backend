@@ -52,6 +52,7 @@ import getURlRoute from "./routes/Facebook/GetImageUrl";
 import unprotectedRoute from "./routes/Unprotected/Unprotected"
 import purchaseRequest from "./routes/Portal/PurchaseRequest";
 import buyingRoute from "./routes/Portal/BuyingRoute";
+import purchaseJounalRoute from "./routes/Portal/PurchaseJournal";
 
 
 
@@ -1011,6 +1012,8 @@ app.use("/weather", weatherRoute);
 app.use("/facebook", facebookRoute);
 
 app.use("/get-url", getURlRoute);
+
+app.use("/purchase-journal", purchaseJounalRoute);
 
 
 
