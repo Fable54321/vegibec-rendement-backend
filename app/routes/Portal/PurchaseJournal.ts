@@ -142,15 +142,25 @@ router.get("/", async (req, res) => {
   ) items
     ON items.purchase_request_id = pr.id
 
-  LEFT JOIN (
-    SELECT
-      purchase_request_id,
-      COUNT(*)::int AS purchase_order_count,
-      SUM(final_total_price)::numeric AS purchase_orders_total
-    FROM portal.purchase_orders
-    GROUP BY purchase_request_id
-  ) orders
-    ON orders.purchase_request_id = pr.id
+LEFT JOIN (
+  SELECT
+    po.purchase_request_id,
+    COUNT(DISTINCT po.id)::int AS purchase_order_count,
+    COALESCE(
+      SUM(
+        COALESCE(
+          poi.ordered_total_price,
+          poi.quantity * poi.ordered_unit_price
+        )
+      ),
+      0
+    )::numeric AS purchase_orders_total
+  FROM portal.purchase_orders po
+  LEFT JOIN portal.purchase_order_items poi
+    ON poi.purchase_order_id = po.id
+  GROUP BY po.purchase_request_id
+) orders
+  ON orders.purchase_request_id = pr.id
 
   ${whereClause}
 
@@ -245,49 +255,74 @@ router.get("/:id", async (req, res) => {
       [id],
     )
 
-    const purchaseOrdersResult = await client.query(
-      `
-      SELECT
-        po.id,
-        po.purchase_request_id,
-        po.purchase_order_reference,
-        po.purchase_order_sequence,
-        po.supplier_id,
-        po.supplier_name,
-        po.supplier_address_snapshot,
-        po.supplier_phone,
-        po.buyer_name,
-        po.buyer_email,
-        po.requested_delivery_date,
-        po.received_at,
-        po.invoice_number,
-        po.delivery_method,
-        po.shipping_address_snapshot,
-        po.currency_code,
-        po.supplier_reference,
-        po.purchase_note,
-        po.subtotal_price,
-        po.taxes_price,
-        po.shipping_price,
-        po.final_total_price,
-        po.created_at,
-        po.ordered_at,
+   const purchaseOrdersResult = await client.query(
+  `
+  SELECT
+    po.id,
+    po.purchase_request_id,
+    po.purchase_order_reference,
+    po.purchase_order_sequence,
+    po.purchase_order_subsequence,
+    po.supplier_id,
+    po.supplier,
+    po.supplier_name,
+    po.supplier_address_snapshot,
+    po.supplier_phone,
+    po.buyer_name,
+    po.buyer_email,
+    po.requested_delivery_date,
+    po.received_at,
+    po.invoice_number,
+    po.delivery_method,
+    po.shipping_address_snapshot,
+    po.currency_code,
+    po.supplier_reference,
+    po.purchase_note,
+    po.purchase_document_keys,
+    po.status,
+    po.created_at,
+    po.updated_at,
+    po.purchased_at,
 
-        purchased_by.name AS purchased_by_name,
-        purchased_by.surname AS purchased_by_surname,
-        purchased_by.email AS purchased_by_email
+    po.purchased_at AS ordered_at,
 
-      FROM portal.purchase_orders po
+    COALESCE(order_totals.subtotal_price, 0)::numeric AS subtotal_price,
+    0::numeric AS taxes_price,
+    0::numeric AS shipping_price,
+    COALESCE(order_totals.subtotal_price, 0)::numeric AS final_total_price,
 
-      LEFT JOIN portal.users purchased_by
-        ON purchased_by.id = po.purchased_by_user_id
+    purchased_by.name AS purchased_by_name,
+    purchased_by.surname AS purchased_by_surname,
+    purchased_by.email AS purchased_by_email
 
-      WHERE po.purchase_request_id = $1
+  FROM portal.purchase_orders po
 
-      ORDER BY po.purchase_order_sequence ASC, po.id ASC
-      `,
-      [id],
-    )
+  LEFT JOIN (
+    SELECT
+      purchase_order_id,
+      COALESCE(
+        SUM(
+          COALESCE(
+            ordered_total_price,
+            quantity * ordered_unit_price
+          )
+        ),
+        0
+      )::numeric AS subtotal_price
+    FROM portal.purchase_order_items
+    GROUP BY purchase_order_id
+  ) order_totals
+    ON order_totals.purchase_order_id = po.id
+
+  LEFT JOIN portal.users purchased_by
+    ON purchased_by.id = po.purchased_by_user_id
+
+  WHERE po.purchase_request_id = $1
+
+  ORDER BY po.purchase_order_sequence ASC, po.purchase_order_subsequence ASC, po.id ASC
+  `,
+  [id],
+)
 
     const purchaseOrderIds = purchaseOrdersResult.rows.map((po) => po.id)
 
