@@ -147,7 +147,12 @@ LEFT JOIN (
     po.purchase_request_id,
     COUNT(DISTINCT po.id)::int AS purchase_order_count,
     COALESCE(
-      SUM(poi.quantity * poi.ordered_unit_price),
+      SUM(
+        COALESCE(
+          poi.final_total_price,
+          poi.ordered_quantity * poi.final_unit_price
+        )
+      ),
       0
     )::numeric AS purchase_orders_total
   FROM portal.purchase_orders po
@@ -275,16 +280,15 @@ router.get("/:id", async (req, res) => {
     po.purchase_note,
     po.purchase_document_keys,
     po.status,
-    po.created_at,
-    po.updated_at,
-    po.purchased_at,
+  po.created_at,
+po.updated_at,
+po.purchased_at,
+po.purchased_at AS ordered_at,
 
-    po.purchased_at AS ordered_at,
-
-    COALESCE(order_totals.subtotal_price, 0)::numeric AS subtotal_price,
-    0::numeric AS taxes_price,
-    0::numeric AS shipping_price,
-    COALESCE(order_totals.subtotal_price, 0)::numeric AS final_total_price,
+COALESCE(order_totals.subtotal_price, 0)::numeric AS subtotal_price,
+0::numeric AS taxes_price,
+0::numeric AS shipping_price,
+COALESCE(order_totals.subtotal_price, 0)::numeric AS final_total_price,
 
     purchased_by.name AS purchased_by_name,
     purchased_by.surname AS purchased_by_surname,
