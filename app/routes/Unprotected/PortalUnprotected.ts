@@ -3,20 +3,20 @@ import { pool } from "../../db"
 
 const router = Router();
 
-router.get("/",  async (_req, res) => {
+router.get("/list", async (_req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, name, slug
-      FROM apps
-      ORDER BY name;
+      SELECT id, username, email, name, surname, role, created_at, updated_at, is_office
+      FROM users
+      ORDER BY id ASC;
     `);
 
     return res.json({
       success: true,
-      apps: result.rows,
+      users: result.rows,
     });
   } catch (error) {
-    console.error("Error fetching apps:", error);
+    console.error("Error fetching users:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
