@@ -316,6 +316,41 @@ export const createPurchaseToken = async (
   return token
 }
 
+export const getActivePurchaseToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensurePurchaseTokenTable(client)
+
+  const result = await client.query(
+    `
+    SELECT token_hash
+    FROM portal.purchase_request_purchase_tokens
+    WHERE purchase_request_id = $1
+      AND used_at IS NULL
+      AND expires_at > now()
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [purchaseRequestId]
+  )
+
+  return result.rows[0]?.token_hash ?? null
+}
+
+export const getOrCreateActivePurchaseToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  const existingToken = await getActivePurchaseToken(client, purchaseRequestId)
+
+  if (existingToken) {
+    return existingToken
+  }
+
+  return createPurchaseToken(client, purchaseRequestId)
+}
+
 export const getBuyerValidationTokenFromRequest = (req: Request) => {
   const bodyToken = (req.body as { buyer_validation_token?: unknown })
     ?.buyer_validation_token

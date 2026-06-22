@@ -1,6 +1,10 @@
 import { Router } from "express"
 import { pool } from "../../db"
-import { getPurchaseRequestStatusLabel, createPurchaseToken, buildFinalPurchaseRequestUrl } from "./Utils/PurchaseHelper"
+import {
+  getPurchaseRequestStatusLabel,
+  getOrCreateActivePurchaseToken,
+  buildFinalPurchaseRequestUrl,
+} from "./Utils/PurchaseHelper"
 
 const router = Router()
 
@@ -15,19 +19,11 @@ type PurchaseRequestStatus =
   | "purchased"
   | "cancelled"
 
-  const BUYING_PORTAL_URL =
-  process.env.BUYING_PORTAL_URL ?? "http://localhost:5173"
 
-function buildBuyingHref(id: number, token: string | null | undefined) {
-  if (!token) return `/buying/${id}/acheter`
-
-  return `${BUYING_PORTAL_URL}/requete/${id}/acheter/${token}`
-}
 
 function getAvailableAction(
   status: PurchaseRequestStatus,
   id: number,
-  purchaseToken?: string | null,
 ) {
   switch (status) {
     case "pending_buyer_validation":
@@ -220,7 +216,7 @@ router.get("/", async (req, res) => {
       cancelled_at: null,
       status_label: getPurchaseRequestStatusLabel(row.status),
 
-      available_action: getAvailableAction(row.status, row.id, row.purchase_token),
+      available_action: getAvailableAction(row.status, row.id),
     }))
 
     return res.json(rows)
@@ -271,7 +267,7 @@ router.post("/:id/purchase-link", async (req, res) => {
       })
     }
 
-    const token = await createPurchaseToken(client, purchaseRequestId)
+    const token = await getOrCreateActivePurchaseToken(client, purchaseRequestId)
 
     return res.json({
       href: buildFinalPurchaseRequestUrl(req, purchaseRequestId, token),
