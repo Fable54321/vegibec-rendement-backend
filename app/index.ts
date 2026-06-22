@@ -53,6 +53,7 @@ import unprotectedRoute from "./routes/Unprotected/Unprotected"
 import purchaseRequest from "./routes/Portal/PurchaseRequest";
 import buyingRoute from "./routes/Portal/BuyingRoute";
 import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
+import portalUnprotectedRoute from "./routes/Unprotected/portalUnprotected";
 
 
 
@@ -166,6 +167,8 @@ app.set("trust proxy", 1);
 
 app.use("/purchase-request", purchaseRequest);
 app.use("/buying", buyingRoute);
+
+app.use("/portal-unprotected", portalUnprotectedRoute);
 
 app.use("/facebook", publicFacebookRouter);
 
