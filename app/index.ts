@@ -53,7 +53,7 @@ import unprotectedRoute from "./routes/Unprotected/Unprotected"
 import purchaseRequest from "./routes/Portal/PurchaseRequest";
 import buyingRoute from "./routes/Portal/BuyingRoute";
 import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
-import portalUnprotectedRoute from "./routes/Unprotected/portalUnprotected";
+import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 
 
 
