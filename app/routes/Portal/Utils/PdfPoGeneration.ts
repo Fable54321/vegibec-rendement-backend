@@ -222,7 +222,7 @@ const TABLE_COLUMNS = {
   descriptionMaxWidth: 215,
   descriptionMaxCharacters: 52,
 
-  quantityRightX: 360,
+  quantityRightX: 355,
   unitX: 370,
   unitMaxWidth: 70,
 

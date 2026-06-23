@@ -5,6 +5,7 @@ import { actionPurchaseRequestLimiter } from "../Portal/Utils/purchaseRequestLim
 import { getPurchaseTokenFromRequest, validatePurchaseToken, markPurchaseTokenUsed } from "./Utils/PurchaseHelper"
 import { getPurchaseRequestWithItems } from "./PurchaseRequest"
 import { generatePurchaseOrderPdf } from "./Utils/PdfPoGeneration"
+import { getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services"
 
 const router = express.Router()
 
@@ -78,6 +79,22 @@ const getOrderMonthKey = (dateValue: unknown) => {
   const month = String(date.getMonth() + 1).padStart(2, "0")
 
   return `${year}-${month}`
+}
+
+const createPurchaseOrderPdfKey = (purchaseOrderId: number, reference: string) => {
+  const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
+
+  return `portal/purchase-orders/${purchaseOrderId}/bon-commande-${safeReference}.pdf`
+}
+
+const createPurchaseOrderPdfFilename = (reference: string) => {
+  const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
+
+  return `bon-commande-${safeReference}.pdf`
+}
+
+const createPdfDownloadDisposition = (filename: string) => {
+  return `attachment; filename="${filename}"`
 }
 
 type PurchaseOrderItemPayload = {
@@ -521,7 +538,7 @@ const purchaseOrderReference =
 ]
     )
 
-    const purchaseOrder = purchaseOrderResult.rows[0]
+    let purchaseOrder = purchaseOrderResult.rows[0]
 
     const insertedItems = []
 
@@ -606,6 +623,47 @@ if (requestItemResult.rows.length === 0) {
       insertedItems.push(itemResult.rows[0])
     }
 
+const purchaseOrderPdfKey = createPurchaseOrderPdfKey(
+  purchaseOrder.id,
+  purchaseOrder.purchase_order_reference,
+)
+const purchaseOrderPdfFilename = createPurchaseOrderPdfFilename(
+  purchaseOrder.purchase_order_reference,
+)
+const purchaseOrderPdfBytes = await generatePurchaseOrderPdf({
+  ...purchaseOrder,
+  items: insertedItems,
+})
+
+await uploadBufferToS3({
+  key: purchaseOrderPdfKey,
+  buffer: Buffer.from(purchaseOrderPdfBytes),
+  contentType: "application/pdf",
+})
+
+const purchaseOrderWithDocumentResult = await client.query(
+  `
+  UPDATE portal.purchase_orders
+  SET purchase_document_keys = $1
+  WHERE id = $2
+  RETURNING *
+  `,
+  [[purchaseOrderPdfKey], purchaseOrder.id],
+)
+
+purchaseOrder = purchaseOrderWithDocumentResult.rows[0]
+
+const purchaseOrderPdfDownloadUrl = await getSignedUrlForKey(
+  purchaseOrderPdfKey,
+  {
+    expiresIn: 60 * 60,
+    responseContentDisposition: createPdfDownloadDisposition(
+      purchaseOrderPdfFilename,
+    ),
+    responseContentType: "application/pdf",
+  },
+)
+
 const nextRequestStatus = isPartialPurchase
   ? "partially_purchased"
   : "purchased"
@@ -627,17 +685,15 @@ if (nextRequestStatus === "purchased") {
 await client.query("COMMIT")
 transactionStarted = false
 
-   
-
-    await client.query("COMMIT")
-    transactionStarted = false
-
-    
-
     return res.status(201).json({
       purchase_request: updatedRequest.rows[0],
       purchase_order: purchaseOrder,
       purchase_order_items: insertedItems,
+      purchase_order_pdf_urls: [purchaseOrderPdfDownloadUrl],
+      purchase_order_pdf: {
+        key: purchaseOrderPdfKey,
+        url: purchaseOrderPdfDownloadUrl,
+      },
     })
   } catch (error) {
     if (transactionStarted) {

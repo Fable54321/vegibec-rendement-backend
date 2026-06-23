@@ -37,7 +37,11 @@ export const uploadBufferToS3 = async ({
 
 export const getSignedUrlForKey = async (
   key: string,
-  options: { expiresIn?: number } = {}
+  options: {
+    expiresIn?: number;
+    responseContentDisposition?: string;
+    responseContentType?: string;
+  } = {}
 ) => {
   const bucket = process.env.AWS_BUCKET_NAME;
 
@@ -48,6 +52,8 @@ export const getSignedUrlForKey = async (
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: key,
+    ResponseContentDisposition: options.responseContentDisposition,
+    ResponseContentType: options.responseContentType,
   });
 
   return getSignedUrl(s3, command, { expiresIn: options.expiresIn ?? 60 * 5 });
