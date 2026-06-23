@@ -338,6 +338,28 @@ export const getActivePurchaseToken = async (
   return result.rows[0]?.token_hash ?? null
 }
 
+export const getActiveAdminApprovalToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensureAdminApprovalTokenTable(client)
+
+  const result = await client.query(
+    `
+    SELECT token_hash
+    FROM portal.purchase_request_admin_approval_tokens
+    WHERE purchase_request_id = $1
+      AND used_at IS NULL
+      AND expires_at > now()
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [purchaseRequestId]
+  )
+
+  return result.rows[0]?.token_hash ?? null
+}
+
 export const getOrCreateActivePurchaseToken = async (
   client: PoolClient,
   purchaseRequestId: number
@@ -349,6 +371,22 @@ export const getOrCreateActivePurchaseToken = async (
   }
 
   return createPurchaseToken(client, purchaseRequestId)
+}
+
+export const getOrCreateActiveAdminApprovalToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  const existingToken = await getActiveAdminApprovalToken(
+    client,
+    purchaseRequestId
+  )
+
+  if (existingToken) {
+    return existingToken
+  }
+
+  return createAdminApprovalToken(client, purchaseRequestId)
 }
 
 export const getBuyerValidationTokenFromRequest = (req: Request) => {

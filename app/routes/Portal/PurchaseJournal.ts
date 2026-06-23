@@ -1,8 +1,14 @@
 import { Router } from "express"
+import type { Request } from "express"
+import type { PoolClient } from "pg"
 import { pool } from "../../db"
 import {
   getPurchaseRequestStatusLabel,
+  createBuyerValidationToken,
+  getOrCreateActiveAdminApprovalToken,
   getOrCreateActivePurchaseToken,
+  buildBuyerValidationUrl,
+  buildAdminApprovalUrl,
   buildFinalPurchaseRequestUrl,
 } from "./Utils/PurchaseHelper"
 
@@ -29,7 +35,7 @@ function getAvailableAction(
     case "pending_buyer_validation":
       return {
         label: "Valider l'achat",
-        href: `/purchase-request/${id}/buyer-validation`,
+        href: `/purchase-journal/${id}/action-link`,
         kind: "buyer_validation",
         disabled: false,
       }
@@ -37,7 +43,7 @@ function getAvailableAction(
     case "needs_requester_info":
       return {
         label: "Voir les informations demandées",
-        href: `/purchase-request/${id}`,
+        href: `/purchase-journal/${id}/action-link`,
         kind: "requester_info",
         disabled: false,
       }
@@ -45,7 +51,7 @@ function getAvailableAction(
     case "pending_admin_approval":
       return {
         label: "Voir l'approbation",
-        href: `/purchase-request/${id}/admin-decision`,
+        href: `/purchase-journal/${id}/action-link`,
         kind: "admin_decision",
         disabled: false,
       }
@@ -53,7 +59,7 @@ function getAvailableAction(
     case "admin_on_wait":
       return {
         label: "Voir la mise en attente",
-        href: `/purchase-request/${id}`,
+        href: `/purchase-journal/${id}/action-link`,
         kind: "admin_on_wait",
         disabled: false,
       }
@@ -61,7 +67,7 @@ function getAvailableAction(
    case "ready_to_purchase":
   return {
     label: "Acheter",
-    href: `/purchase-journal/${id}/purchase-link`,
+    href: `/purchase-journal/${id}/action-link`,
     kind: "purchase",
     disabled: false,
   }
@@ -69,7 +75,7 @@ function getAvailableAction(
   case "partially_purchased":
   return {
     label: "Continuer l'achat",
-    href: `/purchase-journal/${id}/purchase-link`,
+    href: `/purchase-journal/${id}/action-link`,
     kind: "purchase",
     disabled: false,
   }
@@ -114,6 +120,43 @@ function buildPurchaseOrderPdfUrl(purchaseOrderId: number) {
 
 function buildReceiptVoucherPdfUrl(purchaseOrderId: number) {
   return `/buying/purchase-orders/${purchaseOrderId}/receipt-voucher/pdf`
+}
+
+async function buildCurrentActionLink(
+  client: PoolClient,
+  req: Request,
+  purchaseRequestId: number,
+  status: PurchaseRequestStatus,
+) {
+  switch (status) {
+    case "pending_buyer_validation": {
+      const token = await createBuyerValidationToken(client, purchaseRequestId)
+
+      return buildBuyerValidationUrl(req, purchaseRequestId, token)
+    }
+
+    case "pending_admin_approval": {
+      const token = await getOrCreateActiveAdminApprovalToken(
+        client,
+        purchaseRequestId,
+      )
+
+      return buildAdminApprovalUrl(req, purchaseRequestId, token)
+    }
+
+    case "ready_to_purchase":
+    case "partially_purchased": {
+      const token = await getOrCreateActivePurchaseToken(
+        client,
+        purchaseRequestId,
+      )
+
+      return buildFinalPurchaseRequestUrl(req, purchaseRequestId, token)
+    }
+
+    default:
+      return buildFinalPurchaseRequestUrl(req, purchaseRequestId)
+  }
 }
 
 router.get("/", async (req, res) => {
@@ -229,6 +272,68 @@ router.get("/", async (req, res) => {
   }
 })
 
+router.post("/:id/action-link", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const purchaseRequestId = Number(req.params.id)
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const requestResult = await client.query(
+      `
+      SELECT id, status
+      FROM portal.purchase_requests
+      WHERE id = $1
+      `,
+      [purchaseRequestId],
+    )
+
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const request = requestResult.rows[0]
+    const action = getAvailableAction(request.status, purchaseRequestId)
+
+    if (
+      action.disabled ||
+      action.kind === "view" ||
+      action.kind === "view_purchase_orders" ||
+      action.kind === "rejected" ||
+      action.kind === "cancelled"
+    ) {
+      return res.status(400).json({
+        message: "This request has no action link",
+      })
+    }
+
+    return res.json({
+      href: await buildCurrentActionLink(
+        client,
+        req,
+        purchaseRequestId,
+        request.status,
+      ),
+      kind: action.kind,
+    })
+  } catch (error) {
+    console.error("Purchase action link generation error:", error)
+
+    return res.status(500).json({
+      message: "Unable to generate purchase action link",
+    })
+  } finally {
+    client.release()
+  }
+})
+
 router.post("/:id/purchase-link", async (req, res) => {
   const client = await pool.connect()
 
@@ -267,10 +372,14 @@ router.post("/:id/purchase-link", async (req, res) => {
       })
     }
 
-    const token = await getOrCreateActivePurchaseToken(client, purchaseRequestId)
-
     return res.json({
-      href: buildFinalPurchaseRequestUrl(req, purchaseRequestId, token),
+      href: await buildCurrentActionLink(
+        client,
+        req,
+        purchaseRequestId,
+        request.status,
+      ),
+      kind: "purchase",
     })
   } catch (error) {
     console.error("Purchase link generation error:", error)
