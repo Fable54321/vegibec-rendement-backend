@@ -537,16 +537,16 @@ router.get("/:id", async (req, res) => {
 
       FROM portal.purchase_requests pr
 
-      LEFT JOIN portal.users buyer
+      LEFT JOIN public.users buyer
         ON buyer.id = pr.buyer_user_id
 
-      LEFT JOIN portal.users admin
+      LEFT JOIN public.users admin
         ON admin.id = pr.admin_user_id
 
       LEFT JOIN portal.purchase_orders latest_po
         ON latest_po.purchase_request_id = pr.id
 
-      LEFT JOIN portal.users purchased_by
+      LEFT JOIN public.users purchased_by
         ON purchased_by.id = latest_po.purchased_by_user_id
 
       LEFT JOIN (
@@ -662,7 +662,7 @@ router.get("/:id", async (req, res) => {
       ) order_totals
         ON order_totals.purchase_order_id = po.id
 
-      LEFT JOIN portal.users purchased_by
+      LEFT JOIN public.users purchased_by
         ON purchased_by.id = po.purchased_by_user_id
 
       WHERE po.purchase_request_id = $1
