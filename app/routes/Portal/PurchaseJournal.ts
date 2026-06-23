@@ -189,11 +189,22 @@ router.get("/", async (req, res) => {
         pr.updated_at,
 
         COALESCE(items.item_count, 0)::int AS item_count,
-        COALESCE(items.requested_total_price, 0)::numeric AS requested_total_price,
-        COALESCE(items.buyer_confirmed_total_price, 0)::numeric AS buyer_confirmed_total_price,
 
-        COALESCE(orders.purchase_order_count, 0)::int AS purchase_order_count,
-        COALESCE(orders.purchase_orders_total, 0)::numeric AS purchase_orders_total,
+        COALESCE(items.requested_total_price, 0)::numeric
+          AS requested_total_price,
+
+        COALESCE(items.buyer_confirmed_total_price, 0)::numeric
+          AS buyer_confirmed_total_price,
+
+        COALESCE(orders.purchase_order_count, 0)::int
+          AS purchase_order_count,
+
+        COALESCE(orders.actual_purchased_total_price, 0)::numeric
+          AS purchase_orders_total,
+
+        COALESCE(orders.actual_purchased_total_price, 0)::numeric
+          AS actual_purchased_total_price,
+
         orders.last_purchased_at,
         orders.last_received_at,
 
@@ -205,8 +216,17 @@ router.get("/", async (req, res) => {
         SELECT
           purchase_request_id,
           COUNT(*)::int AS item_count,
-          COALESCE(SUM(requested_total_price), 0)::numeric AS requested_total_price,
-          COALESCE(SUM(buyer_confirmed_total_price), 0)::numeric AS buyer_confirmed_total_price
+
+          COALESCE(
+            SUM(requested_total_price),
+            0
+          )::numeric AS requested_total_price,
+
+          COALESCE(
+            SUM(buyer_confirmed_total_price),
+            0
+          )::numeric AS buyer_confirmed_total_price
+
         FROM portal.purchase_request_items
         GROUP BY purchase_request_id
       ) items
@@ -224,7 +244,9 @@ router.get("/", async (req, res) => {
       LEFT JOIN (
         SELECT
           po.purchase_request_id,
+
           COUNT(DISTINCT po.id)::int AS purchase_order_count,
+
           COALESCE(
             SUM(
               COALESCE(
@@ -233,12 +255,16 @@ router.get("/", async (req, res) => {
               )
             ),
             0
-          )::numeric AS purchase_orders_total,
+          )::numeric AS actual_purchased_total_price,
+
           MAX(po.purchased_at) AS last_purchased_at,
           MAX(po.received_at) AS last_received_at
+
         FROM portal.purchase_orders po
+
         LEFT JOIN portal.purchase_order_items poi
           ON poi.purchase_order_id = po.id
+
         GROUP BY po.purchase_request_id
       ) orders
         ON orders.purchase_request_id = pr.id
@@ -250,17 +276,52 @@ router.get("/", async (req, res) => {
       params,
     )
 
-    const rows = result.rows.map((row) => ({
-      ...row,
+    const rows = result.rows.map((row) => {
+      const purchaseOrderCount = Number(row.purchase_order_count || 0)
+      const buyerConfirmedTotal = Number(row.buyer_confirmed_total_price || 0)
+      const requestedTotal = Number(row.requested_total_price || 0)
+      const actualPurchasedTotal = Number(row.actual_purchased_total_price || 0)
 
-      // Compatibility aliases for the frontend context
-      admin_decided_at: row.admin_decision_at,
-      purchased_at: row.last_purchased_at,
-      cancelled_at: null,
-      status_label: getPurchaseRequestStatusLabel(row.status),
+      const hasPurchaseOrders = purchaseOrderCount > 0
+      const hasBuyerConfirmedPrice = buyerConfirmedTotal > 0
 
-      available_action: getAvailableAction(row.status, row.id),
-    }))
+      const displayTotalPrice = hasPurchaseOrders
+        ? row.actual_purchased_total_price
+        : hasBuyerConfirmedPrice
+          ? row.buyer_confirmed_total_price
+          : row.requested_total_price
+
+      const displayTotalPriceSource = hasPurchaseOrders
+        ? "actual_purchased"
+        : hasBuyerConfirmedPrice
+          ? "buyer_confirmed"
+          : "requester_estimated"
+
+      return {
+        ...row,
+
+        id: Number(row.id),
+
+        item_count: Number(row.item_count || 0),
+        purchase_order_count: purchaseOrderCount,
+
+        requested_total_price: requestedTotal,
+        buyer_confirmed_total_price: buyerConfirmedTotal,
+        actual_purchased_total_price: actualPurchasedTotal,
+        purchase_orders_total: actualPurchasedTotal,
+
+        display_total_price: displayTotalPrice,
+        display_total_price_source: displayTotalPriceSource,
+
+        // Compatibility aliases for the frontend context
+        admin_decided_at: row.admin_decision_at,
+        purchased_at: row.last_purchased_at,
+        cancelled_at: null,
+        status_label: getPurchaseRequestStatusLabel(row.status),
+
+        available_action: getAvailableAction(row.status, Number(row.id)),
+      }
+    })
 
     return res.json(rows)
   } catch (error) {
@@ -271,7 +332,6 @@ router.get("/", async (req, res) => {
     })
   }
 })
-
 router.post("/:id/action-link", async (req, res) => {
   const client = await pool.connect()
 
