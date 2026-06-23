@@ -5,11 +5,11 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 type PurchaseOrderPdfItem = {
   item_code: string | null
   item_description: string | null
-  ordered_quantity: number | null
+  ordered_quantity: number | string | null
   ordered_unit: string | null
-  number_of_pallets: number | null
-  final_unit_price: number | null
-  final_total_price: number | null
+  number_of_pallets: number | string | null
+  final_unit_price: number | string | null
+  final_total_price: number | string | null
   location: string | null
 }
 
@@ -18,7 +18,8 @@ type PurchaseOrderPdfData = {
   purchase_order_subsequence: number | null
   supplier_name: string | null
   supplier_address_snapshot: string | null
-  supplier_phone: string | null
+  supplier_phone: string | number | null
+  phone?: string | number | null
   buyer_name: string | null
   buyer_email: string | null
   requested_delivery_date: string | null
@@ -39,10 +40,37 @@ const defaultBuyerInfos : {
   email: "achats@vegibec.com",
 }
 
-const formatMoney = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return ""
+const formatNumber = (
+  value: number | string | null | undefined,
+  options?: {
+    decimals?: number
+    hideDecimalsIfInteger?: boolean
+  },
+) => {
+  if (value === null || value === undefined || value === "") return ""
 
-  return Number(value).toFixed(2)
+  const numberValue = Number(value)
+
+  if (Number.isNaN(numberValue)) return ""
+
+  if (options?.hideDecimalsIfInteger && Number.isInteger(numberValue)) {
+    return String(numberValue)
+  }
+
+  return numberValue.toFixed(options?.decimals ?? 2)
+}
+
+const formatMoney = (value: number | string | null | undefined) => {
+  return formatNumber(value, {
+    decimals: 2,
+  })
+}
+
+const formatQuantity = (value: number | string | null | undefined) => {
+  return formatNumber(value, {
+    decimals: 2,
+    hideDecimalsIfInteger: true,
+  })
 }
 
 const formatDateIso = (value: string | Date | null | undefined) => {
@@ -61,6 +89,16 @@ const formatDateIso = (value: string | Date | null | undefined) => {
   const day = String(date.getDate()).padStart(2, "0")
 
   return `${year}-${month}-${day}`
+}
+
+const formatDateTime = (value: Date) => {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, "0")
+  const day = String(value.getDate()).padStart(2, "0")
+  const hours = String(value.getHours()).padStart(2, "0")
+  const minutes = String(value.getMinutes()).padStart(2, "0")
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
 export const generatePurchaseOrderPdf = async (
@@ -101,6 +139,110 @@ export const generatePurchaseOrderPdf = async (
     })
   }
 
+  const getTextWidth = (
+  text: string | number | null | undefined,
+  size = 9,
+  options?: {
+    bold?: boolean
+  },
+) => {
+  if (text === null || text === undefined || text === "") return 0
+
+  const selectedFont = options?.bold ? boldFont : font
+
+  return selectedFont.widthOfTextAtSize(String(text), size)
+}
+
+const drawFittedText = (
+  text: string | number | null | undefined,
+  x: number,
+  y: number,
+  maxWidth: number,
+  options?: {
+    size?: number
+    bold?: boolean
+  },
+) => {
+  if (text === null || text === undefined || text === "") return
+
+  const size = options?.size ?? 9
+  const textAsString = String(text)
+  const selectedFont = options?.bold ? boldFont : font
+
+  if (selectedFont.widthOfTextAtSize(textAsString, size) <= maxWidth) {
+    drawText(textAsString, x, y, options)
+    return
+  }
+
+  let fittedText = textAsString
+
+  while (
+    fittedText.length > 1 &&
+    selectedFont.widthOfTextAtSize(`${fittedText}…`, size) > maxWidth
+  ) {
+    fittedText = fittedText.slice(0, -1)
+  }
+
+  drawText(`${fittedText}…`, x, y, options)
+}
+
+const drawRightAlignedText = (
+  text: string | number | null | undefined,
+  rightX: number,
+  y: number,
+  options?: {
+    size?: number
+    bold?: boolean
+  },
+) => {
+  if (text === null || text === undefined || text === "") return
+
+  const size = options?.size ?? 9
+  const textAsString = String(text)
+  const textWidth = getTextWidth(textAsString, size, {
+    bold: options?.bold,
+  })
+
+  page.drawText(textAsString, {
+    x: rightX - textWidth,
+    y,
+    size,
+    font: options?.bold ? boldFont : font,
+    color: rgb(0, 0, 0),
+  })
+}
+
+
+const TABLE_COLUMNS = {
+  leftX: 16,
+  rightX: 580,
+
+  codeX: 26,
+  descriptionX: 76,
+  descriptionMaxWidth: 215,
+  descriptionMaxCharacters: 52,
+
+  quantityRightX: 360,
+  unitX: 370,
+  unitMaxWidth: 70,
+
+  priceRightX: 493,
+  amountRightX: 568,
+
+  totalPriceLeftX: 500,
+  currencyRightX: 568,
+}
+
+const FOOTER_COLUMNS = {
+  generatedAtRightX: 568,
+  generatedAtY: 35,
+}
+
+const HEADER_COLUMNS = {
+  orderReferenceLabelX: 480.5,
+  orderReferenceY: 720,
+}
+
   const drawLines = (
     text: string | null | undefined,
     x: number,
@@ -130,13 +272,79 @@ export const generatePurchaseOrderPdf = async (
     })
   }
 
+  const splitDescriptionText = (
+    text: string | null | undefined,
+    maxWidth: number,
+    maxCharacters: number,
+    maxLines = 3,
+    size = 9,
+  ) => {
+    if (!text) return []
+
+    const words = text.trim().split(/\s+/)
+    const lines: string[] = []
+    let currentLine = ""
+
+    words.forEach((word) => {
+      const nextLine = currentLine ? `${currentLine} ${word}` : word
+
+      if (
+        nextLine.length <= maxCharacters &&
+        font.widthOfTextAtSize(nextLine, size) <= maxWidth
+      ) {
+        currentLine = nextLine
+        return
+      }
+
+      if (currentLine) lines.push(currentLine)
+
+      if (
+        word.length <= maxCharacters &&
+        font.widthOfTextAtSize(word, size) <= maxWidth
+      ) {
+        currentLine = word
+        return
+      }
+
+      let remainingWord = word
+
+      while (remainingWord) {
+        let chunk = remainingWord
+
+        while (
+          chunk.length > 1 &&
+          (chunk.length > maxCharacters ||
+            font.widthOfTextAtSize(chunk, size) > maxWidth)
+        ) {
+          chunk = chunk.slice(0, -1)
+        }
+
+        lines.push(chunk)
+        remainingWord = remainingWord.slice(chunk.length)
+      }
+
+      currentLine = ""
+    })
+
+    if (currentLine) lines.push(currentLine)
+
+    return lines.slice(0, maxLines)
+  }
+
   const purchasedAtFormatted = formatDateIso(purchaseOrder.purchased_at)
+  const supplierPhone = purchaseOrder.supplier_phone ?? purchaseOrder.phone
 
   const displayReference =
    purchaseOrder.purchase_order_reference 
 
   // Header / PO number
-  drawText(displayReference, 470, 720, { size: 14, bold: true })
+  drawRightAlignedText(
+    displayReference,
+    HEADER_COLUMNS.orderReferenceLabelX +
+      getTextWidth("# Commande", 14, { bold: true }),
+    HEADER_COLUMNS.orderReferenceY,
+    { size: 14, bold: true },
+  )
 
   // Acheté de
   drawText(purchaseOrder.supplier_name, 26, 610, {
@@ -150,7 +358,7 @@ export const generatePurchaseOrderPdf = async (
     maxLines: 4,
   })
 
-  drawText(purchaseOrder.supplier_phone, 26, 540, {
+  drawText(supplierPhone, 26, 540, {
     size: 9,
   })
 
@@ -182,29 +390,108 @@ export const generatePurchaseOrderPdf = async (
   })
 
   // Items table
-  const ITEM_START_Y = 410
-  const ITEM_ROW_HEIGHT = 30
+const ITEM_START_Y = 410
+const ITEM_ROW_HEIGHT = 30
+const ITEM_DESCRIPTION_LINE_HEIGHT = 10
+const THREE_LINE_DESCRIPTION_EXTRA_SPACING = 6
 
-  purchaseOrder.items.forEach((item, index) => {
-    const y = ITEM_START_Y - index * ITEM_ROW_HEIGHT
+let itemYOffset = 0
 
-    drawText(item.item_code, 26, y)
-    drawText(item.item_description, 76, y)
-    drawText(item.ordered_quantity, 318, y)
-    drawText(item.ordered_unit, 391, y)
-    drawText(formatMoney(item.final_unit_price), 457, y)
-    drawText(formatMoney(item.final_total_price), 527, y)
+purchaseOrder.items.forEach((item) => {
+  const y = ITEM_START_Y - itemYOffset
+
+  const descriptionLines = splitDescriptionText(
+    item.item_description,
+    TABLE_COLUMNS.descriptionMaxWidth,
+    TABLE_COLUMNS.descriptionMaxCharacters,
+  )
+
+  drawText(item.item_code, TABLE_COLUMNS.codeX, y)
+
+  descriptionLines.forEach((line, lineIndex) => {
+    drawText(
+      line,
+      TABLE_COLUMNS.descriptionX,
+      y - lineIndex * ITEM_DESCRIPTION_LINE_HEIGHT,
+    )
   })
+
+  drawRightAlignedText(
+    formatQuantity(item.ordered_quantity),
+    TABLE_COLUMNS.quantityRightX,
+    y,
+  )
+
+  drawFittedText(
+    item.ordered_unit,
+    TABLE_COLUMNS.unitX,
+    y,
+    TABLE_COLUMNS.unitMaxWidth,
+  )
+
+  drawRightAlignedText(
+    formatMoney(item.final_unit_price),
+    TABLE_COLUMNS.priceRightX,
+    y,
+  )
+
+  drawRightAlignedText(
+    formatMoney(item.final_total_price),
+    TABLE_COLUMNS.amountRightX,
+    y,
+  )
+
+  itemYOffset += ITEM_ROW_HEIGHT
+
+  if (descriptionLines.length === 3) {
+    itemYOffset += THREE_LINE_DESCRIPTION_EXTRA_SPACING
+  }
+})
 
   const total = purchaseOrder.items.reduce(
     (sum, item) => sum + Number(item.final_total_price ?? 0),
     0,
   )
+  const totalQuantity = purchaseOrder.items.reduce(
+    (sum, item) => sum + Number(item.ordered_quantity ?? 0),
+    0,
+  )
 
-  drawText(`${formatMoney(total)} ${purchaseOrder.currency_code ?? "CAD"}`, 485, 120, {
-    size: 12,
+page.drawLine({
+  start: { x: TABLE_COLUMNS.leftX, y: 116 },
+  end: { x: TABLE_COLUMNS.rightX, y: 116 },
+  thickness: 0.5,
+  color: rgb(0.82, 0.82, 0.82),
+})
+
+
+drawRightAlignedText(
+  formatQuantity(totalQuantity),
+  TABLE_COLUMNS.quantityRightX,
+  99,
+  {
+    size: 10,
     bold: true,
-  })
+  },
+)
+
+drawRightAlignedText(formatMoney(total), TABLE_COLUMNS.currencyRightX, 102, {
+  size: 11,
+  bold: true,
+})
+
+drawRightAlignedText(
+  purchaseOrder.currency_code ?? "CAD",
+  TABLE_COLUMNS.currencyRightX,
+  92,
+  {
+    size: 8,
+  },
+)
+
+drawRightAlignedText(formatDateTime(new Date()), FOOTER_COLUMNS.generatedAtRightX, FOOTER_COLUMNS.generatedAtY, {
+  size: 8,
+})
 
   return await pdfDoc.save()
 }

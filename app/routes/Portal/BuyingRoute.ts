@@ -9,6 +9,10 @@ import { generatePurchaseOrderPdf } from "./Utils/PdfPoGeneration"
 const router = express.Router()
 
 const cleanText = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value)
+  }
+
   if (typeof value !== "string") return null
 
   const trimmed = value.trim()
@@ -101,9 +105,13 @@ router.get("/:purchaseOrderId/pdf", async (req, res) => {
 
     const purchaseOrderResult = await client.query(
       `
-      SELECT *
-      FROM portal.purchase_orders
-      WHERE id = $1
+      SELECT
+        po.*,
+        COALESCE(po.supplier_phone, s.phone) AS supplier_phone
+      FROM portal.purchase_orders po
+      LEFT JOIN portal.suppliers s
+        ON s.id = po.supplier_id
+      WHERE po.id = $1
       `,
       [purchaseOrderId],
     )
