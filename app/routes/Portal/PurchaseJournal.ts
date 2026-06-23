@@ -50,7 +50,7 @@ function getAvailableAction(
 
     case "pending_admin_approval":
       return {
-        label: "Voir l'approbation",
+        label: "Approuver ou refuser",
         href: `/purchase-journal/${id}/action-link`,
         kind: "admin_decision",
         disabled: false,
