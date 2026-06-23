@@ -58,10 +58,10 @@ function getAvailableAction(
 
     case "admin_on_wait":
       return {
-        label: "Voir la mise en attente",
+        label: "Mise en attente",
         href: `/purchase-journal/${id}/action-link`,
         kind: "admin_on_wait",
-        disabled: false,
+        disabled: true,
       }
 
    case "ready_to_purchase":
