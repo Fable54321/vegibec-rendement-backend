@@ -97,6 +97,10 @@ const createPdfDownloadDisposition = (filename: string) => {
   return `attachment; filename="${filename}"`
 }
 
+const createPdfPreviewDisposition = (filename: string) => {
+  return `inline; filename="${filename}"`
+}
+
 type PurchaseOrderItemPayload = {
   purchase_request_item_id?: unknown
   item_code?: unknown
@@ -152,10 +156,18 @@ router.get("/:purchaseOrderId/pdf", async (req, res) => {
       items: itemsResult.rows,
     })
 
+    const filename = createPurchaseOrderPdfFilename(
+      purchaseOrderResult.rows[0].purchase_order_reference,
+    )
+    const shouldDownload =
+      req.query.download === "1" || req.query.download === "true"
+
     res.setHeader("Content-Type", "application/pdf")
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="bon-commande-${purchaseOrderResult.rows[0].purchase_order_reference}.pdf"`,
+      shouldDownload
+        ? createPdfDownloadDisposition(filename)
+        : createPdfPreviewDisposition(filename),
     )
 
     return res.send(Buffer.from(pdfBytes))
@@ -653,6 +665,17 @@ const purchaseOrderWithDocumentResult = await client.query(
 
 purchaseOrder = purchaseOrderWithDocumentResult.rows[0]
 
+const purchaseOrderPdfPreviewUrl = await getSignedUrlForKey(
+  purchaseOrderPdfKey,
+  {
+    expiresIn: 60 * 60,
+    responseContentDisposition: createPdfPreviewDisposition(
+      purchaseOrderPdfFilename,
+    ),
+    responseContentType: "application/pdf",
+  },
+)
+
 const purchaseOrderPdfDownloadUrl = await getSignedUrlForKey(
   purchaseOrderPdfKey,
   {
@@ -689,10 +712,14 @@ transactionStarted = false
       purchase_request: updatedRequest.rows[0],
       purchase_order: purchaseOrder,
       purchase_order_items: insertedItems,
-      purchase_order_pdf_urls: [purchaseOrderPdfDownloadUrl],
+      purchase_order_pdf_urls: [purchaseOrderPdfPreviewUrl],
+      purchase_order_pdf_preview_urls: [purchaseOrderPdfPreviewUrl],
+      purchase_order_pdf_download_urls: [purchaseOrderPdfDownloadUrl],
       purchase_order_pdf: {
         key: purchaseOrderPdfKey,
-        url: purchaseOrderPdfDownloadUrl,
+        url: purchaseOrderPdfPreviewUrl,
+        preview_url: purchaseOrderPdfPreviewUrl,
+        download_url: purchaseOrderPdfDownloadUrl,
       },
     })
   } catch (error) {

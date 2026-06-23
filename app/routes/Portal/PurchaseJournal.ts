@@ -119,6 +119,10 @@ function buildPurchaseOrderPdfUrl(purchaseOrderId: number) {
   return `/buying/purchase-orders/${purchaseOrderId}/pdf`
 }
 
+function buildPurchaseOrderPdfDownloadUrl(purchaseOrderId: number) {
+  return `/buying/purchase-orders/${purchaseOrderId}/pdf?download=1`
+}
+
 function buildReceiptVoucherPdfUrl(purchaseOrderId: number) {
   return `/buying/purchase-orders/${purchaseOrderId}/receipt-voucher/pdf`
 }
@@ -131,6 +135,16 @@ function createPurchaseOrderPdfFilename(reference: string) {
 
 function createPdfDownloadDisposition(filename: string) {
   return `attachment; filename="${filename}"`
+}
+
+function createPdfPreviewDisposition(filename: string) {
+  return `inline; filename="${filename}"`
+}
+
+type PurchaseOrderPdfLink = {
+  key: string | null
+  preview_url: string
+  download_url: string
 }
 
 function getPurchaseOrderPdfKeys(value: unknown) {
@@ -149,27 +163,39 @@ function getPurchaseOrderPdfKeys(value: unknown) {
   return []
 }
 
-async function getPurchaseOrderPdfUrls(po: {
+async function getPurchaseOrderPdfLinks(po: {
   id: number
   purchase_order_reference: string
   purchase_document_keys?: unknown
-}) {
+}): Promise<PurchaseOrderPdfLink[]> {
   const keys = getPurchaseOrderPdfKeys(po.purchase_document_keys)
 
   if (keys.length === 0) {
-    return [buildPurchaseOrderPdfUrl(po.id)]
+    return [
+      {
+        key: null,
+        preview_url: buildPurchaseOrderPdfUrl(po.id),
+        download_url: buildPurchaseOrderPdfDownloadUrl(po.id),
+      },
+    ]
   }
 
   const filename = createPurchaseOrderPdfFilename(po.purchase_order_reference)
 
   return Promise.all(
-    keys.map((key) =>
-      getSignedUrlForKey(key, {
+    keys.map(async (key) => ({
+      key,
+      preview_url: await getSignedUrlForKey(key, {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfPreviewDisposition(filename),
+        responseContentType: "application/pdf",
+      }),
+      download_url: await getSignedUrlForKey(key, {
         expiresIn: 60 * 60,
         responseContentDisposition: createPdfDownloadDisposition(filename),
         responseContentType: "application/pdf",
       }),
-    ),
+    })),
   )
 }
 
@@ -719,14 +745,28 @@ router.get("/:id", async (req, res) => {
 
     const purchase_orders = await Promise.all(
       purchaseOrdersResult.rows.map(async (po) => {
-        const purchaseOrderPdfUrls = await getPurchaseOrderPdfUrls(po)
+        const purchaseOrderPdfLinks = await getPurchaseOrderPdfLinks(po)
+        const firstPurchaseOrderPdf = purchaseOrderPdfLinks[0] ?? null
 
         return {
           ...po,
           items: purchaseOrderItems[po.id] ?? [],
           documents: {
-            purchase_order_pdf_url: purchaseOrderPdfUrls[0] ?? null,
-            purchase_order_pdf_urls: purchaseOrderPdfUrls,
+            purchase_order_pdf_url: firstPurchaseOrderPdf?.preview_url ?? null,
+            purchase_order_pdf_preview_url:
+              firstPurchaseOrderPdf?.preview_url ?? null,
+            purchase_order_pdf_download_url:
+              firstPurchaseOrderPdf?.download_url ?? null,
+            purchase_order_pdf_urls: purchaseOrderPdfLinks.map(
+              (link) => link.preview_url,
+            ),
+            purchase_order_pdf_preview_urls: purchaseOrderPdfLinks.map(
+              (link) => link.preview_url,
+            ),
+            purchase_order_pdf_download_urls: purchaseOrderPdfLinks.map(
+              (link) => link.download_url,
+            ),
+            purchase_order_pdfs: purchaseOrderPdfLinks,
             receipt_voucher_pdf_url: po.received_at
               ? buildReceiptVoucherPdfUrl(po.id)
               : null,
