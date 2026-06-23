@@ -11,6 +11,7 @@ import {
   buildAdminApprovalUrl,
   buildFinalPurchaseRequestUrl,
 } from "./Utils/PurchaseHelper"
+import { getSignedUrlForKey } from "../../services/s3.services"
 
 const router = Router()
 
@@ -120,6 +121,56 @@ function buildPurchaseOrderPdfUrl(purchaseOrderId: number) {
 
 function buildReceiptVoucherPdfUrl(purchaseOrderId: number) {
   return `/buying/purchase-orders/${purchaseOrderId}/receipt-voucher/pdf`
+}
+
+function createPurchaseOrderPdfFilename(reference: string) {
+  const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
+
+  return `bon-commande-${safeReference}.pdf`
+}
+
+function createPdfDownloadDisposition(filename: string) {
+  return `attachment; filename="${filename}"`
+}
+
+function getPurchaseOrderPdfKeys(value: unknown) {
+  if (!value) return []
+
+  if (Array.isArray(value)) {
+    return value.filter(
+      (key): key is string => typeof key === "string" && key.length > 0,
+    )
+  }
+
+  if (typeof value === "string") {
+    return value ? [value] : []
+  }
+
+  return []
+}
+
+async function getPurchaseOrderPdfUrls(po: {
+  id: number
+  purchase_order_reference: string
+  purchase_document_keys?: unknown
+}) {
+  const keys = getPurchaseOrderPdfKeys(po.purchase_document_keys)
+
+  if (keys.length === 0) {
+    return [buildPurchaseOrderPdfUrl(po.id)]
+  }
+
+  const filename = createPurchaseOrderPdfFilename(po.purchase_order_reference)
+
+  return Promise.all(
+    keys.map((key) =>
+      getSignedUrlForKey(key, {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfDownloadDisposition(filename),
+        responseContentType: "application/pdf",
+      }),
+    ),
+  )
 }
 
 async function buildCurrentActionLink(
@@ -666,16 +717,23 @@ router.get("/:id", async (req, res) => {
       )
     }
 
-    const purchase_orders = purchaseOrdersResult.rows.map((po) => ({
-      ...po,
-      items: purchaseOrderItems[po.id] ?? [],
-      documents: {
-        purchase_order_pdf_url: buildPurchaseOrderPdfUrl(po.id),
-        receipt_voucher_pdf_url: po.received_at
-          ? buildReceiptVoucherPdfUrl(po.id)
-          : null,
-      },
-    }))
+    const purchase_orders = await Promise.all(
+      purchaseOrdersResult.rows.map(async (po) => {
+        const purchaseOrderPdfUrls = await getPurchaseOrderPdfUrls(po)
+
+        return {
+          ...po,
+          items: purchaseOrderItems[po.id] ?? [],
+          documents: {
+            purchase_order_pdf_url: purchaseOrderPdfUrls[0] ?? null,
+            purchase_order_pdf_urls: purchaseOrderPdfUrls,
+            receipt_voucher_pdf_url: po.received_at
+              ? buildReceiptVoucherPdfUrl(po.id)
+              : null,
+          },
+        }
+      }),
+    )
 
     return res.json({
       request: {
