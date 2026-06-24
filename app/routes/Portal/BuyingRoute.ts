@@ -414,12 +414,14 @@ if (!allowedPurchaseStatuses.includes(currentRequest.rows[0].status)) {
 
       const supplier = supplierResult.rows[0]
 
-      supplierSnapshot = {
-        supplierId: supplier.id,
-        supplierName: supplier.name,
-        supplierAddressSnapshot: supplier.address_snapshot,
-        supplierPhone: supplier.phone,
-      }
+   supplierSnapshot = {
+  supplierId: supplier.id,
+  supplierName: supplier.name,
+  supplierAddressSnapshot:
+    cleanText(supplier_address_snapshot) ?? supplier.address_snapshot,
+  supplierPhone:
+    cleanText(supplier_phone) ?? supplier.phone,
+}
     }
 
     if (!supplierSnapshot.supplierName) {
