@@ -873,42 +873,41 @@ router.patch("/:id/editable", async (req, res) => {
       }
 
       const itemResult = await client.query(
-        `
-        UPDATE portal.purchase_request_items
-        SET
-          description = $3,
-          reason = $4,
-          quantity = $5,
-          quantity_format = $6,
-          requested_unit_price = $7::numeric,
-          requested_total_price = $5::numeric * $7::numeric,
-          requested_supplier = $8,
-          product_link = $9,
-          modified_at = now(),
-          modification_reason = $10,
-          updated_at = now()
-        WHERE id = $1
-        AND purchase_request_id = $2
-        AND NOT EXISTS (
-          SELECT 1
-          FROM portal.purchase_order_items poi
-          WHERE poi.purchase_request_item_id = portal.purchase_request_items.id
-        )
-        RETURNING id
-        `,
-        [
-          itemId,
-          purchaseRequestId,
-          item.description?.trim() || null,
-          item.reason?.trim() || null,
-          quantity,
-          item.quantity_format?.trim() || null,
-          requestedUnitPrice,
-          item.requested_supplier?.trim() || null,
-          item.product_link?.trim() || null,
-          modification_reason.trim(),
-        ],
-      )
+  `
+  UPDATE portal.purchase_request_items
+  SET
+    description = $3,
+    reason = $4,
+    quantity = $5::int,
+    quantity_format = $6,
+    requested_unit_price = $7::numeric,
+    requested_supplier = $8,
+    product_link = $9,
+    modified_at = now(),
+    modification_reason = $10,
+    updated_at = now()
+  WHERE id = $1
+  AND purchase_request_id = $2
+  AND NOT EXISTS (
+    SELECT 1
+    FROM portal.purchase_order_items poi
+    WHERE poi.purchase_request_item_id = portal.purchase_request_items.id
+  )
+  RETURNING id
+  `,
+  [
+    itemId,
+    purchaseRequestId,
+    item.description?.trim() || null,
+    item.reason?.trim() || null,
+    quantity,
+    item.quantity_format?.trim() || null,
+    requestedUnitPrice,
+    item.requested_supplier?.trim() || null,
+    item.product_link?.trim() || null,
+    modification_reason.trim(),
+  ],
+)
 
       if (itemResult.rows.length === 0) {
         await client.query("ROLLBACK")
