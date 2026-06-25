@@ -33,6 +33,7 @@ import {
   getEmailRecipients,
   getPurchaseRequestDisplayNumber,
   getUrgencyFromExpectedDate,
+  invalidateBuyerValidationTokens,
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
   sendPurchaseRequestEmailSafely,
@@ -821,6 +822,16 @@ router.patch("/:id/editable", async (req, res) => {
       SET
         requested_by = COALESCE($2, requested_by),
         needed_by_date = COALESCE($3, needed_by_date),
+        status = 'pending_buyer_validation',
+        buyer_user_id = NULL,
+        buyer_note = NULL,
+        buyer_validated_at = NULL,
+        expected_date = COALESCE($3, needed_by_date),
+        date_changed = false,
+        direct_approval_requested = false,
+        direct_approval_approver = NULL,
+        direct_approval_requested_at = NULL,
+        rejection_reason = NULL,
         modified_at = now(),
         modified_by_name = COALESCE($4, requested_by),
         modified_by_email = $5,
@@ -883,6 +894,9 @@ router.patch("/:id/editable", async (req, res) => {
     requested_unit_price = $7::numeric,
     requested_supplier = $8,
     product_link = $9,
+    buyer_confirmed_unit_price = NULL,
+    buyer_confirmed_supplier = NULL,
+    status = 'pending_buyer_validation',
     modified_at = now(),
     modification_reason = $10,
     updated_at = now()
@@ -918,6 +932,13 @@ router.patch("/:id/editable", async (req, res) => {
       }
     }
 
+    await invalidateBuyerValidationTokens(client, purchaseRequestId)
+
+    const buyerValidationToken = await createBuyerValidationToken(
+      client,
+      purchaseRequestId,
+    )
+
     const updatedRequest = await getPurchaseRequestWithItems(
       client,
       purchaseRequestId,
@@ -935,12 +956,17 @@ router.patch("/:id/editable", async (req, res) => {
 
     const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
     const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+    const buyerValidationUrl = buildBuyerValidationUrl(
+      req,
+      updatedRequest.id,
+      buyerValidationToken,
+    )
 
     await sendPurchaseRequestEmailSafely(
       emailRecipients,
-      `Demande d'achat #${displayRequestNumber} modifiee`,
-      buildPurchaseRequestModifiedEmail(updatedRequest),
-      buildPurchaseRequestModifiedEmailHtml(updatedRequest),
+      `Demande d'achat #${displayRequestNumber} modifiée - validation requise`,
+      buildPurchaseRequestModifiedEmail(updatedRequest, buyerValidationUrl),
+      buildPurchaseRequestModifiedEmailHtml(updatedRequest, buyerValidationUrl),
       getPurchaseRequestReplyToRecipients(),
     )
 
@@ -1076,7 +1102,7 @@ router.delete("/:id/editable", async (req, res) => {
 
     await sendPurchaseRequestEmailSafely(
       emailRecipients,
-      `Demande d'achat #${displayRequestNumber} annulee`,
+      `Demande d'achat #${displayRequestNumber} annulée`,
       buildPurchaseRequestCancelledEmail(cancelledRequest),
       buildPurchaseRequestCancelledEmailHtml(cancelledRequest),
       getPurchaseRequestReplyToRecipients(),
@@ -2213,7 +2239,7 @@ router.patch("/:id/cancel", actionPurchaseRequestLimiter, async (req, res) => {
 
     await sendPurchaseRequestEmailSafely(
       emailRecipients,
-      `Demande d'achat #${displayRequestNumber} annulee`,
+      `Demande d'achat #${displayRequestNumber} annulée`,
       buildPurchaseRequestCancelledEmail(cancelledRequest),
       buildPurchaseRequestCancelledEmailHtml(cancelledRequest),
       getPurchaseRequestReplyToRecipients(),

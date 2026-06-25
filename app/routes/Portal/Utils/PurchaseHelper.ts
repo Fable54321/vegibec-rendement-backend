@@ -525,6 +525,23 @@ export const markBuyerValidationTokenUsed = async (
   )
 }
 
+export const invalidateBuyerValidationTokens = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensureBuyerValidationTokenTable(client)
+
+  await client.query(
+    `
+    UPDATE portal.purchase_request_buyer_validation_tokens
+    SET used_at = now()
+    WHERE purchase_request_id = $1
+      AND used_at IS NULL
+    `,
+    [purchaseRequestId]
+  )
+}
+
 export const validateAdminApprovalToken = async (
   client: PoolClient,
   purchaseRequestId: number,
@@ -1903,23 +1920,30 @@ export const buildRequesterDateChangedEmailHtml = (
 }
 
 export const buildPurchaseRequestModifiedEmail = (
-  request: PurchaseRequestEmailData
+  request: PurchaseRequestEmailData,
+  buyerValidationUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const items = getEmailItems(request)
   const requestedTotal = getRequestedItemsTotal(request)
 
   return `
-La demande d'achat #${displayRequestNumber} a ete modifiee par le demandeur.
+La demande d'achat #${displayRequestNumber} a été modifiée par le demandeur.
+
+Validation requise:
+Ricardo doit valider de nouveau cette demande avant qu'elle puisse poursuivre le processus.
+
+Lien de validation pour Ricardo:
+${buyerValidationUrl}
 
 Demandeur:
-${request.requested_by || "Non indique"}
+${request.requested_by || "Non indiqué"}
 
 Courriel du demandeur:
 ${formatRequesterEmail(request)}
 
-Modifie par:
-${request.modified_by_name || request.requested_by || "Non indique"}
+Modifiée par:
+${request.modified_by_name || request.requested_by || "Non indiqué"}
 
 Courriel de modification:
 ${request.modified_by_email || formatRequesterEmail(request)}
@@ -1928,7 +1952,7 @@ Date de modification:
 ${formatDateTimeFr(request.modified_at)}
 
 Raison de la modification:
-${request.modification_reason || "Aucune raison indiquee"}
+${request.modification_reason || "Aucune raison indiquée"}
 
 Statut actuel:
 ${getPurchaseRequestStatusLabel(request.status)}
@@ -1939,10 +1963,10 @@ ${formatDateFr(request.expected_date || request.needed_by_date)}
 Nombre d'articles:
 ${items.length}
 
-Total estime de la demande:
-${requestedTotal === null ? "Non indique" : formatMoney(requestedTotal)}
+Total estimé de la demande:
+${requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)}
 
-Articles mis a jour:
+Articles mis à jour:
 
 ${formatRequestItemsForEmail(items, {
   includeRequestedPrices: true,
@@ -1950,38 +1974,58 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: true,
 })}
 
-Prochaine etape:
-Ricardo doit revoir la demande modifiee avant de poursuivre le processus d'achat.
+Prochaine étape:
+Ricardo doit utiliser le lien de validation ci-dessus pour revoir la demande modifiée.
   `.trim()
 }
 
 export const buildPurchaseRequestModifiedEmailHtml = (
-  request: PurchaseRequestEmailData
+  request: PurchaseRequestEmailData,
+  buyerValidationUrl: string
 ) => {
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const items = getEmailItems(request)
   const requestedTotal = getRequestedItemsTotal(request)
+  const safeBuyerValidationUrl = escapeHtml(buyerValidationUrl)
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
       <h1 style="font-size:24px;line-height:1.2;margin:0 0 18px;">
-        Demande d'achat #${escapeHtml(displayRequestNumber)} modifiee
+        Demande d'achat #${escapeHtml(displayRequestNumber)} modifiée
       </h1>
 
       <div style="border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;padding:12px 14px;border-radius:6px;margin:14px 0;">
-        <strong>Action requise:</strong> Ricardo doit revoir la demande modifiee avant de poursuivre le processus d'achat.
+        <strong>Validation requise:</strong> Ricardo doit valider de nouveau cette demande avant qu'elle puisse poursuivre le processus.
       </div>
 
+      <p>
+        <a
+          href="${safeBuyerValidationUrl}"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
+        >
+          Ricardo - valider la demande modifiée
+        </a>
+      </p>
+
+      <p style="color:#475569;font-size:13px;">
+        Lien direct:<br />
+        <a href="${safeBuyerValidationUrl}" target="_blank" rel="noopener noreferrer">
+          ${safeBuyerValidationUrl}
+        </a>
+      </p>
+
       <p><strong>Demandeur:</strong><br />${escapeHtml(
-        request.requested_by || "Non indique"
+        request.requested_by || "Non indiqué"
       )}</p>
 
       <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
         formatRequesterEmail(request)
       )}</p>
 
-      <p><strong>Modifie par:</strong><br />${escapeHtml(
-        request.modified_by_name || request.requested_by || "Non indique"
+      <p><strong>Modifiée par:</strong><br />${escapeHtml(
+        request.modified_by_name || request.requested_by || "Non indiqué"
       )}</p>
 
       <p><strong>Courriel de modification:</strong><br />${escapeHtml(
@@ -1993,7 +2037,7 @@ export const buildPurchaseRequestModifiedEmailHtml = (
       )}</p>
 
       <p><strong>Raison de la modification:</strong><br />${escapeHtml(
-        request.modification_reason || "Aucune raison indiquee"
+        request.modification_reason || "Aucune raison indiquée"
       )}</p>
 
       <p><strong>Statut actuel:</strong><br />${escapeHtml(
@@ -2006,11 +2050,11 @@ export const buildPurchaseRequestModifiedEmailHtml = (
 
       <p><strong>Nombre d'articles:</strong><br />${items.length}</p>
 
-      <p><strong>Total estime de la demande:</strong><br />${
-        requestedTotal === null ? "Non indique" : formatMoney(requestedTotal)
+      <p><strong>Total estimé de la demande:</strong><br />${
+        requestedTotal === null ? "Non indiqué" : formatMoney(requestedTotal)
       }</p>
 
-      <h3>Articles mis a jour</h3>
+      <h3>Articles mis à jour</h3>
 
       ${formatRequestItemsForEmailHtml(items, {
         includeRequestedPrices: true,
@@ -2027,19 +2071,19 @@ export const buildPurchaseRequestCancelledEmail = (
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const items = getEmailItems(request)
   const cancellationReason =
-    request.cancellation_reason || request.rejection_reason || "Aucune raison indiquee"
+    request.cancellation_reason || request.rejection_reason || "Aucune raison indiquée"
 
   return `
-La demande d'achat #${displayRequestNumber} a ete annulee.
+La demande d'achat #${displayRequestNumber} a été annulée.
 
 Demandeur:
-${request.requested_by || "Non indique"}
+${request.requested_by || "Non indiqué"}
 
 Courriel du demandeur:
 ${formatRequesterEmail(request)}
 
-Annulee par:
-${request.cancelled_by_name || request.requested_by || "Non indique"}
+Annulée par:
+${request.cancelled_by_name || request.requested_by || "Non indiqué"}
 
 Courriel d'annulation:
 ${request.cancelled_by_email || formatRequesterEmail(request)}
@@ -2056,7 +2100,7 @@ ${getPurchaseRequestStatusLabel(request.status)}
 Date requise:
 ${formatDateFr(request.expected_date || request.needed_by_date)}
 
-Articles annules:
+Articles annulés:
 
 ${formatRequestItemsForEmail(items, {
   includeRequestedPrices: true,
@@ -2064,8 +2108,8 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: true,
 })}
 
-Prochaine etape:
-Aucun achat ne doit etre fait pour cette demande.
+Prochaine étape:
+Aucun achat ne doit être fait pour cette demande.
   `.trim()
 }
 
@@ -2075,28 +2119,28 @@ export const buildPurchaseRequestCancelledEmailHtml = (
   const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
   const items = getEmailItems(request)
   const cancellationReason =
-    request.cancellation_reason || request.rejection_reason || "Aucune raison indiquee"
+    request.cancellation_reason || request.rejection_reason || "Aucune raison indiquée"
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
       <h1 style="font-size:24px;line-height:1.2;margin:0 0 18px;">
-        Demande d'achat #${escapeHtml(displayRequestNumber)} annulee
+        Demande d'achat #${escapeHtml(displayRequestNumber)} annulée
       </h1>
 
       <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
-        <strong>Aucun achat ne doit etre fait pour cette demande.</strong>
+        <strong>Aucun achat ne doit être fait pour cette demande.</strong>
       </div>
 
       <p><strong>Demandeur:</strong><br />${escapeHtml(
-        request.requested_by || "Non indique"
+        request.requested_by || "Non indiqué"
       )}</p>
 
       <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
         formatRequesterEmail(request)
       )}</p>
 
-      <p><strong>Annulee par:</strong><br />${escapeHtml(
-        request.cancelled_by_name || request.requested_by || "Non indique"
+      <p><strong>Annulée par:</strong><br />${escapeHtml(
+        request.cancelled_by_name || request.requested_by || "Non indiqué"
       )}</p>
 
       <p><strong>Courriel d'annulation:</strong><br />${escapeHtml(
@@ -2119,7 +2163,7 @@ export const buildPurchaseRequestCancelledEmailHtml = (
         request.expected_date || request.needed_by_date
       )}</p>
 
-      <h3>Articles annules</h3>
+      <h3>Articles annulés</h3>
 
       ${formatRequestItemsForEmailHtml(items, {
         includeRequestedPrices: true,
