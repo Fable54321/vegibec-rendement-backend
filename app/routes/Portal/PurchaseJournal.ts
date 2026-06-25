@@ -98,12 +98,12 @@ function getAvailableAction(
       }
 
     case "cancelled":
-      return {
-        label: "Voir l'annulation",
-        href: `/purchase-journal/${id}`,
-        kind: "cancelled",
-        disabled: false,
-      }
+  return {
+    label: "Voir la raison",
+    href: `/purchase-journal/${id}`,
+    kind: "view_cancellation_reason",
+    disabled: false,
+  }
 
     default:
       return {
@@ -262,8 +262,12 @@ router.get("/", async (req, res) => {
         pr.requested_at,
         pr.created_at,
         pr.buyer_validated_at,
-        pr.admin_decision_at,
-        pr.updated_at,
+pr.admin_decision_at,
+pr.cancelled_at,
+pr.cancelled_by_name,
+pr.cancelled_by_email,
+pr.cancellation_reason,
+pr.updated_at,
 
         COALESCE(items.item_count, 0)::int AS item_count,
 
@@ -393,7 +397,10 @@ router.get("/", async (req, res) => {
         // Compatibility aliases for the frontend context
         admin_decided_at: row.admin_decision_at,
         purchased_at: row.last_purchased_at,
-        cancelled_at: null,
+        cancelled_at: row.cancelled_at,
+cancelled_by_name: row.cancelled_by_name,
+cancelled_by_email: row.cancelled_by_email,
+cancellation_reason: row.cancellation_reason,
         status_label: getPurchaseRequestStatusLabel(row.status),
 
         available_action: getAvailableAction(row.status, Number(row.id)),
@@ -789,7 +796,10 @@ router.get("/:id", async (req, res) => {
           purchaseOrdersResult.rows.length > 0
             ? purchaseOrdersResult.rows[0].purchased_at
             : null,
-        cancelled_at: null,
+        cancelled_at: request.cancelled_at,
+cancelled_by_name: request.cancelled_by_name,
+cancelled_by_email: request.cancelled_by_email,
+cancellation_reason: request.cancellation_reason,
         status_label: getPurchaseRequestStatusLabel(request.status),
 
         available_action: getAvailableAction(request.status, request.id),
