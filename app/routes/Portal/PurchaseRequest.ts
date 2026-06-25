@@ -579,6 +579,166 @@ router.get("/editable-by-email", async (req, res) => {
   }
 })
 
+router.get("/:id/editable", readPurchaseRequestsLimiter, async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const purchaseRequestId = Number(req.params.id)
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const requesterEmail =
+      typeof req.query.email === "string"
+        ? req.query.email.trim().toLowerCase()
+        : ""
+
+    if (!requesterEmail) {
+      return res.status(400).json({
+        message: "Requester email is required",
+      })
+    }
+
+    const requestResult = await client.query(
+      `
+      SELECT
+        pr.id,
+        pr.request_reference,
+        pr.requested_by,
+        pr.requester_email,
+        pr.status,
+        pr.urgency,
+        pr.needed_by_date,
+        pr.expected_date,
+        pr.requested_at,
+        pr.created_at,
+        pr.updated_at,
+        pr.cancelled_at,
+        pr.cancellation_reason,
+        pr.modified_at,
+        pr.modification_reason,
+
+        EXISTS (
+          SELECT 1
+          FROM portal.purchase_orders po
+          WHERE po.purchase_request_id = pr.id
+        ) AS has_purchase_order
+
+      FROM portal.purchase_requests pr
+
+      WHERE pr.id = $1
+      AND LOWER(pr.requester_email) = $2
+      `,
+      [purchaseRequestId, requesterEmail],
+    )
+
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({
+        message: "Editable request not found",
+      })
+    }
+
+    const request = requestResult.rows[0]
+
+    const hasPurchaseOrder = Boolean(request.has_purchase_order)
+
+    const canEdit =
+      !hasPurchaseOrder &&
+      ![
+        "cancelled",
+        "rejected",
+        "purchased",
+        "partially_purchased",
+      ].includes(request.status)
+
+    if (!canEdit) {
+      return res.status(403).json({
+        message: "This request can no longer be modified",
+      })
+    }
+
+    const itemsResult = await client.query(
+      `
+      SELECT
+        pri.id,
+        pri.purchase_request_id,
+        pri.item_index,
+        pri.description,
+        pri.reason,
+        pri.quantity,
+        pri.quantity_format,
+        pri.requested_unit_price,
+        pri.requested_total_price,
+        pri.requested_supplier,
+        pri.product_link,
+        pri.buyer_confirmed_unit_price,
+        pri.buyer_confirmed_total_price,
+        pri.buyer_confirmed_supplier,
+        pri.status,
+        pri.created_at,
+        pri.updated_at,
+        pri.cancelled_at,
+        pri.cancellation_reason,
+        pri.modified_at,
+        pri.modification_reason,
+
+        EXISTS (
+          SELECT 1
+          FROM portal.purchase_order_items poi
+          WHERE poi.purchase_request_item_id = pri.id
+        ) AS has_purchase_order
+
+      FROM portal.purchase_request_items pri
+
+      WHERE pri.purchase_request_id = $1
+
+      ORDER BY pri.item_index ASC, pri.id ASC
+      `,
+      [purchaseRequestId],
+    )
+
+    return res.json({
+      request: {
+        ...request,
+        id: Number(request.id),
+        has_purchase_order: hasPurchaseOrder,
+        can_modify: canEdit,
+        can_cancel: canEdit,
+        status_label: getPurchaseRequestStatusLabel(request.status),
+      },
+      items: itemsResult.rows.map((item) => ({
+        ...item,
+        id: Number(item.id),
+        purchase_request_id: Number(item.purchase_request_id),
+        quantity: Number(item.quantity || 0),
+        requested_unit_price: Number(item.requested_unit_price || 0),
+        requested_total_price: Number(item.requested_total_price || 0),
+        buyer_confirmed_unit_price:
+          item.buyer_confirmed_unit_price === null
+            ? null
+            : Number(item.buyer_confirmed_unit_price),
+        buyer_confirmed_total_price:
+          item.buyer_confirmed_total_price === null
+            ? null
+            : Number(item.buyer_confirmed_total_price),
+        has_purchase_order: Boolean(item.has_purchase_order),
+        can_modify: !Boolean(item.has_purchase_order),
+      })),
+    })
+  } catch (error) {
+    console.error("Editable purchase request detail error:", error)
+
+    return res.status(500).json({
+      message: "Unable to load editable purchase request",
+    })
+  } finally {
+    client.release()
+  }
+})
+
 router.patch("/:id/editable", async (req, res) => {
   const client = await pool.connect()
 
