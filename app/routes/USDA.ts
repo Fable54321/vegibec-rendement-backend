@@ -5,21 +5,13 @@ import { pool } from "../db"
 
 const router = express.Router()
 
-const USDA_AUTH_TOKEN = Buffer.from("LIm1Mr7tz2Nr0wjMkT+iNmpc1Cio+v6p:").toString(
-  "base64"
-);
+const USDA_TOKEN = "LIm1Mr7tz2Nr0wjMkT+iNmpc1Cio+v6p"
 
-if (!USDA_AUTH_TOKEN) {
-  console.warn("Missing USDA_AUTH_TOKEN env variable")
+const headers = {
+  Authorization: `Basic ${Buffer.from(`${USDA_TOKEN}:`).toString("base64")}`,
+  Accept: "application/json",
+  "User-Agent": "vegibec-rendement-backend/1.0",
 }
-
-const headers = USDA_AUTH_TOKEN
-  ? {
-      Authorization: `Basic ${Buffer.from(`${USDA_AUTH_TOKEN}:`).toString(
-        "base64",
-      )}`,
-    }
-  : undefined
 
 type MarketTypeReport = {
   slug_name: string
