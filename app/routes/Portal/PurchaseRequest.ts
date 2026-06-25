@@ -36,6 +36,7 @@ import {
   validateAdminApprovalToken,
   validateBuyerValidationToken,
   validatePurchaseToken,
+  getPurchaseRequestStatusLabel,
 } from "../../routes/Portal/Utils/PurchaseHelper"
 import { actionPurchaseRequestLimiter } from "../Portal/Utils/purchaseRequestLimiters"
 import { uploadBufferToS3 } from "../../services/s3.services"
@@ -259,6 +260,7 @@ const VALID_STATUSES = [
   "admin_on_wait",
   "rejected",
   "ready_to_purchase",
+  "partially_purchased",
   "purchased",
   "cancelled",
 ]
@@ -296,6 +298,66 @@ const readPurchaseRequestsLimiter = rateLimit({
     message: "Trop de requêtes. Réessayez plus tard.",
   },
 })
+
+type EditableRequestCheck = {
+  id: number
+  status: string
+  requester_email: string | null
+  purchase_order_count: number
+}
+
+async function getEditableRequestForEmail(
+  client: PoolClient,
+  purchaseRequestId: number,
+  requesterEmail: string,
+): Promise<EditableRequestCheck | null> {
+  const result = await client.query(
+    `
+    SELECT
+      pr.id,
+      pr.status,
+      pr.requester_email,
+      EXISTS (
+        SELECT 1
+        FROM portal.purchase_orders po
+        WHERE po.purchase_request_id = pr.id
+      ) AS has_purchase_order
+    FROM portal.purchase_requests pr
+    WHERE pr.id = $1
+    AND LOWER(pr.requester_email) = $2
+    FOR UPDATE
+    `,
+    [purchaseRequestId, requesterEmail.trim().toLowerCase()],
+  )
+
+  if (result.rows.length === 0) {
+    return null
+  }
+
+  return {
+    id: Number(result.rows[0].id),
+    status: result.rows[0].status,
+    requester_email: result.rows[0].requester_email,
+    purchase_order_count: result.rows[0].has_purchase_order ? 1 : 0,
+  }
+}
+
+function assertRequesterCanEdit(request: EditableRequestCheck) {
+  if (
+    request.status === "cancelled" ||
+    request.status === "rejected" ||
+    request.status === "purchased" ||
+    request.status === "partially_purchased"
+  ) {
+    return "This request can no longer be modified"
+  }
+
+  if (request.purchase_order_count > 0) {
+    return "This request can no longer be modified because a purchase order has already been created"
+  }
+
+  return null
+}
 
 
 
@@ -415,6 +477,412 @@ router.get("/form-token", formTokenLimiter, async (req, res) => {
     res.status(500).json({
       message: "Error creating form token",
     })
+  }
+})
+
+router.get("/editable-by-email", async (req, res) => {
+  try {
+    const email = typeof req.query.email === "string"
+      ? req.query.email.trim().toLowerCase()
+      : ""
+
+    if (!email) {
+      return res.status(400).json({
+        message: "Email is required",
+      })
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        pr.id,
+        pr.request_reference,
+        pr.requested_by,
+        pr.requester_email,
+        pr.status,
+        pr.urgency,
+        pr.needed_by_date,
+        pr.expected_date,
+        pr.requested_at,
+        pr.created_at,
+        pr.updated_at,
+        pr.cancelled_at,
+
+        COALESCE(items.item_count, 0)::int AS item_count,
+
+        COALESCE(items.requested_total_price, 0)::numeric
+          AS requested_total_price,
+
+        first_item.description AS description
+
+      FROM portal.purchase_requests pr
+
+      LEFT JOIN (
+        SELECT
+          purchase_request_id,
+          COUNT(*)::int AS item_count,
+          COALESCE(SUM(requested_total_price), 0)::numeric
+            AS requested_total_price
+        FROM portal.purchase_request_items
+        GROUP BY purchase_request_id
+      ) items
+        ON items.purchase_request_id = pr.id
+
+      LEFT JOIN (
+        SELECT DISTINCT ON (purchase_request_id)
+          purchase_request_id,
+          description
+        FROM portal.purchase_request_items
+        ORDER BY purchase_request_id, item_index ASC, id ASC
+      ) first_item
+        ON first_item.purchase_request_id = pr.id
+
+      WHERE LOWER(pr.requester_email) = $1
+
+      AND pr.status NOT IN (
+        'cancelled',
+        'rejected',
+        'purchased',
+        'partially_purchased'
+      )
+
+      AND NOT EXISTS (
+        SELECT 1
+        FROM portal.purchase_orders po
+        WHERE po.purchase_request_id = pr.id
+      )
+
+      ORDER BY pr.created_at DESC
+
+      LIMIT 5
+      `,
+      [email],
+    )
+
+    const rows = result.rows.map((row) => ({
+      ...row,
+      id: Number(row.id),
+      item_count: Number(row.item_count || 0),
+      requested_total_price: Number(row.requested_total_price || 0),
+      status_label: getPurchaseRequestStatusLabel(row.status),
+      can_modify: true,
+      can_cancel: true,
+    }))
+
+    return res.json(rows)
+  } catch (error) {
+    console.error("Editable requests by email error:", error)
+
+    return res.status(500).json({
+      message: "Unable to load editable requests",
+    })
+  }
+})
+
+router.patch("/:id/editable", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const purchaseRequestId = Number(req.params.id)
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const {
+      requester_email,
+      requested_by,
+      needed_by_date,
+      modification_reason,
+      items,
+    } = req.body ?? {}
+
+    const cleanRequesterEmail =
+      typeof requester_email === "string"
+        ? requester_email.trim().toLowerCase()
+        : ""
+
+    if (!cleanRequesterEmail) {
+      return res.status(400).json({
+        message: "Requester email is required",
+      })
+    }
+
+    if (
+      typeof modification_reason !== "string" ||
+      modification_reason.trim().length < 3
+    ) {
+      return res.status(400).json({
+        message: "A modification reason is required",
+      })
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        message: "At least one item is required",
+      })
+    }
+
+    await client.query("BEGIN")
+
+    const request = await getEditableRequestForEmail(
+      client,
+      purchaseRequestId,
+      cleanRequesterEmail,
+    )
+
+    if (!request) {
+      await client.query("ROLLBACK")
+
+      return res.status(404).json({
+        message: "Editable request not found",
+      })
+    }
+
+    const editError = assertRequesterCanEdit(request)
+
+    if (editError) {
+      await client.query("ROLLBACK")
+
+      return res.status(403).json({
+        message: editError,
+      })
+    }
+
+    await client.query(
+      `
+      UPDATE portal.purchase_requests
+      SET
+        requested_by = COALESCE($2, requested_by),
+        needed_by_date = COALESCE($3, needed_by_date),
+        modified_at = now(),
+        modified_by_name = COALESCE($4, requested_by),
+        modified_by_email = $5,
+        modification_reason = $6,
+        updated_at = now()
+      WHERE id = $1
+      `,
+      [
+        purchaseRequestId,
+        typeof requested_by === "string" && requested_by.trim()
+          ? requested_by.trim()
+          : null,
+        needed_by_date || null,
+        typeof requested_by === "string" && requested_by.trim()
+          ? requested_by.trim()
+          : null,
+        cleanRequesterEmail,
+        modification_reason.trim(),
+      ],
+    )
+
+    for (const item of items) {
+      const itemId = Number(item.id)
+
+      if (!Number.isInteger(itemId) || itemId <= 0) {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message: "Invalid item id",
+        })
+      }
+
+      const quantity = Number(item.quantity)
+      const requestedUnitPrice = Number(item.requested_unit_price)
+
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message: "Invalid item quantity",
+        })
+      }
+
+      if (!Number.isFinite(requestedUnitPrice) || requestedUnitPrice < 0) {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message: "Invalid requested unit price",
+        })
+      }
+
+      const itemResult = await client.query(
+        `
+        UPDATE portal.purchase_request_items
+        SET
+          description = $3,
+          reason = $4,
+          quantity = $5,
+          quantity_format = $6,
+          requested_unit_price = $7,
+          requested_total_price = $5 * $7,
+          requested_supplier = $8,
+          product_link = $9,
+          modified_at = now(),
+          modification_reason = $10,
+          updated_at = now()
+        WHERE id = $1
+        AND purchase_request_id = $2
+        AND NOT EXISTS (
+          SELECT 1
+          FROM portal.purchase_order_items poi
+          WHERE poi.purchase_request_item_id = portal.purchase_request_items.id
+        )
+        RETURNING id
+        `,
+        [
+          itemId,
+          purchaseRequestId,
+          item.description?.trim() || null,
+          item.reason?.trim() || null,
+          quantity,
+          item.quantity_format?.trim() || null,
+          requestedUnitPrice,
+          item.requested_supplier?.trim() || null,
+          item.product_link?.trim() || null,
+          modification_reason.trim(),
+        ],
+      )
+
+      if (itemResult.rows.length === 0) {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message: "One of the items cannot be modified",
+        })
+      }
+    }
+
+    await client.query("COMMIT")
+
+    return res.json({
+      message: "Purchase request modified",
+    })
+  } catch (error) {
+    await client.query("ROLLBACK")
+
+    console.error("Editable request modification error:", error)
+
+    return res.status(500).json({
+      message: "Unable to modify purchase request",
+    })
+  } finally {
+    client.release()
+  }
+})
+
+router.delete("/:id/editable", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const purchaseRequestId = Number(req.params.id)
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const requesterEmail =
+      typeof req.body?.requester_email === "string"
+        ? req.body.requester_email.trim().toLowerCase()
+        : typeof req.query.email === "string"
+          ? req.query.email.trim().toLowerCase()
+          : ""
+
+    const cancellationReason =
+      typeof req.body?.cancellation_reason === "string"
+        ? req.body.cancellation_reason.trim()
+        : ""
+
+    if (!requesterEmail) {
+      return res.status(400).json({
+        message: "Requester email is required",
+      })
+    }
+
+    if (cancellationReason.length < 3) {
+      return res.status(400).json({
+        message: "A cancellation reason is required",
+      })
+    }
+
+    await client.query("BEGIN")
+
+    const request = await getEditableRequestForEmail(
+      client,
+      purchaseRequestId,
+      requesterEmail,
+    )
+
+    if (!request) {
+      await client.query("ROLLBACK")
+
+      return res.status(404).json({
+        message: "Editable request not found",
+      })
+    }
+
+    const editError = assertRequesterCanEdit(request)
+
+    if (editError) {
+      await client.query("ROLLBACK")
+
+      return res.status(403).json({
+        message: editError,
+      })
+    }
+
+    await client.query(
+      `
+      UPDATE portal.purchase_requests
+      SET
+        status = 'cancelled',
+        cancelled_at = now(),
+        cancelled_by_email = $2,
+        cancelled_by_name = requested_by,
+        cancellation_reason = $3,
+        updated_at = now()
+      WHERE id = $1
+      `,
+      [purchaseRequestId, requesterEmail, cancellationReason],
+    )
+
+    await client.query(
+      `
+      UPDATE portal.purchase_request_items
+      SET
+        status = 'cancelled',
+        cancelled_at = now(),
+        cancellation_reason = $2,
+        updated_at = now()
+      WHERE purchase_request_id = $1
+      AND NOT EXISTS (
+        SELECT 1
+        FROM portal.purchase_order_items poi
+        WHERE poi.purchase_request_item_id = portal.purchase_request_items.id
+      )
+      `,
+      [purchaseRequestId, cancellationReason],
+    )
+
+    await client.query("COMMIT")
+
+    return res.json({
+      message: "Purchase request cancelled",
+    })
+  } catch (error) {
+    await client.query("ROLLBACK")
+
+    console.error("Editable request cancellation error:", error)
+
+    return res.status(500).json({
+      message: "Unable to cancel purchase request",
+    })
+  } finally {
+    client.release()
   }
 })
 
