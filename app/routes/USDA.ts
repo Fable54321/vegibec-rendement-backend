@@ -1,66 +1,189 @@
 // backend/src/routes/vegReports.ts
-import express from "express";
-import fetch from "node-fetch";
-import { pool } from "../db";
+import express from "express"
+import fetch from "node-fetch"
+import { pool } from "../db"
 
-const router = express.Router();
+const router = express.Router()
 
-const auth = Buffer.from("LIm1Mr7tz2Nr0wjMkT+iNmpc1Cio+v6p:").toString(
+const USDA_AUTH_TOKEN = Buffer.from("LIm1Mr7tz2Nr0wjMkT+iNmpc1Cio+v6p:").toString(
   "base64"
 );
-const headers = { Authorization: `Basic ${auth}` };
+
+if (!USDA_AUTH_TOKEN) {
+  console.warn("Missing USDA_AUTH_TOKEN env variable")
+}
+
+const headers = USDA_AUTH_TOKEN
+  ? {
+      Authorization: `Basic ${Buffer.from(`${USDA_AUTH_TOKEN}:`).toString(
+        "base64",
+      )}`,
+    }
+  : undefined
+
+type MarketTypeReport = {
+  slug_name: string
+  slug_id: number
+}
+
+const USDA_BASE_URL = "https://marsapi.ams.usda.gov/services/v1.2"
+
+async function fetchJsonSafely(url: string) {
+  const res = await fetch(url, { headers })
+  const contentType = res.headers.get("content-type") || ""
+  const body = await res.text()
+
+  if (!res.ok) {
+    console.error("USDA request failed:", {
+      status: res.status,
+      statusText: res.statusText,
+      contentType,
+      url,
+      bodyPreview: body.slice(0, 500),
+    })
+
+    return null
+  }
+
+  if (!body.trim()) {
+    console.warn("USDA returned empty response:", {
+      status: res.status,
+      contentType,
+      url,
+    })
+
+    return null
+  }
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    console.error("USDA returned non-JSON response:", {
+      status: res.status,
+      contentType,
+      url,
+      bodyPreview: body.slice(0, 500),
+    })
+
+    return null
+  }
+
+  try {
+    return JSON.parse(body)
+  } catch (err) {
+    console.error("USDA JSON parse failed:", {
+      url,
+      bodyPreview: body.slice(0, 500),
+      error: err,
+    })
+
+    return null
+  }
+}
 
 // helper: get reports for a given market type
 async function fetchMarketType(id: number) {
-  const url = `https://marsapi.ams.usda.gov/services/v1.2/marketTypes/${id}`;
-  const res = await fetch(url, { headers });
-  return res.json();
+  const url = `${USDA_BASE_URL}/marketTypes/${id}`
+  return fetchJsonSafely(url)
 }
 
 // helper: get details for one slug id + date
 async function fetchReport(id: number, date: string) {
-  const url = `https://marsapi.ams.usda.gov/services/v1.2/reports/${id}/Report%20Details?q=report_date=${date}`;
-  const res = await fetch(url, { headers });
-  return res.json();
+  const query = `report_date=${date}`
+
+  const url =
+    `${USDA_BASE_URL}/reports/${id}/Report%20Details` +
+    `?q=${encodeURIComponent(query)}`
+
+  return fetchJsonSafely(url)
 }
 
 // route: /vegReports?date=MM/DD/YYYY
 router.get("/", async (req, res) => {
-  const date = req.query.date as string; // e.g. "09/12/2025"
+  const date = req.query.date as string | undefined
+
   if (!date) {
-    return res.status(400).json({ error: "Date is required (MM/DD/YYYY)" });
+    return res.status(400).json({
+      error: "Date is required (MM/DD/YYYY)",
+    })
   }
 
   try {
-    // step 1. get the market type
-    const marketType = (await fetchMarketType(1036)) as Array<{ slug_name: string; slug_id: number }>; // Shipping Point
+    const marketType = await fetchMarketType(1036)
 
-    // step 2. filter IDs that matter (FV120 = Benton Harbor veggies)
-    const idsToFetch = marketType
-      .filter((r: any) => r.slug_name.slice(3) === "FV120")
-      .map((r: any) => r.slug_id);
+    if (!Array.isArray(marketType)) {
+      return res.status(502).json({
+        error: "USDA market type response was invalid",
+        date,
+        reports: [],
+      })
+    }
 
-    // step 3. fetch all reports in parallel
-    const reports = await Promise.all(
-      idsToFetch.map((id: number) => fetchReport(id, date))
-    );
+    const idsToFetch = (marketType as MarketTypeReport[])
+      .filter((r) => r.slug_name?.slice(3) === "FV120")
+      .map((r) => r.slug_id)
+      .filter((id) => Number.isInteger(id))
 
-    // step 4. return combined data
-    res.json({ date, reports });
+    if (!idsToFetch.length) {
+      return res.json({
+        date,
+        reports: [],
+      })
+    }
+
+    console.log("USDA FV120 slug IDs to fetch:", idsToFetch)
+
+    const settledReports = await Promise.allSettled(
+      idsToFetch.map((id) => fetchReport(id, date)),
+    )
+
+    const reports = settledReports
+      .map((result, index) => {
+        const slugId = idsToFetch[index]
+
+        if (result.status === "rejected") {
+          console.error("USDA fetch crashed:", {
+            slugId,
+            reason: result.reason,
+          })
+
+          return null
+        }
+
+        if (!result.value) {
+          console.warn("USDA fetch returned no usable JSON:", {
+            slugId,
+            date,
+          })
+
+          return null
+        }
+
+        return result.value
+      })
+      .filter(Boolean)
+
+    return res.json({
+      date,
+      reports,
+    })
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to fetch vegetable reports" });
+    console.error("USDA vegReports route error:", err)
+
+    return res.status(500).json({
+      error: "Failed to fetch vegetable reports",
+      date,
+      reports: [],
+    })
   }
-});
+})
 
 router.get("/two-day-comparative", async (req, res) => {
   const { date } = req.query as {
-    date?: string;
-  };
+    date?: string
+  }
 
   try {
     if (!date) {
-      return res.status(400).json({ error: "Missing date" });
+      return res.status(400).json({ error: "Missing date" })
     }
 
     const dailyQuery = `
@@ -118,14 +241,14 @@ router.get("/two-day-comparative", async (req, res) => {
        AND p.organic IS NOT DISTINCT FROM c.organic
        AND p.pkg IS NOT DISTINCT FROM c.pkg
        AND p.item_size IS NOT DISTINCT FROM c.item_size
-    `;
+    `
 
-    const result = await pool.query(dailyQuery, [date]);
-    return res.json(result.rows);
+    const result = await pool.query(dailyQuery, [date])
+    return res.json(result.rows)
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
+    console.error("two-day-comparative route error:", err)
+    return res.status(500).json({ error: "Server error" })
   }
-});
+})
 
-export default router;
+export default router
