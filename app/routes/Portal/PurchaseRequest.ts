@@ -13,6 +13,10 @@ import {
   buildRequesterDateChangedEmailHtml,
   buildRequesterDecisionEmail,
   buildRequesterDecisionEmailHtml,
+  buildPurchaseRequestCancelledEmail,
+  buildPurchaseRequestCancelledEmailHtml,
+  buildPurchaseRequestModifiedEmail,
+  buildPurchaseRequestModifiedEmailHtml,
   buildAdminApprovalUrl,
   buildBuyerValidationUrl,
   buildFinalPurchaseRequestUrl,
@@ -915,10 +919,35 @@ router.patch("/:id/editable", async (req, res) => {
       }
     }
 
+    const updatedRequest = await getPurchaseRequestWithItems(
+      client,
+      purchaseRequestId,
+    )
+
+    if (!updatedRequest) {
+      await client.query("ROLLBACK")
+
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
     await client.query("COMMIT")
+
+    const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
+    const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+
+    await sendPurchaseRequestEmailSafely(
+      emailRecipients,
+      `Demande d'achat #${displayRequestNumber} modifiee`,
+      buildPurchaseRequestModifiedEmail(updatedRequest),
+      buildPurchaseRequestModifiedEmailHtml(updatedRequest),
+      getPurchaseRequestReplyToRecipients(),
+    )
 
     return res.json({
       message: "Purchase request modified",
+      request: updatedRequest,
     })
   } catch (error) {
     await client.query("ROLLBACK")
@@ -1028,10 +1057,35 @@ router.delete("/:id/editable", async (req, res) => {
       [purchaseRequestId, cancellationReason],
     )
 
+    const cancelledRequest = await getPurchaseRequestWithItems(
+      client,
+      purchaseRequestId,
+    )
+
+    if (!cancelledRequest) {
+      await client.query("ROLLBACK")
+
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
     await client.query("COMMIT")
+
+    const displayRequestNumber = getPurchaseRequestDisplayNumber(cancelledRequest)
+    const emailRecipients = getPurchaseRequestRecipients(cancelledRequest)
+
+    await sendPurchaseRequestEmailSafely(
+      emailRecipients,
+      `Demande d'achat #${displayRequestNumber} annulee`,
+      buildPurchaseRequestCancelledEmail(cancelledRequest),
+      buildPurchaseRequestCancelledEmailHtml(cancelledRequest),
+      getPurchaseRequestReplyToRecipients(),
+    )
 
     return res.json({
       message: "Purchase request cancelled",
+      request: cancelledRequest,
     })
   } catch (error) {
     await client.query("ROLLBACK")
@@ -2111,30 +2165,69 @@ ${updatedRequest.admin_note || "Aucune raison indiquée"}`,
 
 
 router.patch("/:id/cancel", actionPurchaseRequestLimiter, async (req, res) => {
+  const client = await pool.connect()
+
   try {
     const { id } = req.params
     const { rejection_reason } = req.body
+    const cancellationReason =
+      typeof rejection_reason === "string" ? rejection_reason.trim() : null
 
-    const result = await pool.query(
+    await client.query("BEGIN")
+
+    const result = await client.query(
       `
       UPDATE portal.purchase_requests
       SET
         status = 'cancelled',
-        rejection_reason = $1
+        rejection_reason = $1,
+        cancellation_reason = COALESCE($1, cancellation_reason),
+        cancelled_at = now(),
+        updated_at = now()
       WHERE id = $2
       RETURNING *
       `,
-      [rejection_reason || null, id]
+      [cancellationReason || null, id]
     )
 
     if (result.rows.length === 0) {
+      await client.query("ROLLBACK")
+
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
-    res.json(result.rows[0])
+    const cancelledRequest = await getPurchaseRequestWithItems(
+      client,
+      Number(id),
+    )
+
+    if (!cancelledRequest) {
+      await client.query("ROLLBACK")
+
+      return res.status(404).json({ message: "Purchase request not found" })
+    }
+
+    await client.query("COMMIT")
+
+    const displayRequestNumber = getPurchaseRequestDisplayNumber(cancelledRequest)
+    const emailRecipients = getPurchaseRequestRecipients(cancelledRequest)
+
+    await sendPurchaseRequestEmailSafely(
+      emailRecipients,
+      `Demande d'achat #${displayRequestNumber} annulee`,
+      buildPurchaseRequestCancelledEmail(cancelledRequest),
+      buildPurchaseRequestCancelledEmailHtml(cancelledRequest),
+      getPurchaseRequestReplyToRecipients(),
+    )
+
+    res.json(cancelledRequest)
   } catch (error) {
+    await client.query("ROLLBACK")
+
     console.error("Error cancelling purchase request:", error)
     res.status(500).json({ message: "Error cancelling purchase request" })
+  } finally {
+    client.release()
   }
 })
 

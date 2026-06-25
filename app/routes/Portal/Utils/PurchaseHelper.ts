@@ -49,6 +49,14 @@ export type PurchaseRequestEmailData = {
   buyer_note?: string | null
   admin_note?: string | null
   rejection_reason?: string | null
+  modification_reason?: string | null
+  modified_at?: string | Date | null
+  modified_by_name?: string | null
+  modified_by_email?: string | null
+  cancellation_reason?: string | null
+  cancelled_at?: string | Date | null
+  cancelled_by_name?: string | null
+  cancelled_by_email?: string | null
   direct_approval_approver?: string | null
   items?: PurchaseRequestEmailItem[]
   created_at?: string | Date | null
@@ -1890,6 +1898,234 @@ export const buildRequesterDateChangedEmailHtml = (
       </p>
 
       <p>Merci,<br />Vegibec</p>
+    </div>
+  `.trim()
+}
+
+export const buildPurchaseRequestModifiedEmail = (
+  request: PurchaseRequestEmailData
+) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
+
+  return `
+La demande d'achat #${displayRequestNumber} a ete modifiee par le demandeur.
+
+Demandeur:
+${request.requested_by || "Non indique"}
+
+Courriel du demandeur:
+${formatRequesterEmail(request)}
+
+Modifie par:
+${request.modified_by_name || request.requested_by || "Non indique"}
+
+Courriel de modification:
+${request.modified_by_email || formatRequesterEmail(request)}
+
+Date de modification:
+${formatDateTimeFr(request.modified_at)}
+
+Raison de la modification:
+${request.modification_reason || "Aucune raison indiquee"}
+
+Statut actuel:
+${getPurchaseRequestStatusLabel(request.status)}
+
+Date requise:
+${formatDateFr(request.expected_date || request.needed_by_date)}
+
+Nombre d'articles:
+${items.length}
+
+Total estime de la demande:
+${requestedTotal === null ? "Non indique" : formatMoney(requestedTotal)}
+
+Articles mis a jour:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeConfirmedPrices: true,
+  includeProductLinks: true,
+})}
+
+Prochaine etape:
+Ricardo doit revoir la demande modifiee avant de poursuivre le processus d'achat.
+  `.trim()
+}
+
+export const buildPurchaseRequestModifiedEmailHtml = (
+  request: PurchaseRequestEmailData
+) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const requestedTotal = getRequestedItemsTotal(request)
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h1 style="font-size:24px;line-height:1.2;margin:0 0 18px;">
+        Demande d'achat #${escapeHtml(displayRequestNumber)} modifiee
+      </h1>
+
+      <div style="border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;padding:12px 14px;border-radius:6px;margin:14px 0;">
+        <strong>Action requise:</strong> Ricardo doit revoir la demande modifiee avant de poursuivre le processus d'achat.
+      </div>
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(
+        request.requested_by || "Non indique"
+      )}</p>
+
+      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
+        formatRequesterEmail(request)
+      )}</p>
+
+      <p><strong>Modifie par:</strong><br />${escapeHtml(
+        request.modified_by_name || request.requested_by || "Non indique"
+      )}</p>
+
+      <p><strong>Courriel de modification:</strong><br />${escapeHtml(
+        request.modified_by_email || formatRequesterEmail(request)
+      )}</p>
+
+      <p><strong>Date de modification:</strong><br />${formatDateTimeFr(
+        request.modified_at
+      )}</p>
+
+      <p><strong>Raison de la modification:</strong><br />${escapeHtml(
+        request.modification_reason || "Aucune raison indiquee"
+      )}</p>
+
+      <p><strong>Statut actuel:</strong><br />${escapeHtml(
+        getPurchaseRequestStatusLabel(request.status)
+      )}</p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_date || request.needed_by_date
+      )}</p>
+
+      <p><strong>Nombre d'articles:</strong><br />${items.length}</p>
+
+      <p><strong>Total estime de la demande:</strong><br />${
+        requestedTotal === null ? "Non indique" : formatMoney(requestedTotal)
+      }</p>
+
+      <h3>Articles mis a jour</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeConfirmedPrices: true,
+        includeProductLinks: true,
+      })}
+    </div>
+  `.trim()
+}
+
+export const buildPurchaseRequestCancelledEmail = (
+  request: PurchaseRequestEmailData
+) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const cancellationReason =
+    request.cancellation_reason || request.rejection_reason || "Aucune raison indiquee"
+
+  return `
+La demande d'achat #${displayRequestNumber} a ete annulee.
+
+Demandeur:
+${request.requested_by || "Non indique"}
+
+Courriel du demandeur:
+${formatRequesterEmail(request)}
+
+Annulee par:
+${request.cancelled_by_name || request.requested_by || "Non indique"}
+
+Courriel d'annulation:
+${request.cancelled_by_email || formatRequesterEmail(request)}
+
+Date d'annulation:
+${formatDateTimeFr(request.cancelled_at)}
+
+Raison de l'annulation:
+${cancellationReason}
+
+Statut:
+${getPurchaseRequestStatusLabel(request.status)}
+
+Date requise:
+${formatDateFr(request.expected_date || request.needed_by_date)}
+
+Articles annules:
+
+${formatRequestItemsForEmail(items, {
+  includeRequestedPrices: true,
+  includeConfirmedPrices: true,
+  includeProductLinks: true,
+})}
+
+Prochaine etape:
+Aucun achat ne doit etre fait pour cette demande.
+  `.trim()
+}
+
+export const buildPurchaseRequestCancelledEmailHtml = (
+  request: PurchaseRequestEmailData
+) => {
+  const displayRequestNumber = getPurchaseRequestDisplayNumber(request)
+  const items = getEmailItems(request)
+  const cancellationReason =
+    request.cancellation_reason || request.rejection_reason || "Aucune raison indiquee"
+
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
+      <h1 style="font-size:24px;line-height:1.2;margin:0 0 18px;">
+        Demande d'achat #${escapeHtml(displayRequestNumber)} annulee
+      </h1>
+
+      <div style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;padding:12px 14px;border-radius:6px;margin:14px 0;">
+        <strong>Aucun achat ne doit etre fait pour cette demande.</strong>
+      </div>
+
+      <p><strong>Demandeur:</strong><br />${escapeHtml(
+        request.requested_by || "Non indique"
+      )}</p>
+
+      <p><strong>Courriel du demandeur:</strong><br />${escapeHtml(
+        formatRequesterEmail(request)
+      )}</p>
+
+      <p><strong>Annulee par:</strong><br />${escapeHtml(
+        request.cancelled_by_name || request.requested_by || "Non indique"
+      )}</p>
+
+      <p><strong>Courriel d'annulation:</strong><br />${escapeHtml(
+        request.cancelled_by_email || formatRequesterEmail(request)
+      )}</p>
+
+      <p><strong>Date d'annulation:</strong><br />${formatDateTimeFr(
+        request.cancelled_at
+      )}</p>
+
+      <p><strong>Raison de l'annulation:</strong><br />${escapeHtml(
+        cancellationReason
+      )}</p>
+
+      <p><strong>Statut:</strong><br />${escapeHtml(
+        getPurchaseRequestStatusLabel(request.status)
+      )}</p>
+
+      <p><strong>Date requise:</strong><br />${formatDateFr(
+        request.expected_date || request.needed_by_date
+      )}</p>
+
+      <h3>Articles annules</h3>
+
+      ${formatRequestItemsForEmailHtml(items, {
+        includeRequestedPrices: true,
+        includeConfirmedPrices: true,
+        includeProductLinks: true,
+      })}
     </div>
   `.trim()
 }
