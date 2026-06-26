@@ -26,6 +26,8 @@ type PurchaseRequestStatus =
   | "ready_to_purchase"
   | "partially_purchased"
   | "purchased"
+  | "partially_received"
+  | "received"
   | "cancelled"
 
 
@@ -84,10 +86,19 @@ function getAvailableAction(
   }
 
     case "purchased":
+    case "partially_received":
       return {
         label: "Remplir un bon de réception",
         href: `/purchase-journal/${id}/action-link`,
         kind: "receipt_voucher",
+        disabled: false,
+      }
+
+    case "received":
+      return {
+        label: "Voir les bons de réception",
+        href: `/purchase-journal/${id}`,
+        kind: "view_receipt_vouchers",
         disabled: false,
       }
 
@@ -233,7 +244,8 @@ async function buildCurrentActionLink(
       return buildFinalPurchaseRequestUrl(req, purchaseRequestId, token)
     }
 
-    case "purchased": {
+    case "purchased":
+    case "partially_received": {
       const token = await getOrCreateActiveReceiptVoucherToken(
         client,
         purchaseRequestId,
@@ -294,6 +306,12 @@ pr.updated_at,
         COALESCE(receipts.receipt_voucher_count, 0)::int
           AS receipt_voucher_count,
 
+        COALESCE(orders.ordered_total_quantity, 0)::numeric
+          AS ordered_total_quantity,
+
+        COALESCE(receipts.received_total_quantity, 0)::numeric
+          AS received_total_quantity,
+
         COALESCE(orders.actual_purchased_total_price, 0)::numeric
           AS purchase_orders_total,
 
@@ -352,6 +370,9 @@ pr.updated_at,
             0
           )::numeric AS actual_purchased_total_price,
 
+          COALESCE(SUM(poi.ordered_quantity), 0)::numeric
+            AS ordered_total_quantity,
+
           MAX(po.purchased_at) AS last_purchased_at,
           MAX(po.received_at) AS last_received_at
 
@@ -368,8 +389,12 @@ pr.updated_at,
         SELECT
           rv.purchase_request_id,
           COUNT(DISTINCT rv.id)::int AS receipt_voucher_count,
+          COALESCE(SUM(rvi.received_quantity), 0)::numeric
+            AS received_total_quantity,
           MAX(rv.received_at) AS last_received_at
         FROM portal.receipt_vouchers rv
+        LEFT JOIN portal.receipt_voucher_items rvi
+          ON rvi.receipt_voucher_id = rv.id
         GROUP BY rv.purchase_request_id
       ) receipts
         ON receipts.purchase_request_id = pr.id
@@ -386,6 +411,8 @@ pr.updated_at,
       const buyerConfirmedTotal = Number(row.buyer_confirmed_total_price || 0)
       const requestedTotal = Number(row.requested_total_price || 0)
       const actualPurchasedTotal = Number(row.actual_purchased_total_price || 0)
+      const orderedTotalQuantity = Number(row.ordered_total_quantity || 0)
+      const receivedTotalQuantity = Number(row.received_total_quantity || 0)
 
       const hasPurchaseOrders = purchaseOrderCount > 0
       const hasBuyerConfirmedPrice = buyerConfirmedTotal > 0
@@ -410,6 +437,10 @@ pr.updated_at,
         item_count: Number(row.item_count || 0),
         purchase_order_count: purchaseOrderCount,
         receipt_voucher_count: Number(row.receipt_voucher_count || 0),
+        ordered_total_quantity: orderedTotalQuantity,
+        received_total_quantity: receivedTotalQuantity,
+        has_receivable_items:
+          orderedTotalQuantity > 0 && receivedTotalQuantity < orderedTotalQuantity,
 
         requested_total_price: requestedTotal,
         buyer_confirmed_total_price: buyerConfirmedTotal,
@@ -477,8 +508,10 @@ router.post("/:id/action-link", async (req, res) => {
       action.disabled ||
       action.kind === "view" ||
       action.kind === "view_purchase_orders" ||
+      action.kind === "view_receipt_vouchers" ||
       action.kind === "rejected" ||
-      action.kind === "cancelled"
+      action.kind === "cancelled" ||
+      action.kind === "view_cancellation_reason"
     ) {
       return res.status(400).json({
         message: "This request has no action link",

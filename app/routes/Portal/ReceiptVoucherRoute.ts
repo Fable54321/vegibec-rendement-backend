@@ -128,7 +128,7 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
 
     const requestResult = await client.query(
       `
-      SELECT id, request_reference
+      SELECT id, request_reference, status
       FROM portal.purchase_requests
       WHERE id = $1
       FOR UPDATE
@@ -145,6 +145,15 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
     }
 
     const requestReference = requestResult.rows[0].request_reference
+    const requestStatus = requestResult.rows[0].status
+
+    if (requestStatus !== "purchased" && requestStatus !== "partially_received") {
+      await client.query("ROLLBACK")
+
+      return res.status(400).json({
+        message: "This purchase request is not ready to receive",
+      })
+    }
 
     const itemIds = normalizedItems.map((item) => item.purchase_request_item_id)
 
@@ -169,26 +178,75 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
     const purchaseOrderItemIds = normalizedItems
       .map((item) => item.purchase_order_item_id)
       .filter((id): id is number => !!id)
+    const uniquePurchaseOrderItemIds = [...new Set(purchaseOrderItemIds)]
 
-    if (purchaseOrderItemIds.length > 0) {
+    if (uniquePurchaseOrderItemIds.length > 0) {
       const purchaseOrderItemsResult = await client.query(
         `
-        SELECT poi.id
+        SELECT
+          poi.id,
+          poi.ordered_quantity,
+          COALESCE(received.received_quantity, 0)::numeric
+            AS already_received_quantity
         FROM portal.purchase_order_items poi
         INNER JOIN portal.purchase_orders po
           ON po.id = poi.purchase_order_id
+        LEFT JOIN (
+          SELECT
+            purchase_order_item_id,
+            SUM(received_quantity)::numeric AS received_quantity
+          FROM portal.receipt_voucher_items
+          WHERE purchase_order_item_id = ANY($2::bigint[])
+          GROUP BY purchase_order_item_id
+        ) received
+          ON received.purchase_order_item_id = poi.id
         WHERE po.purchase_request_id = $1
         AND poi.id = ANY($2::bigint[])
         `,
-        [purchaseRequestId, purchaseOrderItemIds],
+        [purchaseRequestId, uniquePurchaseOrderItemIds],
       )
 
-      if (purchaseOrderItemsResult.rows.length !== purchaseOrderItemIds.length) {
+      if (
+        purchaseOrderItemsResult.rows.length !== uniquePurchaseOrderItemIds.length
+      ) {
         await client.query("ROLLBACK")
 
         return res.status(400).json({
           message:
             "One or more purchase order items do not belong to this purchase request",
+        })
+      }
+
+      const incomingReceivedByOrderItem = normalizedItems.reduce(
+        (acc, item) => {
+          if (!item.purchase_order_item_id || !item.received_quantity) {
+            return acc
+          }
+
+          acc[item.purchase_order_item_id] =
+            (acc[item.purchase_order_item_id] ?? 0) + item.received_quantity
+
+          return acc
+        },
+        {} as Record<number, number>,
+      )
+
+      const overReceivedItem = purchaseOrderItemsResult.rows.find((item) => {
+        const incomingQuantity = incomingReceivedByOrderItem[Number(item.id)] ?? 0
+        const orderedQuantity = Number(item.ordered_quantity || 0)
+        const alreadyReceivedQuantity = Number(
+          item.already_received_quantity || 0,
+        )
+
+        return incomingQuantity + alreadyReceivedQuantity > orderedQuantity
+      })
+
+      if (overReceivedItem) {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message:
+            "One or more received quantities exceed the ordered quantity",
         })
       }
     }
@@ -263,11 +321,65 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       insertedItems.push(itemResult.rows[0])
     }
 
+    const receiptProgressResult = await client.query(
+      `
+      SELECT
+        COALESCE(ordered.ordered_total_quantity, 0)::numeric
+          AS ordered_total_quantity,
+        COALESCE(received.received_total_quantity, 0)::numeric
+          AS received_total_quantity
+      FROM (
+        SELECT
+          COALESCE(SUM(poi.ordered_quantity), 0)::numeric
+            AS ordered_total_quantity
+        FROM portal.purchase_orders po
+        INNER JOIN portal.purchase_order_items poi
+          ON poi.purchase_order_id = po.id
+        WHERE po.purchase_request_id = $1
+      ) ordered
+      CROSS JOIN (
+        SELECT
+          COALESCE(SUM(rvi.received_quantity), 0)::numeric
+            AS received_total_quantity
+        FROM portal.receipt_vouchers rv
+        INNER JOIN portal.receipt_voucher_items rvi
+          ON rvi.receipt_voucher_id = rv.id
+        WHERE rv.purchase_request_id = $1
+      ) received
+      `,
+      [purchaseRequestId],
+    )
+
+    const orderedTotalQuantity = Number(
+      receiptProgressResult.rows[0]?.ordered_total_quantity || 0,
+    )
+    const receivedTotalQuantity = Number(
+      receiptProgressResult.rows[0]?.received_total_quantity || 0,
+    )
+    const nextRequestStatus =
+      orderedTotalQuantity > 0 && receivedTotalQuantity >= orderedTotalQuantity
+        ? "received"
+        : "partially_received"
+
+    const updatedRequestResult = await client.query(
+      `
+      UPDATE portal.purchase_requests
+      SET status = $2
+      WHERE id = $1
+      RETURNING *
+      `,
+      [purchaseRequestId, nextRequestStatus],
+    )
+
     await client.query("COMMIT")
 
     return res.status(201).json({
+      purchase_request: updatedRequestResult.rows[0],
       receipt_voucher: receiptVoucher,
       items: insertedItems,
+      ordered_total_quantity: orderedTotalQuantity,
+      received_total_quantity: receivedTotalQuantity,
+      has_receivable_items: receivedTotalQuantity < orderedTotalQuantity,
     })
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined)

@@ -269,6 +269,8 @@ const VALID_STATUSES = [
   "ready_to_purchase",
   "partially_purchased",
   "purchased",
+  "partially_received",
+  "received",
   "cancelled",
 ]
 
@@ -354,7 +356,9 @@ function assertRequesterCanEdit(request: EditableRequestCheck) {
     request.status === "cancelled" ||
     request.status === "rejected" ||
     request.status === "purchased" ||
-    request.status === "partially_purchased"
+    request.status === "partially_purchased" ||
+    request.status === "partially_received" ||
+    request.status === "received"
   ) {
     return "This request can no longer be modified"
   }
@@ -550,7 +554,9 @@ router.get("/editable-by-email", async (req, res) => {
         'cancelled',
         'rejected',
         'purchased',
-        'partially_purchased'
+        'partially_purchased',
+        'partially_received',
+        'received'
       )
 
       AND NOT EXISTS (
@@ -659,6 +665,8 @@ router.get("/:id/editable", readPurchaseRequestsLimiter, async (req, res) => {
         "rejected",
         "purchased",
         "partially_purchased",
+        "partially_received",
+        "received",
       ].includes(request.status)
 
     if (!canEdit) {
