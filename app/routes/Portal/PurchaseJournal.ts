@@ -39,7 +39,7 @@ function getAvailableAction(
   switch (status) {
     case "pending_buyer_validation":
       return {
-        label: "Valider l'achat",
+        label: "Valider infos d'achat",
         href: `/purchase-journal/${id}/action-link`,
         kind: "buyer_validation",
         disabled: false,
