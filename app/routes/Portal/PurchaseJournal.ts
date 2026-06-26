@@ -7,9 +7,11 @@ import {
   createBuyerValidationToken,
   getOrCreateActiveAdminApprovalToken,
   getOrCreateActivePurchaseToken,
+  getOrCreateActiveReceiptVoucherToken,
   buildBuyerValidationUrl,
   buildAdminApprovalUrl,
   buildFinalPurchaseRequestUrl,
+  buildReceiptVoucherUrl,
 } from "./Utils/PurchaseHelper"
 import { getSignedUrlForKey } from "../../services/s3.services"
 
@@ -83,9 +85,9 @@ function getAvailableAction(
 
     case "purchased":
       return {
-        label: "Voir les bons de commande",
-        href: `/purchase-journal/${id}`,
-        kind: "view_purchase_orders",
+        label: "Remplir un bon de réception",
+        href: `/purchase-journal/${id}/action-link`,
+        kind: "receipt_voucher",
         disabled: false,
       }
 
@@ -231,6 +233,15 @@ async function buildCurrentActionLink(
       return buildFinalPurchaseRequestUrl(req, purchaseRequestId, token)
     }
 
+    case "purchased": {
+      const token = await getOrCreateActiveReceiptVoucherToken(
+        client,
+        purchaseRequestId,
+      )
+
+      return buildReceiptVoucherUrl(req, purchaseRequestId, token)
+    }
+
     default:
       return buildFinalPurchaseRequestUrl(req, purchaseRequestId)
   }
@@ -280,6 +291,9 @@ pr.updated_at,
         COALESCE(orders.purchase_order_count, 0)::int
           AS purchase_order_count,
 
+        COALESCE(receipts.receipt_voucher_count, 0)::int
+          AS receipt_voucher_count,
+
         COALESCE(orders.actual_purchased_total_price, 0)::numeric
           AS purchase_orders_total,
 
@@ -287,7 +301,7 @@ pr.updated_at,
           AS actual_purchased_total_price,
 
         orders.last_purchased_at,
-        orders.last_received_at,
+        receipts.last_received_at,
 
         first_item.description AS description
 
@@ -350,6 +364,16 @@ pr.updated_at,
       ) orders
         ON orders.purchase_request_id = pr.id
 
+      LEFT JOIN (
+        SELECT
+          rv.purchase_request_id,
+          COUNT(DISTINCT rv.id)::int AS receipt_voucher_count,
+          MAX(rv.received_at) AS last_received_at
+        FROM portal.receipt_vouchers rv
+        GROUP BY rv.purchase_request_id
+      ) receipts
+        ON receipts.purchase_request_id = pr.id
+
       ${whereClause}
 
       ORDER BY pr.created_at DESC
@@ -385,6 +409,7 @@ pr.updated_at,
 
         item_count: Number(row.item_count || 0),
         purchase_order_count: purchaseOrderCount,
+        receipt_voucher_count: Number(row.receipt_voucher_count || 0),
 
         requested_total_price: requestedTotal,
         buyer_confirmed_total_price: buyerConfirmedTotal,
@@ -752,14 +777,110 @@ router.get("/:id", async (req, res) => {
       )
     }
 
+    const receiptVouchersResult = await client.query(
+      `
+      SELECT
+        rv.id,
+        rv.purchase_request_id,
+        rv.receipt_voucher_reference,
+        rv.receipt_voucher_sequence,
+        rv.received_by_user_id,
+        rv.received_at,
+        rv.receipt_note,
+        rv.status,
+        rv.created_at,
+        rv.updated_at,
+        received_by.name AS received_by_name,
+        received_by.surname AS received_by_surname,
+        received_by.email AS received_by_email
+      FROM portal.receipt_vouchers rv
+      LEFT JOIN public.users received_by
+        ON received_by.id = rv.received_by_user_id
+      WHERE rv.purchase_request_id = $1
+      ORDER BY rv.receipt_voucher_sequence ASC, rv.id ASC
+      `,
+      [id],
+    )
+
+    const receiptVoucherIds = receiptVouchersResult.rows.map((rv) => rv.id)
+    let receiptVoucherItems: Record<number, unknown[]> = {}
+    let receiptVoucherItemsByPurchaseOrder: Record<number, unknown[]> = {}
+
+    if (receiptVoucherIds.length > 0) {
+      const receiptVoucherItemsResult = await client.query(
+        `
+        SELECT
+          rvi.id,
+          rvi.receipt_voucher_id,
+          rvi.purchase_request_item_id,
+          rvi.purchase_order_item_id,
+          poi.purchase_order_id,
+          rvi.quantity,
+          rvi.received_quantity,
+          rvi.comment,
+          rvi.created_at,
+          rvi.updated_at
+        FROM portal.receipt_voucher_items rvi
+        LEFT JOIN portal.purchase_order_items poi
+          ON poi.id = rvi.purchase_order_item_id
+        WHERE rvi.receipt_voucher_id = ANY($1::int[])
+        ORDER BY rvi.receipt_voucher_id ASC, rvi.id ASC
+        `,
+        [receiptVoucherIds],
+      )
+
+      receiptVoucherItems = receiptVoucherItemsResult.rows.reduce(
+        (acc, item) => {
+          if (!acc[item.receipt_voucher_id]) {
+            acc[item.receipt_voucher_id] = []
+          }
+
+          acc[item.receipt_voucher_id].push(item)
+
+          return acc
+        },
+        {} as Record<number, unknown[]>,
+      )
+
+      receiptVoucherItemsByPurchaseOrder = receiptVoucherItemsResult.rows.reduce(
+        (acc, item) => {
+          if (!item.purchase_order_id) return acc
+
+          if (!acc[item.purchase_order_id]) {
+            acc[item.purchase_order_id] = []
+          }
+
+          acc[item.purchase_order_id].push(item)
+
+          return acc
+        },
+        {} as Record<number, unknown[]>,
+      )
+    }
+
+    const receipt_vouchers = receiptVouchersResult.rows.map((rv) => ({
+      ...rv,
+      items: receiptVoucherItems[rv.id] ?? [],
+    }))
+
     const purchase_orders = await Promise.all(
       purchaseOrdersResult.rows.map(async (po) => {
         const purchaseOrderPdfLinks = await getPurchaseOrderPdfLinks(po)
         const firstPurchaseOrderPdf = purchaseOrderPdfLinks[0] ?? null
+        const orderReceiptItems =
+          receiptVoucherItemsByPurchaseOrder[po.id] ?? []
+        const orderReceiptVoucherIds = new Set(
+          orderReceiptItems.map((item: any) => item.receipt_voucher_id),
+        )
+        const orderReceiptVouchers = receipt_vouchers.filter((rv) =>
+          orderReceiptVoucherIds.has(rv.id),
+        )
 
         return {
           ...po,
           items: purchaseOrderItems[po.id] ?? [],
+          receipt_vouchers: orderReceiptVouchers,
+          receipt_voucher_items: orderReceiptItems,
           documents: {
             purchase_order_pdf_url: firstPurchaseOrderPdf?.preview_url ?? null,
             purchase_order_pdf_preview_url:
@@ -776,7 +897,7 @@ router.get("/:id", async (req, res) => {
               (link) => link.download_url,
             ),
             purchase_order_pdfs: purchaseOrderPdfLinks,
-            receipt_voucher_pdf_url: po.received_at
+            receipt_voucher_pdf_url: orderReceiptVouchers.length > 0
               ? buildReceiptVoucherPdfUrl(po.id)
               : null,
           },
@@ -806,6 +927,7 @@ cancellation_reason: request.cancellation_reason,
       },
       items: itemsResult.rows,
       purchase_orders,
+      receipt_vouchers,
     })
   } catch (error) {
     console.error("Purchase journal detail error:", error)
