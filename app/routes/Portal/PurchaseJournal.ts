@@ -136,8 +136,12 @@ function buildPurchaseOrderPdfDownloadUrl(purchaseOrderId: number) {
   return `/buying/purchase-orders/${purchaseOrderId}/pdf?download=1`
 }
 
-function buildReceiptVoucherPdfUrl(purchaseOrderId: number) {
-  return `/buying/purchase-orders/${purchaseOrderId}/receipt-voucher/pdf`
+function buildReceiptVoucherPdfUrl(receiptVoucherId: number) {
+  return `/receipt-vouchers/${receiptVoucherId}/pdf`
+}
+
+function buildReceiptVoucherPdfDownloadUrl(receiptVoucherId: number) {
+  return `/receipt-vouchers/${receiptVoucherId}/pdf?download=1`
 }
 
 function createPurchaseOrderPdfFilename(reference: string) {
@@ -160,7 +164,29 @@ type PurchaseOrderPdfLink = {
   download_url: string
 }
 
+type ReceiptVoucherPdfLink = {
+  key: string | null
+  preview_url: string
+  download_url: string
+}
+
 function getPurchaseOrderPdfKeys(value: unknown) {
+  if (!value) return []
+
+  if (Array.isArray(value)) {
+    return value.filter(
+      (key): key is string => typeof key === "string" && key.length > 0,
+    )
+  }
+
+  if (typeof value === "string") {
+    return value ? [value] : []
+  }
+
+  return []
+}
+
+function getReceiptVoucherPdfKeys(value: unknown) {
   if (!value) return []
 
   if (Array.isArray(value)) {
@@ -194,6 +220,46 @@ async function getPurchaseOrderPdfLinks(po: {
   }
 
   const filename = createPurchaseOrderPdfFilename(po.purchase_order_reference)
+
+  return Promise.all(
+    keys.map(async (key) => ({
+      key,
+      preview_url: await getSignedUrlForKey(key, {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfPreviewDisposition(filename),
+        responseContentType: "application/pdf",
+      }),
+      download_url: await getSignedUrlForKey(key, {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfDownloadDisposition(filename),
+        responseContentType: "application/pdf",
+      }),
+    })),
+  )
+}
+
+async function getReceiptVoucherPdfLinks(receiptVoucher: {
+  id: number
+  receipt_voucher_reference: string
+  receipt_document_keys?: unknown
+}): Promise<ReceiptVoucherPdfLink[]> {
+  const keys = getReceiptVoucherPdfKeys(receiptVoucher.receipt_document_keys)
+
+  if (keys.length === 0) {
+    return [
+      {
+        key: null,
+        preview_url: buildReceiptVoucherPdfUrl(receiptVoucher.id),
+        download_url: buildReceiptVoucherPdfDownloadUrl(receiptVoucher.id),
+      },
+    ]
+  }
+
+  const safeReference = receiptVoucher.receipt_voucher_reference.replace(
+    /[^a-zA-Z0-9_-]/g,
+    "-",
+  )
+  const filename = `bon-reception-${safeReference}.pdf`
 
   return Promise.all(
     keys.map(async (key) => ({
@@ -820,6 +886,7 @@ router.get("/:id", async (req, res) => {
         rv.received_by_user_id,
         rv.received_at,
         rv.receipt_note,
+        rv.receipt_document_keys,
         rv.status,
         rv.created_at,
         rv.updated_at,
@@ -891,10 +958,35 @@ router.get("/:id", async (req, res) => {
       )
     }
 
-    const receipt_vouchers = receiptVouchersResult.rows.map((rv) => ({
-      ...rv,
-      items: receiptVoucherItems[rv.id] ?? [],
-    }))
+    const receipt_vouchers = await Promise.all(
+      receiptVouchersResult.rows.map(async (rv) => {
+        const receiptVoucherPdfLinks = await getReceiptVoucherPdfLinks(rv)
+        const firstReceiptVoucherPdf = receiptVoucherPdfLinks[0] ?? null
+
+        return {
+          ...rv,
+          items: receiptVoucherItems[rv.id] ?? [],
+          documents: {
+            receipt_voucher_pdf_url:
+              firstReceiptVoucherPdf?.preview_url ?? null,
+            receipt_voucher_pdf_preview_url:
+              firstReceiptVoucherPdf?.preview_url ?? null,
+            receipt_voucher_pdf_download_url:
+              firstReceiptVoucherPdf?.download_url ?? null,
+            receipt_voucher_pdf_urls: receiptVoucherPdfLinks.map(
+              (link) => link.preview_url,
+            ),
+            receipt_voucher_pdf_preview_urls: receiptVoucherPdfLinks.map(
+              (link) => link.preview_url,
+            ),
+            receipt_voucher_pdf_download_urls: receiptVoucherPdfLinks.map(
+              (link) => link.download_url,
+            ),
+            receipt_voucher_pdfs: receiptVoucherPdfLinks,
+          },
+        }
+      }),
+    )
 
     const purchase_orders = await Promise.all(
       purchaseOrdersResult.rows.map(async (po) => {
@@ -907,6 +999,12 @@ router.get("/:id", async (req, res) => {
         )
         const orderReceiptVouchers = receipt_vouchers.filter((rv) =>
           orderReceiptVoucherIds.has(rv.id),
+        )
+        const orderReceiptVoucherPreviewUrls = orderReceiptVouchers.flatMap(
+          (rv) => rv.documents.receipt_voucher_pdf_preview_urls,
+        )
+        const orderReceiptVoucherDownloadUrls = orderReceiptVouchers.flatMap(
+          (rv) => rv.documents.receipt_voucher_pdf_download_urls,
         )
 
         return {
@@ -931,8 +1029,15 @@ router.get("/:id", async (req, res) => {
             ),
             purchase_order_pdfs: purchaseOrderPdfLinks,
             receipt_voucher_pdf_url: orderReceiptVouchers.length > 0
-              ? buildReceiptVoucherPdfUrl(po.id)
+              ? orderReceiptVoucherPreviewUrls[0] ?? null
               : null,
+            receipt_voucher_pdf_preview_url:
+              orderReceiptVoucherPreviewUrls[0] ?? null,
+            receipt_voucher_pdf_download_url:
+              orderReceiptVoucherDownloadUrls[0] ?? null,
+            receipt_voucher_pdf_urls: orderReceiptVoucherPreviewUrls,
+            receipt_voucher_pdf_preview_urls: orderReceiptVoucherPreviewUrls,
+            receipt_voucher_pdf_download_urls: orderReceiptVoucherDownloadUrls,
           },
         }
       }),

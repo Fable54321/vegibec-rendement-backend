@@ -1,10 +1,13 @@
 // routes/Portal/ReceiptVoucherRoute.ts
 import express from "express"
+import type { PoolClient } from "pg"
 import { pool } from "../../db"
 import {
   getReceiptVoucherTokenFromRequest,
   validateReceiptVoucherToken,
 } from "./Utils/PurchaseHelper"
+import { generateReceiptVoucherPdf } from "./Utils/PdfReceiptVoucherGeneration"
+import { getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services"
 
 const router = express.Router()
 
@@ -37,6 +40,79 @@ const cleanText = (value: unknown) => {
   return cleaned.length > 0 ? cleaned : null
 }
 
+const createReceiptVoucherPdfKey = (
+  receiptVoucherId: number,
+  reference: string,
+) => {
+  const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
+
+  return `portal/receipt-vouchers/${receiptVoucherId}/bon-reception-${safeReference}.pdf`
+}
+
+const createReceiptVoucherPdfFilename = (reference: string) => {
+  const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
+
+  return `bon-reception-${safeReference}.pdf`
+}
+
+const createPdfDownloadDisposition = (filename: string) => {
+  return `attachment; filename="${filename}"`
+}
+
+const createPdfPreviewDisposition = (filename: string) => {
+  return `inline; filename="${filename}"`
+}
+
+const getReceiptVoucherPdfKeys = (value: unknown) => {
+  if (!value) return []
+
+  if (Array.isArray(value)) {
+    return value.filter(
+      (key): key is string => typeof key === "string" && key.length > 0,
+    )
+  }
+
+  if (typeof value === "string") {
+    return value ? [value] : []
+  }
+
+  return []
+}
+
+const ensureReceiptVoucherDocumentColumn = async (client: PoolClient) => {
+  await client.query(`
+    ALTER TABLE portal.receipt_vouchers
+    ADD COLUMN IF NOT EXISTS receipt_document_keys text[]
+  `)
+}
+
+const getReceiptVoucherPdfLinks = async (receiptVoucher: {
+  id: number
+  receipt_voucher_reference: string
+  receipt_document_keys?: unknown
+}) => {
+  const keys = getReceiptVoucherPdfKeys(receiptVoucher.receipt_document_keys)
+  const filename = createReceiptVoucherPdfFilename(
+    receiptVoucher.receipt_voucher_reference,
+  )
+
+  return Promise.all(
+    keys.map(async (key) => ({
+      key,
+      preview_url: await getSignedUrlForKey(key, {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfPreviewDisposition(filename),
+        responseContentType: "application/pdf",
+      }),
+      download_url: await getSignedUrlForKey(key, {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfDownloadDisposition(filename),
+        responseContentType: "application/pdf",
+      }),
+    })),
+  )
+}
+
 const formatReceiptVoucherReference = (
   requestReference: string,
   sequence: number,
@@ -45,6 +121,148 @@ const formatReceiptVoucherReference = (
 
   return `${requestReference}-R${String(sequence).padStart(2, "0")}`
 }
+
+const getReceiptVoucherPdfData = async (
+  client: PoolClient,
+  receiptVoucherId: number,
+) => {
+  const voucherResult = await client.query(
+    `
+    SELECT
+      rv.*,
+      pr.request_reference,
+      NULLIF(
+        CONCAT_WS(' ', received_by.name, received_by.surname),
+        ''
+      ) AS received_by_name,
+      received_by.email AS received_by_email
+    FROM portal.receipt_vouchers rv
+    INNER JOIN portal.purchase_requests pr
+      ON pr.id = rv.purchase_request_id
+    LEFT JOIN public.users received_by
+      ON received_by.id = rv.received_by_user_id
+    WHERE rv.id = $1
+    `,
+    [receiptVoucherId],
+  )
+
+  if (voucherResult.rows.length === 0) return null
+
+  const itemsResult = await client.query(
+    `
+    SELECT
+      rvi.*,
+      poi.item_code,
+      COALESCE(poi.item_description, pri.description) AS item_description,
+      poi.ordered_unit,
+      po.purchase_order_reference
+    FROM portal.receipt_voucher_items rvi
+    LEFT JOIN portal.purchase_order_items poi
+      ON poi.id = rvi.purchase_order_item_id
+    LEFT JOIN portal.purchase_orders po
+      ON po.id = poi.purchase_order_id
+    LEFT JOIN portal.purchase_request_items pri
+      ON pri.id = rvi.purchase_request_item_id
+    WHERE rvi.receipt_voucher_id = $1
+    ORDER BY rvi.id ASC
+    `,
+    [receiptVoucherId],
+  )
+
+  const purchaseOrderReferences = [
+    ...new Set(
+      itemsResult.rows
+        .map((item) => item.purchase_order_reference)
+        .filter((reference): reference is string => !!reference),
+    ),
+  ]
+
+  return {
+    ...voucherResult.rows[0],
+    purchase_order_references: purchaseOrderReferences,
+    items: itemsResult.rows,
+  }
+}
+
+router.get("/:receiptVoucherId/pdf", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const receiptVoucherId = Number(req.params.receiptVoucherId)
+
+    if (!Number.isInteger(receiptVoucherId) || receiptVoucherId <= 0) {
+      return res.status(400).json({ message: "Invalid receipt voucher id" })
+    }
+
+    await ensureReceiptVoucherDocumentColumn(client)
+
+    const voucherResult = await client.query(
+      `
+      SELECT id, receipt_voucher_reference, receipt_document_keys
+      FROM portal.receipt_vouchers
+      WHERE id = $1
+      `,
+      [receiptVoucherId],
+    )
+
+    if (voucherResult.rows.length === 0) {
+      return res.status(404).json({ message: "Receipt voucher not found" })
+    }
+
+    const keys = getReceiptVoucherPdfKeys(
+      voucherResult.rows[0].receipt_document_keys,
+    )
+    const shouldDownload =
+      req.query.download === "1" || req.query.download === "true"
+
+    if (keys.length > 0) {
+      const filename = createReceiptVoucherPdfFilename(
+        voucherResult.rows[0].receipt_voucher_reference,
+      )
+      const url = await getSignedUrlForKey(keys[0], {
+        expiresIn: 60 * 5,
+        responseContentDisposition: shouldDownload
+          ? createPdfDownloadDisposition(filename)
+          : createPdfPreviewDisposition(filename),
+        responseContentType: "application/pdf",
+      })
+
+      return res.redirect(url)
+    }
+
+    const receiptVoucherPdfData = await getReceiptVoucherPdfData(
+      client,
+      receiptVoucherId,
+    )
+
+    if (!receiptVoucherPdfData) {
+      return res.status(404).json({ message: "Receipt voucher not found" })
+    }
+
+    const pdfBytes = await generateReceiptVoucherPdf(receiptVoucherPdfData)
+    const filename = createReceiptVoucherPdfFilename(
+      receiptVoucherPdfData.receipt_voucher_reference,
+    )
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader(
+      "Content-Disposition",
+      shouldDownload
+        ? createPdfDownloadDisposition(filename)
+        : createPdfPreviewDisposition(filename),
+    )
+
+    return res.send(Buffer.from(pdfBytes))
+  } catch (error) {
+    console.error("Error generating receipt voucher PDF:", error)
+
+    return res.status(500).json({
+      message: "Error generating receipt voucher PDF",
+    })
+  } finally {
+    client.release()
+  }
+})
 
 router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
   const client = await pool.connect()
@@ -123,6 +341,8 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
           "Each item needs purchase_request_item_id, quantity, and received_quantity",
       })
     }
+
+    await ensureReceiptVoucherDocumentColumn(client)
 
     await client.query("BEGIN")
 
@@ -290,7 +510,7 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       ],
     )
 
-    const receiptVoucher = voucherResult.rows[0]
+    let receiptVoucher = voucherResult.rows[0]
 
     const insertedItems = []
 
@@ -371,6 +591,70 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       [purchaseRequestId, nextRequestStatus],
     )
 
+    const receiptVoucherPdfData = await getReceiptVoucherPdfData(
+      client,
+      receiptVoucher.id,
+    )
+
+    if (!receiptVoucherPdfData) {
+      await client.query("ROLLBACK")
+
+      return res.status(404).json({
+        message: "Receipt voucher not found",
+      })
+    }
+
+    const receiptVoucherPdfKey = createReceiptVoucherPdfKey(
+      receiptVoucher.id,
+      receiptVoucher.receipt_voucher_reference,
+    )
+    const receiptVoucherPdfFilename = createReceiptVoucherPdfFilename(
+      receiptVoucher.receipt_voucher_reference,
+    )
+    const receiptVoucherPdfBytes = await generateReceiptVoucherPdf(
+      receiptVoucherPdfData,
+    )
+
+    await uploadBufferToS3({
+      key: receiptVoucherPdfKey,
+      buffer: Buffer.from(receiptVoucherPdfBytes),
+      contentType: "application/pdf",
+    })
+
+    const receiptVoucherWithDocumentResult = await client.query(
+      `
+      UPDATE portal.receipt_vouchers
+      SET receipt_document_keys = $1
+      WHERE id = $2
+      RETURNING *
+      `,
+      [[receiptVoucherPdfKey], receiptVoucher.id],
+    )
+
+    receiptVoucher = receiptVoucherWithDocumentResult.rows[0]
+
+    const receiptVoucherPdfPreviewUrl = await getSignedUrlForKey(
+      receiptVoucherPdfKey,
+      {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfPreviewDisposition(
+          receiptVoucherPdfFilename,
+        ),
+        responseContentType: "application/pdf",
+      },
+    )
+
+    const receiptVoucherPdfDownloadUrl = await getSignedUrlForKey(
+      receiptVoucherPdfKey,
+      {
+        expiresIn: 60 * 60,
+        responseContentDisposition: createPdfDownloadDisposition(
+          receiptVoucherPdfFilename,
+        ),
+        responseContentType: "application/pdf",
+      },
+    )
+
     await client.query("COMMIT")
 
     return res.status(201).json({
@@ -380,6 +664,15 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       ordered_total_quantity: orderedTotalQuantity,
       received_total_quantity: receivedTotalQuantity,
       has_receivable_items: receivedTotalQuantity < orderedTotalQuantity,
+      receipt_voucher_pdf_urls: [receiptVoucherPdfPreviewUrl],
+      receipt_voucher_pdf_preview_urls: [receiptVoucherPdfPreviewUrl],
+      receipt_voucher_pdf_download_urls: [receiptVoucherPdfDownloadUrl],
+      receipt_voucher_pdf: {
+        key: receiptVoucherPdfKey,
+        url: receiptVoucherPdfPreviewUrl,
+        preview_url: receiptVoucherPdfPreviewUrl,
+        download_url: receiptVoucherPdfDownloadUrl,
+      },
     })
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined)
