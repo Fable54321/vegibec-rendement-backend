@@ -1,6 +1,10 @@
 // routes/Portal/ReceiptVoucherRoute.ts
 import express from "express"
 import { pool } from "../../db"
+import {
+  getReceiptVoucherTokenFromRequest,
+  validateReceiptVoucherToken,
+} from "./Utils/PurchaseHelper"
 
 const router = express.Router()
 
@@ -42,7 +46,7 @@ const formatReceiptVoucherReference = (
   return `${requestReference}-R${String(sequence).padStart(2, "0")}`
 }
 
-router.post("/", async (req, res) => {
+router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
   const client = await pool.connect()
 
   try {
@@ -54,12 +58,26 @@ router.post("/", async (req, res) => {
       items,
     } = req.body ?? {}
 
-    const purchaseRequestId = toPositiveInteger(purchase_request_id)
+    const purchaseRequestId =
+      toPositiveInteger(req.params.id) || toPositiveInteger(purchase_request_id)
     const receivedByUserId = toPositiveInteger(received_by_user_id)
 
     if (!purchaseRequestId) {
       return res.status(400).json({
         message: "purchase_request_id is required",
+      })
+    }
+
+    const receiptVoucherToken = getReceiptVoucherTokenFromRequest(req)
+    const isReceiptVoucherTokenValid = await validateReceiptVoucherToken(
+      client,
+      purchaseRequestId,
+      receiptVoucherToken,
+    )
+
+    if (!isReceiptVoucherTokenValid) {
+      return res.status(403).json({
+        message: "Invalid or expired receipt voucher token",
       })
     }
 
@@ -156,7 +174,7 @@ router.post("/", async (req, res) => {
       const purchaseOrderItemsResult = await client.query(
         `
         SELECT poi.id
-        FROM portal.purchase_orders_items poi
+        FROM portal.purchase_order_items poi
         INNER JOIN portal.purchase_orders po
           ON po.id = poi.purchase_order_id
         WHERE po.purchase_request_id = $1

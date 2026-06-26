@@ -29,6 +29,7 @@ import {
   createPurchaseRequestPictureKey,
   getAdminApprovalTokenFromRequest,
   getBuyerValidationTokenFromRequest,
+  getReceiptVoucherTokenFromRequest,
   getPurchaseTokenFromRequest,
   getEmailRecipients,
   getPurchaseRequestDisplayNumber,
@@ -41,6 +42,7 @@ import {
   validateAdminApprovalToken,
   validateBuyerValidationToken,
   validatePurchaseToken,
+  validateReceiptVoucherToken,
   getPurchaseRequestStatusLabel,
 } from "../../routes/Portal/Utils/PurchaseHelper"
 import { actionPurchaseRequestLimiter } from "../Portal/Utils/purchaseRequestLimiters"
@@ -1188,6 +1190,7 @@ router.get(
     "/:id/validation-prix/:token",
     "/:id/admin-decision/:token",
     "/:id/approbation-achat/:token",
+    "/:id/reception/:token",
   ],
   readPurchaseRequestsLimiter,
   async (req, res) => {
@@ -1208,6 +1211,7 @@ router.get(
       const isMarkPurchasedRoute =
         req.path.includes("/mark-purchased/") ||
         req.path.includes("/acheter/")
+      const isReceiptVoucherRoute = req.path.includes("/reception/")
 
       const client = await pool.connect()
 
@@ -1230,7 +1234,14 @@ router.get(
           )
         }
 
-       
+        if (isReceiptVoucherRoute) {
+          isTokenValid = await validateReceiptVoucherToken(
+            client,
+            purchaseRequestId,
+            getReceiptVoucherTokenFromRequest(req)
+          )
+        }
+
 
         if (!isTokenValid) {
           return res.status(403).json({
@@ -1269,7 +1280,8 @@ router.get("/:id", readPurchaseRequestsLimiter, async (req, res) => {
     const suppliedToken =
       getBuyerValidationTokenFromRequest(req) ||
       getAdminApprovalTokenFromRequest(req) ||
-      getPurchaseTokenFromRequest(req)
+      getPurchaseTokenFromRequest(req) ||
+      getReceiptVoucherTokenFromRequest(req)
 
     if (suppliedToken) {
       const purchaseRequestId = Number(id)
@@ -1291,6 +1303,11 @@ router.get("/:id", readPurchaseRequestsLimiter, async (req, res) => {
             client,
             purchaseRequestId,
             getPurchaseTokenFromRequest(req)
+          )) ||
+          (await validateReceiptVoucherToken(
+            client,
+            purchaseRequestId,
+            getReceiptVoucherTokenFromRequest(req)
           ))
 
         if (!isTokenValid) {

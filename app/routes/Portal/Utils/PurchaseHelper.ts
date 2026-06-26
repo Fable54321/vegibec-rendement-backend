@@ -9,6 +9,7 @@ import { sendEmail } from "../../Visitors/Utils/testSMTP"
 const BUYER_VALIDATION_TOKEN_EXPIRES_IN_DAYS = 14
 const ADMIN_APPROVAL_TOKEN_EXPIRES_IN_DAYS = 14
 const PURCHASE_TOKEN_EXPIRES_IN_DAYS = 14
+const RECEIPT_VOUCHER_TOKEN_EXPIRES_IN_DAYS = 14
 const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
 const PURCHASE_BUYER_NAME = "Ricardo"
 const PURCHASE_ADMIN_NAME = "Michelle"
@@ -242,6 +243,24 @@ const ensurePurchaseTokenTable = async (client: PoolClient) => {
   `)
 }
 
+const ensureReceiptVoucherTokenTable = async (client: PoolClient) => {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS portal.purchase_request_receipt_voucher_tokens (
+      id bigserial PRIMARY KEY,
+      purchase_request_id bigint NOT NULL REFERENCES portal.purchase_requests(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz
+    )
+  `)
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS purchase_request_receipt_voucher_tokens_request_id_idx
+    ON portal.purchase_request_receipt_voucher_tokens (purchase_request_id)
+  `)
+}
+
 export const createBuyerValidationToken = async (
   client: PoolClient,
   purchaseRequestId: number
@@ -324,6 +343,33 @@ export const createPurchaseToken = async (
   return token
 }
 
+export const createReceiptVoucherToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensureReceiptVoucherTokenTable(client)
+
+  const token = crypto.randomBytes(32).toString("hex")
+
+  await client.query(
+    `
+    INSERT INTO portal.purchase_request_receipt_voucher_tokens (
+      purchase_request_id,
+      token_hash,
+      expires_at
+    )
+    VALUES (
+      $1,
+      $2,
+      now() + ($3 || ' days')::interval
+    )
+    `,
+    [purchaseRequestId, token, RECEIPT_VOUCHER_TOKEN_EXPIRES_IN_DAYS]
+  )
+
+  return token
+}
+
 export const getActivePurchaseToken = async (
   client: PoolClient,
   purchaseRequestId: number
@@ -368,6 +414,28 @@ export const getActiveAdminApprovalToken = async (
   return result.rows[0]?.token_hash ?? null
 }
 
+export const getActiveReceiptVoucherToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  await ensureReceiptVoucherTokenTable(client)
+
+  const result = await client.query(
+    `
+    SELECT token_hash
+    FROM portal.purchase_request_receipt_voucher_tokens
+    WHERE purchase_request_id = $1
+      AND used_at IS NULL
+      AND expires_at > now()
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [purchaseRequestId]
+  )
+
+  return result.rows[0]?.token_hash ?? null
+}
+
 export const getOrCreateActivePurchaseToken = async (
   client: PoolClient,
   purchaseRequestId: number
@@ -379,6 +447,22 @@ export const getOrCreateActivePurchaseToken = async (
   }
 
   return createPurchaseToken(client, purchaseRequestId)
+}
+
+export const getOrCreateActiveReceiptVoucherToken = async (
+  client: PoolClient,
+  purchaseRequestId: number
+) => {
+  const existingToken = await getActiveReceiptVoucherToken(
+    client,
+    purchaseRequestId
+  )
+
+  if (existingToken) {
+    return existingToken
+  }
+
+  return createReceiptVoucherToken(client, purchaseRequestId)
 }
 
 export const getOrCreateActiveAdminApprovalToken = async (
@@ -441,6 +525,21 @@ export const getPurchaseTokenFromRequest = (req: Request) => {
   return null
 }
 
+export const getReceiptVoucherTokenFromRequest = (req: Request) => {
+  const bodyToken = (req.body as { receipt_voucher_token?: unknown })
+    ?.receipt_voucher_token
+  const queryToken = req.query.token
+  const headerToken = req.headers["x-purchase-request-receipt-token"]
+  const paramToken = req.params.token
+
+  if (typeof paramToken === "string" && paramToken.trim()) return paramToken.trim()
+  if (typeof bodyToken === "string" && bodyToken.trim()) return bodyToken.trim()
+  if (typeof queryToken === "string" && queryToken.trim()) return queryToken.trim()
+  if (typeof headerToken === "string" && headerToken.trim()) return headerToken.trim()
+
+  return null
+}
+
 export const validateBuyerValidationToken = async (
   client: PoolClient,
   purchaseRequestId: number,
@@ -479,6 +578,31 @@ export const validatePurchaseToken = async (
     `
     SELECT id
     FROM portal.purchase_request_purchase_tokens
+    WHERE purchase_request_id = $1
+      AND token_hash = $2
+      AND used_at IS NULL
+      AND expires_at > now()
+    LIMIT 1
+    `,
+    [purchaseRequestId, token]
+  )
+
+  return result.rows.length > 0
+}
+
+export const validateReceiptVoucherToken = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string | null
+) => {
+  if (!token) return false
+
+  await ensureReceiptVoucherTokenTable(client)
+
+  const result = await client.query(
+    `
+    SELECT id
+    FROM portal.purchase_request_receipt_voucher_tokens
     WHERE purchase_request_id = $1
       AND token_hash = $2
       AND used_at IS NULL
@@ -640,6 +764,24 @@ export const buildFinalPurchaseRequestUrl = (
   }
 
   return `${normalizedBaseUrl}/requete/${purchaseRequestId}`
+}
+
+export const buildReceiptVoucherUrl = (
+  req: Request,
+  purchaseRequestId: number,
+  token: string
+) => {
+  const configuredBaseUrl = "https://achats.vegibec-portail.com"
+  const baseUrl =
+    configuredBaseUrl ||
+    (process.env.NODE_ENV === "production"
+      ? "https://achats.vegibec-portail.com"
+      : `${req.protocol}://${req.get("host") || "localhost:3000"}`)
+
+  return `${baseUrl.replace(
+    /\/$/,
+    ""
+  )}/requete/${purchaseRequestId}/reception/${token}`
 }
 
 const formatDateFr = (value: string | Date | null | undefined) => {

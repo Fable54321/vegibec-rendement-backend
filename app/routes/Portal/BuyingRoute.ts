@@ -2,7 +2,13 @@ import express from "express"
 import { pool } from "../../db"
 
 import { actionPurchaseRequestLimiter } from "../Portal/Utils/purchaseRequestLimiters"
-import { getPurchaseTokenFromRequest, validatePurchaseToken, markPurchaseTokenUsed } from "./Utils/PurchaseHelper"
+import {
+  buildReceiptVoucherUrl,
+  getOrCreateActiveReceiptVoucherToken,
+  getPurchaseTokenFromRequest,
+  markPurchaseTokenUsed,
+  validatePurchaseToken,
+} from "./Utils/PurchaseHelper"
 import { getPurchaseRequestWithItems } from "./PurchaseRequest"
 import { generatePurchaseOrderPdf } from "./Utils/PdfPoGeneration"
 import { getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services"
@@ -703,6 +709,16 @@ const updatedRequest = await client.query(
   [purchaseRequestId, nextRequestStatus],
 )
 
+const receiptVoucherToken = await getOrCreateActiveReceiptVoucherToken(
+  client,
+  purchaseRequestId,
+)
+const receiptVoucherUrl = buildReceiptVoucherUrl(
+  req,
+  purchaseRequestId,
+  receiptVoucherToken,
+)
+
 if (nextRequestStatus === "purchased") {
   await markPurchaseTokenUsed(client, purchaseRequestId, purchaseToken)
 }
@@ -723,6 +739,8 @@ transactionStarted = false
         preview_url: purchaseOrderPdfPreviewUrl,
         download_url: purchaseOrderPdfDownloadUrl,
       },
+      receipt_voucher_token: receiptVoucherToken,
+      receipt_voucher_url: receiptVoucherUrl,
     })
   } catch (error) {
     if (transactionStarted) {
