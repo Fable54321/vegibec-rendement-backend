@@ -372,11 +372,11 @@ const HEADER_COLUMNS = {
   // })
 
   // Acheteur
-  drawText(defaultBuyerInfos.name, 228, 501, {
+  drawText(purchaseOrder.buyer_name ? purchaseOrder.buyer_name : defaultBuyerInfos.name, 228, 501, {
     size: 9,
   })
 
-  drawText(defaultBuyerInfos.email, 228, 490, {
+  drawText(purchaseOrder.buyer_email ? purchaseOrder.buyer_email : defaultBuyerInfos.email, 228, 490, {
     size: 9,
   })
 

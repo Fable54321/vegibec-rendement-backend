@@ -24,6 +24,13 @@ type ReceiptVoucherPdfData = {
   items: ReceiptVoucherPdfItem[]
 }
 
+const defaultReceiverInfos : {
+  name: string | null
+  email: string | null
+} = {
+  name: "Ricardo Molière",
+  email: "achats@vegibec.com",
+}
 const formatNumber = (
   value: number | string | null | undefined,
   options?: {
@@ -216,9 +223,7 @@ export const generateReceiptVoucherPdf = async (
     return lines.slice(0, maxLines)
   }
 
-  const receivedBy = [receiptVoucher.received_by_name, receiptVoucher.received_by_email]
-    .filter(Boolean)
-    .join(" - ")
+
   const purchaseOrderReferences = [
     ...new Set(receiptVoucher.purchase_order_references ?? []),
   ]
@@ -231,7 +236,8 @@ export const generateReceiptVoucherPdf = async (
   })
   drawText(receiptVoucher.request_reference, 88, 682, { size: 10, bold: true })
   drawText(formatDateIso(receiptVoucher.received_at), 412, 682, { size: 10 })
-  drawText(receivedBy, 88, 660, { size: 9 })
+  drawText(receiptVoucher.received_by_name ? receiptVoucher.received_by_name : defaultReceiverInfos.name, 88, 660, { size: 9 })
+  drawText(receiptVoucher.received_by_email ? receiptVoucher.received_by_email : defaultReceiverInfos.email, 88, 638, { size: 9 })
   drawFittedText(purchaseOrderReferences, 88, 638, 460, { size: 9 })
   drawFittedText(receiptVoucher.receipt_note, 88, 616, 460, { size: 9 })
 

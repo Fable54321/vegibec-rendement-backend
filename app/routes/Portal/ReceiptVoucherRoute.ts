@@ -130,17 +130,10 @@ const getReceiptVoucherPdfData = async (
     `
     SELECT
       rv.*,
-      pr.request_reference,
-      NULLIF(
-        CONCAT_WS(' ', received_by.name, received_by.surname),
-        ''
-      ) AS received_by_name,
-      received_by.email AS received_by_email
+      pr.request_reference
     FROM portal.receipt_vouchers rv
     INNER JOIN portal.purchase_requests pr
       ON pr.id = rv.purchase_request_id
-    LEFT JOIN public.users received_by
-      ON received_by.id = rv.received_by_user_id
     WHERE rv.id = $1
     `,
     [receiptVoucherId],
@@ -321,17 +314,19 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const {
-      purchase_request_id,
-      received_by_user_id,
-      received_at,
-      receipt_note,
-      items,
-    } = req.body ?? {}
+   const {
+  purchase_request_id,
+  received_by_name,
+  received_by_email,
+  received_at,
+  receipt_note,
+  items,
+} = req.body ?? {}
 
     const purchaseRequestId =
       toPositiveInteger(req.params.id) || toPositiveInteger(purchase_request_id)
-    const receivedByUserId = toPositiveInteger(received_by_user_id)
+   const receivedByName = cleanText(received_by_name)
+const receivedByEmail = cleanText(received_by_email)
 
     if (!purchaseRequestId) {
       return res.status(400).json({
@@ -352,11 +347,11 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       })
     }
 
-    if (!receivedByUserId) {
-      return res.status(400).json({
-        message: "received_by_user_id is required",
-      })
-    }
+  if (!receivedByName) {
+  return res.status(400).json({
+    message: "received_by_name is required",
+  })
+}
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
@@ -539,29 +534,31 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       receiptVoucherSequence,
     )
 
-    const voucherResult = await client.query(
-      `
-      INSERT INTO portal.receipt_vouchers (
-        purchase_request_id,
-        receipt_voucher_reference,
-        receipt_voucher_sequence,
-        received_by_user_id,
-        received_at,
-        receipt_note,
-        status
-      )
-      VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, now()), $6, 'received')
-      RETURNING *
-      `,
-      [
-        purchaseRequestId,
-        receiptVoucherReference,
-        receiptVoucherSequence,
-        receivedByUserId,
-        received_at || null,
-        cleanText(receipt_note),
-      ],
-    )
+const voucherResult = await client.query(
+  `
+  INSERT INTO portal.receipt_vouchers (
+    purchase_request_id,
+    receipt_voucher_reference,
+    receipt_voucher_sequence,
+    received_by_name,
+    received_by_email,
+    received_at,
+    receipt_note,
+    status
+  )
+  VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()), $7, 'received')
+  RETURNING *
+  `,
+  [
+    purchaseRequestId,
+    receiptVoucherReference,
+    receiptVoucherSequence,
+    receivedByName,
+    receivedByEmail,
+    received_at || null,
+    cleanText(receipt_note),
+  ],
+)
 
     let receiptVoucher = voucherResult.rows[0]
 

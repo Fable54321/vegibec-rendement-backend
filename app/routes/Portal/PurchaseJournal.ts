@@ -876,31 +876,27 @@ router.get("/:id", async (req, res) => {
       )
     }
 
-    const receiptVouchersResult = await client.query(
-      `
-      SELECT
-        rv.id,
-        rv.purchase_request_id,
-        rv.receipt_voucher_reference,
-        rv.receipt_voucher_sequence,
-        rv.received_by_user_id,
-        rv.received_at,
-        rv.receipt_note,
-        rv.receipt_document_keys,
-        rv.status,
-        rv.created_at,
-        rv.updated_at,
-        received_by.name AS received_by_name,
-        received_by.surname AS received_by_surname,
-        received_by.email AS received_by_email
-      FROM portal.receipt_vouchers rv
-      LEFT JOIN public.users received_by
-        ON received_by.id = rv.received_by_user_id
-      WHERE rv.purchase_request_id = $1
-      ORDER BY rv.receipt_voucher_sequence ASC, rv.id ASC
-      `,
-      [id],
-    )
+ const receiptVouchersResult = await client.query(
+  `
+  SELECT
+    rv.id,
+    rv.purchase_request_id,
+    rv.receipt_voucher_reference,
+    rv.receipt_voucher_sequence,
+    rv.received_by_name,
+    rv.received_by_email,
+    rv.received_at,
+    rv.receipt_note,
+    rv.receipt_document_keys,
+    rv.status,
+    rv.created_at,
+    rv.updated_at
+  FROM portal.receipt_vouchers rv
+  WHERE rv.purchase_request_id = $1
+  ORDER BY rv.receipt_voucher_sequence ASC, rv.id ASC
+  `,
+  [id],
+)
 
     const receiptVoucherIds = receiptVouchersResult.rows.map((rv) => rv.id)
     let receiptVoucherItems: Record<number, unknown[]> = {}
