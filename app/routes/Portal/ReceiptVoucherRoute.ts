@@ -718,7 +718,18 @@ const voucherResult = await client.query(
         ],
       )
 
-      insertedItems.push(itemResult.rows[0])
+      const purchaseOrderItem = item.purchase_order_item_id
+        ? purchaseOrderItemsById.get(item.purchase_order_item_id)
+        : null
+
+      insertedItems.push({
+        ...itemResult.rows[0],
+        item_code: purchaseOrderItem?.item_code ?? null,
+        item_description: purchaseOrderItem?.item_description ?? null,
+        ordered_unit: purchaseOrderItem?.ordered_unit ?? null,
+        purchase_order_reference:
+          purchaseOrderItem?.purchase_order_reference ?? null,
+      })
     }
 
     const receiptProgressResult = await client.query(

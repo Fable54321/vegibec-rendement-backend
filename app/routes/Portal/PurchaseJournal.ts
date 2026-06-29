@@ -911,6 +911,10 @@ router.get("/:id", async (req, res) => {
           rvi.purchase_request_item_id,
           rvi.purchase_order_item_id,
           poi.purchase_order_id,
+          poi.item_code,
+          poi.item_description,
+          poi.ordered_unit,
+          po.purchase_order_reference,
           rvi.quantity,
           rvi.received_quantity,
           rvi.comment,
@@ -919,6 +923,8 @@ router.get("/:id", async (req, res) => {
         FROM portal.receipt_voucher_items rvi
         LEFT JOIN portal.purchase_order_items poi
           ON poi.id = rvi.purchase_order_item_id
+        LEFT JOIN portal.purchase_orders po
+          ON po.id = poi.purchase_order_id
         WHERE rvi.receipt_voucher_id = ANY($1::int[])
         ORDER BY rvi.receipt_voucher_id ASC, rvi.id ASC
         `,
