@@ -374,58 +374,58 @@ router.get("/:receiptVoucherId/pdf", async (req, res) => {
   }
 })
 
-router.get("/:receiptVoucherId/pdf-links", async (req, res) => {
-  const client = await pool.connect()
+// router.get("/:receiptVoucherId/pdf-links", async (req, res) => {
+//   const client = await pool.connect()
 
-  try {
-    const receiptVoucherId = Number(req.params.receiptVoucherId)
+//   try {
+//     const receiptVoucherId = Number(req.params.receiptVoucherId)
 
-    if (!Number.isInteger(receiptVoucherId) || receiptVoucherId <= 0) {
-      return res.status(400).json({ message: "Invalid receipt voucher id" })
-    }
+//     if (!Number.isInteger(receiptVoucherId) || receiptVoucherId <= 0) {
+//       return res.status(400).json({ message: "Invalid receipt voucher id" })
+//     }
 
-    await ensureReceiptVoucherDocumentColumn(client)
+//     await ensureReceiptVoucherDocumentColumn(client)
 
-    const voucherResult = await client.query(
-      `
-      SELECT id, receipt_voucher_reference, receipt_document_keys
-      FROM portal.receipt_vouchers
-      WHERE id = $1
-      `,
-      [receiptVoucherId],
-    )
+//     const voucherResult = await client.query(
+//       `
+//       SELECT id, receipt_voucher_reference, receipt_document_keys
+//       FROM portal.receipt_vouchers
+//       WHERE id = $1
+//       `,
+//       [receiptVoucherId],
+//     )
 
-    if (voucherResult.rows.length === 0) {
-      return res.status(404).json({ message: "Receipt voucher not found" })
-    }
+//     if (voucherResult.rows.length === 0) {
+//       return res.status(404).json({ message: "Receipt voucher not found" })
+//     }
 
-    const links = await getReceiptVoucherPdfLinks(voucherResult.rows[0])
+//     const links = await getReceiptVoucherPdfLinks(voucherResult.rows[0])
 
-    return res.json({
-      receipt_voucher_id: voucherResult.rows[0].id,
-      receipt_voucher_reference:
-        voucherResult.rows[0].receipt_voucher_reference,
-      receipt_voucher_pdf_links: links,
-      receipt_voucher_pdf:
-        links.length > 0
-          ? {
-              key: links[0].key,
-              url: links[0].preview_url,
-              preview_url: links[0].preview_url,
-              download_url: links[0].download_url,
-            }
-          : null,
-    })
-  } catch (error) {
-    console.error("Error getting receipt voucher PDF links:", error)
+//     return res.json({
+//       receipt_voucher_id: voucherResult.rows[0].id,
+//       receipt_voucher_reference:
+//         voucherResult.rows[0].receipt_voucher_reference,
+//       receipt_voucher_pdf_links: links,
+//       receipt_voucher_pdf:
+//         links.length > 0
+//           ? {
+//               key: links[0].key,
+//               url: links[0].preview_url,
+//               preview_url: links[0].preview_url,
+//               download_url: links[0].download_url,
+//             }
+//           : null,
+//     })
+//   } catch (error) {
+//     console.error("Error getting receipt voucher PDF links:", error)
 
-    return res.status(500).json({
-      message: "Error getting receipt voucher PDF links",
-    })
-  } finally {
-    client.release()
-  }
-})
+//     return res.status(500).json({
+//       message: "Error getting receipt voucher PDF links",
+//     })
+//   } finally {
+//     client.release()
+//   }
+// })
 
 router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
   const client = await pool.connect()
