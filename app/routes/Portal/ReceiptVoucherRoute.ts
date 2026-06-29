@@ -92,6 +92,14 @@ const ensureReceiptVoucherDocumentColumn = async (client: PoolClient) => {
     ALTER TABLE portal.receipt_vouchers
     ADD COLUMN IF NOT EXISTS receipt_document_keys text[]
   `)
+
+  await client.query(`
+    ALTER TABLE portal.receipt_vouchers
+    ADD COLUMN IF NOT EXISTS supplier_name text,
+    ADD COLUMN IF NOT EXISTS supplier_address_snapshot text,
+    ADD COLUMN IF NOT EXISTS supplier_phone text,
+    ADD COLUMN IF NOT EXISTS delivery_method text
+  `)
 }
 
 const getReceiptVoucherPdfLinks = async (receiptVoucher: {
@@ -156,7 +164,11 @@ const getReceiptVoucherPdfData = async (
       poi.item_code,
       COALESCE(poi.item_description, pri.description) AS item_description,
       poi.ordered_unit,
-      po.purchase_order_reference
+      po.purchase_order_reference,
+      po.supplier_name AS purchase_order_supplier_name,
+      po.supplier_address_snapshot AS purchase_order_supplier_address_snapshot,
+      po.supplier_phone AS purchase_order_supplier_phone,
+      po.delivery_method AS purchase_order_delivery_method
     FROM portal.receipt_voucher_items rvi
     LEFT JOIN portal.purchase_order_items poi
       ON poi.id = rvi.purchase_order_item_id
@@ -178,12 +190,109 @@ const getReceiptVoucherPdfData = async (
     ),
   ]
 
+  const firstPurchaseOrderBackedItem = itemsResult.rows.find(
+    (item) =>
+      item.purchase_order_supplier_name ||
+      item.purchase_order_supplier_address_snapshot ||
+      item.purchase_order_supplier_phone ||
+      item.purchase_order_delivery_method,
+  )
+
   return {
     ...voucherResult.rows[0],
+    supplier_name:
+      voucherResult.rows[0].supplier_name ??
+      firstPurchaseOrderBackedItem?.purchase_order_supplier_name ??
+      null,
+    supplier_address_snapshot:
+      voucherResult.rows[0].supplier_address_snapshot ??
+      firstPurchaseOrderBackedItem?.purchase_order_supplier_address_snapshot ??
+      null,
+    supplier_phone:
+      voucherResult.rows[0].supplier_phone ??
+      firstPurchaseOrderBackedItem?.purchase_order_supplier_phone ??
+      null,
+    delivery_method:
+      voucherResult.rows[0].delivery_method ??
+      firstPurchaseOrderBackedItem?.purchase_order_delivery_method ??
+      null,
     purchase_order_references: purchaseOrderReferences,
     items: itemsResult.rows,
   }
 }
+
+router.get("/debug/pdf-preview", async (_req, res) => {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.ENABLE_RECEIPT_VOUCHER_PDF_PREVIEW !== "true"
+  ) {
+    return res.status(404).json({ message: "Receipt voucher preview not found" })
+  }
+
+  try {
+    const pdfBytes = await generateReceiptVoucherPdf({
+      receipt_voucher_reference: "DA-2026-0042-R01",
+      supplier_name: "Ferme Exemple Inc.",
+      supplier_address_snapshot:
+        "123 Rang des Legumes\nSainte-Sophie, Quebec, J5J 1A1",
+      supplier_phone: "450-555-0198",
+      delivery_method: "Livraison fournisseur",
+      received_at: "2026-06-29",
+      received_by_name: "Ricardo Molière",
+      received_by_email: "achats@vegibec.com",
+      items: [
+        {
+          item_code: "CAR-10LB",
+          item_description: "Carottes orange lavees format 10 lb",
+          quantity: 120,
+          received_quantity: 120,
+          ordered_unit: "caisse",
+          comment: "OK",
+        },
+        {
+          item_code: "PAT-YUKON-50",
+          item_description:
+            "Pommes de terre Yukon Gold calibre moyen sac de 50 lb",
+          quantity: 80,
+          received_quantity: 76,
+          ordered_unit: "sac",
+          comment: "4 manquants",
+        },
+        {
+          item_code: "OIGN-JAUNE-25",
+          item_description: "Oignons jaunes emballage 25 lb",
+          quantity: 40,
+          received_quantity: 40,
+          ordered_unit: "sac",
+          comment: "Palette B",
+        },
+        {
+          item_code: "CEL-24",
+          item_description:
+            "Celeri frais caisse de 24 unites avec description volontairement longue",
+          quantity: 25,
+          received_quantity: 25,
+          ordered_unit: "caisse",
+          comment: "Froid",
+        },
+      ],
+    })
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader(
+      "Content-Disposition",
+      'inline; filename="receipt-voucher-debug-preview.pdf"',
+    )
+
+    return res.send(Buffer.from(pdfBytes))
+  } catch (error) {
+    console.error("Receipt voucher PDF preview error:", error)
+
+    return res.status(500).json({
+      message: "Receipt voucher PDF preview generation failed",
+    })
+  }
+})
 
 router.get("/:receiptVoucherId/pdf", async (req, res) => {
   const client = await pool.connect()
@@ -328,6 +437,10 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
   received_by_email,
   received_at,
   receipt_note,
+  supplier_name,
+  supplier_address_snapshot,
+  supplier_phone,
+  delivery_method,
   items,
 } = req.body ?? {}
 
@@ -335,6 +448,10 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       toPositiveInteger(req.params.id) || toPositiveInteger(purchase_request_id)
    const receivedByName = cleanText(received_by_name)
 const receivedByEmail = cleanText(received_by_email)
+const requestedSupplierName = cleanText(supplier_name)
+const requestedSupplierAddressSnapshot = cleanText(supplier_address_snapshot)
+const requestedSupplierPhone = cleanText(supplier_phone)
+const requestedDeliveryMethod = cleanText(delivery_method)
 
     if (!purchaseRequestId) {
       return res.status(400).json({
@@ -476,6 +593,7 @@ const receivedByEmail = cleanText(received_by_email)
         po.supplier_name,
         po.supplier_address_snapshot,
         po.supplier_phone,
+        po.delivery_method,
         COALESCE(received.received_quantity, 0)::numeric
           AS already_received_quantity
       FROM portal.purchase_order_items poi
@@ -649,6 +767,23 @@ const receivedByEmail = cleanText(received_by_email)
       }
     }
 
+    const linkedPurchaseOrderItems = uniquePurchaseOrderItemIds
+      .map((id) => purchaseOrderItemsById.get(id))
+      .filter(Boolean)
+
+    const firstPurchaseOrderItem = linkedPurchaseOrderItems[0] ?? null
+
+    const receiptSupplierName =
+      requestedSupplierName ?? firstPurchaseOrderItem?.supplier_name ?? null
+    const receiptSupplierAddressSnapshot =
+      requestedSupplierAddressSnapshot ??
+      firstPurchaseOrderItem?.supplier_address_snapshot ??
+      null
+    const receiptSupplierPhone =
+      requestedSupplierPhone ?? firstPurchaseOrderItem?.supplier_phone ?? null
+    const receiptDeliveryMethod =
+      requestedDeliveryMethod ?? firstPurchaseOrderItem?.delivery_method ?? null
+
     const sequenceResult = await client.query(
       `
       SELECT COALESCE(MAX(receipt_voucher_sequence), 0) + 1 AS next_sequence
@@ -674,9 +809,16 @@ const voucherResult = await client.query(
     received_by_email,
     received_at,
     receipt_note,
+    supplier_name,
+    supplier_address_snapshot,
+    supplier_phone,
+    delivery_method,
     status
   )
-  VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()), $7, 'received')
+  VALUES (
+    $1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()), $7,
+    $8, $9, $10, $11, 'received'
+  )
   RETURNING *
   `,
   [
@@ -687,6 +829,10 @@ const voucherResult = await client.query(
     receivedByEmail,
     received_at || null,
     cleanText(receipt_note),
+    receiptSupplierName,
+    receiptSupplierAddressSnapshot,
+    receiptSupplierPhone,
+    receiptDeliveryMethod,
   ],
 )
 

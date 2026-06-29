@@ -16,6 +16,10 @@ type ReceiptVoucherPdfItem = {
 type ReceiptVoucherPdfData = {
   receipt_voucher_reference: string
   request_reference?: string | null
+  supplier_name?: string | null
+  supplier_address_snapshot?: string | null
+  supplier_phone?: string | number | null
+  delivery_method?: string | null
   received_at?: string | Date | null
   received_by_name?: string | null
   received_by_email?: string | null
@@ -24,13 +28,36 @@ type ReceiptVoucherPdfData = {
   items: ReceiptVoucherPdfItem[]
 }
 
-const defaultReceiverInfos : {
+const defaultReceiverInfos: {
   name: string | null
   email: string | null
 } = {
   name: "Ricardo Molière",
   email: "achats@vegibec.com",
 }
+
+const TABLE_COLUMNS = {
+  leftX: 56,
+  rightX: 548,
+
+  // Left-aligned inside Code column
+  codeX: 58,
+  codeMaxWidth: 54,
+
+  // Left-aligned inside Description column
+  descriptionX: 119,
+  descriptionMaxWidth: 220,
+  descriptionMaxCharacters: 48,
+
+  // Right-aligned inside quantity columns
+  quantityRightX: 385,
+  receivedQuantityRightX: 456,
+
+  // Left-aligned inside Commentaire column
+  commentX: 482,
+  commentMaxWidth: 58,
+}
+
 const formatNumber = (
   value: number | string | null | undefined,
   options?: {
@@ -190,11 +217,72 @@ export const generateReceiptVoucherPdf = async (
     drawText(`${fittedText}...`, x, y, options)
   }
 
-  const splitText = (
+  const drawFittedRightAlignedText = (
+    text: string | number | null | undefined,
+    rightX: number,
+    y: number,
+    maxWidth: number,
+    options?: {
+      size?: number
+      bold?: boolean
+    },
+  ) => {
+    if (text === null || text === undefined || text === "") return
+
+    const size = options?.size ?? 9
+    const textAsString = String(text)
+    const selectedFont = options?.bold ? boldFont : font
+
+    if (selectedFont.widthOfTextAtSize(textAsString, size) <= maxWidth) {
+      drawRightAlignedText(textAsString, rightX, y, options)
+      return
+    }
+
+    let fittedText = textAsString
+
+    while (
+      fittedText.length > 1 &&
+      selectedFont.widthOfTextAtSize(`${fittedText}...`, size) > maxWidth
+    ) {
+      fittedText = fittedText.slice(0, -1)
+    }
+
+    drawRightAlignedText(`${fittedText}...`, rightX, y, options)
+  }
+
+  const drawLines = (
+    text: string | number | null | undefined,
+    x: number,
+    y: number,
+    options?: {
+      size?: number
+      bold?: boolean
+      lineHeight?: number
+      maxLines?: number
+    },
+  ) => {
+    if (text === null || text === undefined || text === "") return
+
+    const lines = String(text)
+      .split(/\r?\n|,/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+    const maxLines = options?.maxLines ?? lines.length
+    const lineHeight = options?.lineHeight ?? 12
+
+    lines.slice(0, maxLines).forEach((line, index) => {
+      drawText(line, x, y - index * lineHeight, {
+        size: options?.size,
+        bold: options?.bold,
+      })
+    })
+  }
+
+  const splitDescriptionText = (
     text: string | null | undefined,
     maxWidth: number,
     maxCharacters: number,
-    maxLines = 2,
+    maxLines = 3,
     size = 9,
   ) => {
     if (!text) return []
@@ -215,7 +303,33 @@ export const generateReceiptVoucherPdf = async (
       }
 
       if (currentLine) lines.push(currentLine)
-      currentLine = word
+
+      if (
+        word.length <= maxCharacters &&
+        font.widthOfTextAtSize(word, size) <= maxWidth
+      ) {
+        currentLine = word
+        return
+      }
+
+      let remainingWord = word
+
+      while (remainingWord) {
+        let chunk = remainingWord
+
+        while (
+          chunk.length > 1 &&
+          (chunk.length > maxCharacters ||
+            font.widthOfTextAtSize(chunk, size) > maxWidth)
+        ) {
+          chunk = chunk.slice(0, -1)
+        }
+
+        lines.push(chunk)
+        remainingWord = remainingWord.slice(chunk.length)
+      }
+
+      currentLine = ""
     })
 
     if (currentLine) lines.push(currentLine)
@@ -223,102 +337,188 @@ export const generateReceiptVoucherPdf = async (
     return lines.slice(0, maxLines)
   }
 
-
   const purchaseOrderReferences = [
-    ...new Set(receiptVoucher.purchase_order_references ?? []),
-  ]
-    .filter(Boolean)
-    .join(", ")
-
-  drawRightAlignedText(receiptVoucher.receipt_voucher_reference, 560, 733, {
-    size: 14,
-    bold: true,
-  })
-  drawText(receiptVoucher.request_reference, 88, 682, { size: 10, bold: true })
-  drawText(formatDateIso(receiptVoucher.received_at), 412, 682, { size: 10 })
-  drawText(receiptVoucher.received_by_name ? receiptVoucher.received_by_name : defaultReceiverInfos.name, 88, 660, { size: 9 })
-  drawText(receiptVoucher.received_by_email ? receiptVoucher.received_by_email : defaultReceiverInfos.email, 88, 638, { size: 9 })
-  drawFittedText(purchaseOrderReferences, 88, 638, 460, { size: 9 })
-  drawFittedText(receiptVoucher.receipt_note, 88, 616, 460, { size: 9 })
-
-  const columns = {
-    poX: 24,
-    codeX: 100,
-    descriptionX: 154,
-    descriptionMaxWidth: 210,
-    orderedRightX: 418,
-    receivedRightX: 482,
-    unitX: 494,
-    unitMaxWidth: 44,
-    commentX: 542,
-    commentMaxWidth: 38,
-  }
-
-  const itemStartY = 522
-  const rowHeight = 28
-  const lineHeight = 10
-  let yOffset = 0
-
-  receiptVoucher.items.forEach((item) => {
-    const y = itemStartY - yOffset
-
-    if (y < 102) return
-
-    const description =
-      item.item_description ?? item.description ?? "Article sans description"
-    const descriptionLines = splitText(
-      description,
-      columns.descriptionMaxWidth,
-      46,
-      2,
-    )
-
-    drawFittedText(item.purchase_order_reference, columns.poX, y, 68)
-    drawFittedText(item.item_code, columns.codeX, y, 46)
-
-    descriptionLines.forEach((line, index) => {
-      drawText(line, columns.descriptionX, y - index * lineHeight)
-    })
-
-    drawRightAlignedText(formatQuantity(item.quantity), columns.orderedRightX, y)
-    drawRightAlignedText(
-      formatQuantity(item.received_quantity),
-      columns.receivedRightX,
-      y,
-      { bold: true },
-    )
-    drawFittedText(item.ordered_unit, columns.unitX, y, columns.unitMaxWidth)
-    drawFittedText(item.comment, columns.commentX, y, columns.commentMaxWidth, {
-      size: 8,
-    })
-
-    yOffset += rowHeight
-  })
+    ...new Set([
+      ...(receiptVoucher.purchase_order_references ?? []),
+      ...receiptVoucher.items
+        .map((item) => item.purchase_order_reference)
+        .filter(Boolean),
+    ]),
+  ].filter(Boolean)
 
   const orderedTotal = receiptVoucher.items.reduce(
     (sum, item) => sum + Number(item.quantity ?? 0),
     0,
   )
+
   const receivedTotal = receiptVoucher.items.reduce(
     (sum, item) => sum + Number(item.received_quantity ?? 0),
     0,
   )
 
-  page.drawLine({
-    start: { x: 20, y: 86 },
-    end: { x: 575, y: 86 },
-    thickness: 0.5,
-    color: rgb(0.82, 0.82, 0.82),
+  drawRightAlignedText(receiptVoucher.receipt_voucher_reference, 545.5, 662, {
+    size: 14,
+    bold: true,
   })
 
-  drawRightAlignedText(formatQuantity(orderedTotal), columns.orderedRightX, 70, {
-    size: 10,
+  const commandReferencesToDraw =
+    purchaseOrderReferences.length > 0
+      ? purchaseOrderReferences
+      : receiptVoucher.request_reference
+        ? [receiptVoucher.request_reference]
+        : []
+
+  commandReferencesToDraw.slice(0, 2).forEach((reference, index) => {
+    drawFittedRightAlignedText(reference, 560, 632 - index * 10, 125, {
+      size: 8,
+    })
+  })
+
+  drawFittedText(receiptVoucher.supplier_name, 67, 576, 150, {
+    size: 9,
     bold: true,
   })
-  drawRightAlignedText(formatQuantity(receivedTotal), columns.receivedRightX, 70, {
-    size: 10,
-    bold: true,
+  drawLines(receiptVoucher.supplier_address_snapshot, 67, 563, {
+    size: 8,
+    lineHeight: 10,
+    maxLines: 4,
   })
+  drawFittedText(receiptVoucher.supplier_phone, 67, 517, 120, {
+    size: 8,
+  })
+
+drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
+  size: 9,
+})
+
+  drawFittedText(receiptVoucher.delivery_method, 400, 475, 120, {
+    size: 9,
+  })
+
+  drawFittedText(
+    receiptVoucher.received_by_name || defaultReceiverInfos.name,
+    234,
+    470,
+    178,
+    {
+      size: 9,
+    },
+  )
+
+  drawFittedText(
+    receiptVoucher.received_by_email || defaultReceiverInfos.email,
+    234,
+    459,
+    178,
+    {
+      size: 9,
+    },
+  )
+
+  drawFittedText(receiptVoucher.receipt_note, 235, 452, 178, {
+    size: 8,
+  })
+
+  const itemStartY = 392
+  const rowHeight = 30
+  const descriptionLineHeight = 10
+  const threeLineDescriptionExtraSpacing = 6
+  const minimumRowY = 112
+
+  let yOffset = 0
+
+  receiptVoucher.items.forEach((item) => {
+    const y = itemStartY - yOffset
+
+    if (y < minimumRowY) return
+
+    const description =
+      item.item_description ?? item.description ?? "Article sans description"
+
+    const descriptionLines = splitDescriptionText(
+      description,
+      TABLE_COLUMNS.descriptionMaxWidth,
+      TABLE_COLUMNS.descriptionMaxCharacters,
+      3,
+    )
+
+    drawFittedText(
+      item.item_code,
+      TABLE_COLUMNS.codeX,
+      y,
+      TABLE_COLUMNS.codeMaxWidth,
+      {
+        size: 9,
+      },
+    )
+
+    descriptionLines.forEach((line, index) => {
+      drawText(
+        line,
+        TABLE_COLUMNS.descriptionX,
+        y - index * descriptionLineHeight,
+        {
+          size: 9,
+        },
+      )
+    })
+
+    drawRightAlignedText(
+      formatQuantity(item.quantity),
+      TABLE_COLUMNS.quantityRightX,
+      y,
+      {
+        size: 9,
+      },
+    )
+
+    drawRightAlignedText(
+      formatQuantity(item.received_quantity),
+      TABLE_COLUMNS.receivedQuantityRightX,
+      y,
+      {
+        size: 9,
+        bold: true,
+      },
+    )
+
+    drawFittedText(
+      item.comment,
+      TABLE_COLUMNS.commentX,
+      y,
+      TABLE_COLUMNS.commentMaxWidth,
+      {
+        size: 8,
+      },
+    )
+
+    yOffset += rowHeight
+
+    if (descriptionLines.length === 3) {
+      yOffset += threeLineDescriptionExtraSpacing
+    }
+  })
+
+  drawRightAlignedText(
+    formatQuantity(orderedTotal),
+    TABLE_COLUMNS.quantityRightX,
+    133,
+    {
+      size: 10,
+      bold: true,
+    },
+  )
+
+  drawRightAlignedText(
+    formatQuantity(receivedTotal),
+    TABLE_COLUMNS.receivedQuantityRightX,
+    133,
+    {
+      size: 10,
+      bold: true,
+    },
+  )
+
   drawRightAlignedText(formatDateTime(new Date()), 560, 35, {
     size: 8,
   })

@@ -435,6 +435,7 @@ export async function getPurchaseRequestWithItems(
       po.supplier_name,
       po.supplier_address_snapshot,
       po.supplier_phone,
+      po.delivery_method,
       po.supplier_reference,
       po.purchase_note,
       po.status,
@@ -519,6 +520,7 @@ export async function getPurchaseRequestWithItems(
         supplier_name: order.supplier_name,
         supplier_address_snapshot: order.supplier_address_snapshot,
         supplier_phone: order.supplier_phone,
+        delivery_method: order.delivery_method,
         supplier_reference: order.supplier_reference,
       })),
       items: purchaseOrders.flatMap((order) =>
@@ -531,6 +533,7 @@ export async function getPurchaseRequestWithItems(
             purchase_order_reference: order.purchase_order_reference,
             supplier_id: order.supplier_id,
             supplier_name: order.supplier_name,
+            delivery_method: order.delivery_method,
             item_code: item.item_code,
             item_description: item.item_description,
             quantity: item.ordered_quantity,
