@@ -349,14 +349,7 @@ export const generateReceiptVoucherPdf = async (
     return lines.slice(0, maxLines)
   }
 
-  const purchaseOrderReferences = [
-    ...new Set([
-      ...(receiptVoucher.purchase_order_references ?? []),
-      ...receiptVoucher.items
-        .map((item) => item.purchase_order_reference)
-        .filter(Boolean),
-    ]),
-  ].filter(Boolean)
+ 
 
   const orderedTotal = receiptVoucher.items.reduce(
     (sum, item) => sum + Number(item.quantity ?? 0),
@@ -373,18 +366,9 @@ export const generateReceiptVoucherPdf = async (
     bold: true,
   })
 
-  const commandReferencesToDraw =
-    purchaseOrderReferences.length > 0
-      ? purchaseOrderReferences
-      : receiptVoucher.request_reference
-        ? [receiptVoucher.request_reference]
-        : []
 
-  commandReferencesToDraw.slice(0, 2).forEach((reference, index) => {
-    drawFittedRightAlignedText(reference, 560, 632 - index * 10, 125, {
-      size: 8,
-    })
-  })
+
+ 
 
   drawFittedText(receiptVoucher.supplier_name, 67, 576, 150, {
     size: 9,
