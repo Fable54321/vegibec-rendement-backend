@@ -250,33 +250,45 @@ export const generateReceiptVoucherPdf = async (
     drawRightAlignedText(`${fittedText}...`, rightX, y, options)
   }
 
-  const drawLines = (
-    text: string | number | null | undefined,
-    x: number,
-    y: number,
-    options?: {
-      size?: number
-      bold?: boolean
-      lineHeight?: number
-      maxLines?: number
-    },
-  ) => {
-    if (text === null || text === undefined || text === "") return
+ const drawLines = (
+  text: string | null | undefined,
+  x: number,
+  y: number,
+  options?: {
+    size?: number
+    bold?: boolean
+    lineHeight?: number
+    maxLines?: number
+    maxWidth?: number
+  },
+) => {
+  if (!text) return
 
-    const lines = String(text)
-      .split(/\r?\n|,/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-    const maxLines = options?.maxLines ?? lines.length
-    const lineHeight = options?.lineHeight ?? 12
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
 
-    lines.slice(0, maxLines).forEach((line, index) => {
-      drawText(line, x, y - index * lineHeight, {
+  const maxLines = options?.maxLines ?? lines.length
+  const lineHeight = options?.lineHeight ?? 12
+
+  lines.slice(0, maxLines).forEach((line, index) => {
+    const lineY = y - index * lineHeight
+
+    if (options?.maxWidth) {
+      drawFittedText(line, x, lineY, options.maxWidth, {
         size: options?.size,
         bold: options?.bold,
       })
+      return
+    }
+
+    drawText(line, x, lineY, {
+      size: options?.size,
+      bold: options?.bold,
     })
-  }
+  })
+}
 
   const splitDescriptionText = (
     text: string | null | undefined,

@@ -243,34 +243,45 @@ const HEADER_COLUMNS = {
   orderReferenceY: 720,
 }
 
-  const drawLines = (
-    text: string | null | undefined,
-    x: number,
-    y: number,
-    options?: {
-      size?: number
-      bold?: boolean
-      lineHeight?: number
-      maxLines?: number
-    },
-  ) => {
-    if (!text) return
+ const drawLines = (
+  text: string | null | undefined,
+  x: number,
+  y: number,
+  options?: {
+    size?: number
+    bold?: boolean
+    lineHeight?: number
+    maxLines?: number
+    maxWidth?: number
+  },
+) => {
+  if (!text) return
 
-    const lines = text
-      .split(/\r?\n|,/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
 
-    const maxLines = options?.maxLines ?? lines.length
-    const lineHeight = options?.lineHeight ?? 12
+  const maxLines = options?.maxLines ?? lines.length
+  const lineHeight = options?.lineHeight ?? 12
 
-    lines.slice(0, maxLines).forEach((line, index) => {
-      drawText(line, x, y - index * lineHeight, {
+  lines.slice(0, maxLines).forEach((line, index) => {
+    const lineY = y - index * lineHeight
+
+    if (options?.maxWidth) {
+      drawFittedText(line, x, lineY, options.maxWidth, {
         size: options?.size,
         bold: options?.bold,
       })
+      return
+    }
+
+    drawText(line, x, lineY, {
+      size: options?.size,
+      bold: options?.bold,
     })
-  }
+  })
+}
 
   const splitDescriptionText = (
     text: string | null | undefined,
