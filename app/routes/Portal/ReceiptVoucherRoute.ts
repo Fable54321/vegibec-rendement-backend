@@ -19,6 +19,14 @@ type ReceiptVoucherItemInput = {
   comment?: string | null
 }
 
+type NormalizedReceiptVoucherItem = {
+  purchase_request_item_id: number | null
+  purchase_order_item_id: number | null
+  quantity: number | null
+  received_quantity: number | null
+  comment: string | null
+}
+
 const toPositiveNumber = (value: unknown) => {
   const numberValue =
     typeof value === "string" ? Number(value.replace(",", ".")) : Number(value)
@@ -377,16 +385,12 @@ const receivedByEmail = cleanText(received_by_email)
     })
 
     const invalidItem = normalizedItems.find(
-      (item) =>
-        !item.purchase_request_item_id ||
-        !item.quantity ||
-        !item.received_quantity,
+      (item) => !item.purchase_request_item_id,
     )
 
     if (invalidItem) {
       return res.status(400).json({
-        message:
-          "Each item needs purchase_request_item_id, quantity, and received_quantity",
+        message: "Each item needs purchase_request_item_id",
       })
     }
 
@@ -423,7 +427,13 @@ const receivedByEmail = cleanText(received_by_email)
       })
     }
 
-    const itemIds = normalizedItems.map((item) => item.purchase_request_item_id)
+    const itemIds = [
+      ...new Set(
+        normalizedItems
+          .map((item) => item.purchase_request_item_id)
+          .filter((id): id is number => !!id),
+      ),
+    ]
 
     const requestItemsResult = await client.query(
       `
@@ -443,63 +453,183 @@ const receivedByEmail = cleanText(received_by_email)
       })
     }
 
-    const purchaseOrderItemIds = normalizedItems
+    const requestedPurchaseOrderItemIds = normalizedItems
       .map((item) => item.purchase_order_item_id)
       .filter((id): id is number => !!id)
-    const uniquePurchaseOrderItemIds = [...new Set(purchaseOrderItemIds)]
+    const uniqueRequestedPurchaseOrderItemIds = [
+      ...new Set(requestedPurchaseOrderItemIds),
+    ]
 
-    if (uniquePurchaseOrderItemIds.length > 0) {
-      const purchaseOrderItemsResult = await client.query(
-        `
+    const purchaseOrderItemsResult = await client.query(
+      `
+      SELECT
+        poi.id,
+        poi.purchase_request_item_id,
+        poi.purchase_order_id,
+        poi.ordered_quantity,
+        poi.item_code,
+        poi.item_description,
+        poi.ordered_unit,
+        po.purchase_order_reference,
+        po.supplier_id,
+        po.supplier,
+        po.supplier_name,
+        po.supplier_address_snapshot,
+        po.supplier_phone,
+        COALESCE(received.received_quantity, 0)::numeric
+          AS already_received_quantity
+      FROM portal.purchase_order_items poi
+      INNER JOIN portal.purchase_orders po
+        ON po.id = poi.purchase_order_id
+      LEFT JOIN (
         SELECT
-          poi.id,
-          poi.ordered_quantity,
-          COALESCE(received.received_quantity, 0)::numeric
-            AS already_received_quantity
-        FROM portal.purchase_order_items poi
-        INNER JOIN portal.purchase_orders po
-          ON po.id = poi.purchase_order_id
-        LEFT JOIN (
-          SELECT
-            purchase_order_item_id,
-            SUM(received_quantity)::numeric AS received_quantity
-          FROM portal.receipt_voucher_items
-          WHERE purchase_order_item_id = ANY($2::bigint[])
-          GROUP BY purchase_order_item_id
-        ) received
-          ON received.purchase_order_item_id = poi.id
-        WHERE po.purchase_request_id = $1
-        AND poi.id = ANY($2::bigint[])
-        `,
-        [purchaseRequestId, uniquePurchaseOrderItemIds],
+          purchase_order_item_id,
+          SUM(received_quantity)::numeric AS received_quantity
+        FROM portal.receipt_voucher_items
+        WHERE purchase_order_item_id IS NOT NULL
+        GROUP BY purchase_order_item_id
+      ) received
+        ON received.purchase_order_item_id = poi.id
+      WHERE po.purchase_request_id = $1
+      AND (
+        poi.purchase_request_item_id = ANY($2::bigint[])
+        OR (
+          CARDINALITY($3::bigint[]) > 0
+          AND poi.id = ANY($3::bigint[])
+        )
       )
+      `,
+      [purchaseRequestId, itemIds, uniqueRequestedPurchaseOrderItemIds],
+    )
+
+    const purchaseOrderItemsById = new Map<number, any>()
+    const purchaseOrderItemsByRequestItemId = new Map<number, any[]>()
+
+    purchaseOrderItemsResult.rows.forEach((item) => {
+      const purchaseOrderItemId = Number(item.id)
+      const purchaseRequestItemId = Number(item.purchase_request_item_id)
+
+      purchaseOrderItemsById.set(purchaseOrderItemId, item)
+
+      const itemsForRequestItem =
+        purchaseOrderItemsByRequestItemId.get(purchaseRequestItemId) ?? []
+
+      itemsForRequestItem.push(item)
+      purchaseOrderItemsByRequestItemId.set(
+        purchaseRequestItemId,
+        itemsForRequestItem,
+      )
+    })
+
+    const invalidPurchaseOrderItem = uniqueRequestedPurchaseOrderItemIds.find(
+      (id) => !purchaseOrderItemsById.has(id),
+    )
+
+    if (invalidPurchaseOrderItem) {
+      await client.query("ROLLBACK")
+
+      return res.status(400).json({
+        message:
+          "One or more purchase order items do not belong to this purchase request",
+      })
+    }
+
+    const hydratedItems: NormalizedReceiptVoucherItem[] = []
+
+    for (const item of normalizedItems) {
+      let purchaseOrderItem = item.purchase_order_item_id
+        ? purchaseOrderItemsById.get(item.purchase_order_item_id)
+        : null
 
       if (
-        purchaseOrderItemsResult.rows.length !== uniquePurchaseOrderItemIds.length
+        purchaseOrderItem &&
+        Number(purchaseOrderItem.purchase_request_item_id) !==
+          item.purchase_request_item_id
       ) {
         await client.query("ROLLBACK")
 
         return res.status(400).json({
           message:
-            "One or more purchase order items do not belong to this purchase request",
+            "One or more purchase order items do not match the purchase request item",
         })
       }
 
-      const incomingReceivedByOrderItem = normalizedItems.reduce(
-        (acc, item) => {
-          if (!item.purchase_order_item_id || !item.received_quantity) {
-            return acc
-          }
+      if (!purchaseOrderItem) {
+        const matchingPurchaseOrderItems =
+          purchaseOrderItemsByRequestItemId.get(item.purchase_request_item_id!) ??
+          []
 
-          acc[item.purchase_order_item_id] =
-            (acc[item.purchase_order_item_id] ?? 0) + item.received_quantity
+        const receivablePurchaseOrderItems = matchingPurchaseOrderItems.filter(
+          (orderItem) => {
+            const orderedQuantity = Number(orderItem.ordered_quantity || 0)
+            const alreadyReceivedQuantity = Number(
+              orderItem.already_received_quantity || 0,
+            )
 
-          return acc
-        },
-        {} as Record<number, number>,
-      )
+            return orderedQuantity > alreadyReceivedQuantity
+          },
+        )
 
-      const overReceivedItem = purchaseOrderItemsResult.rows.find((item) => {
+        if (receivablePurchaseOrderItems.length === 1) {
+          purchaseOrderItem = receivablePurchaseOrderItems[0]
+        }
+      }
+
+      const orderedQuantity = purchaseOrderItem
+        ? Number(purchaseOrderItem.ordered_quantity || 0)
+        : null
+      const alreadyReceivedQuantity = purchaseOrderItem
+        ? Number(purchaseOrderItem.already_received_quantity || 0)
+        : 0
+      const remainingQuantity =
+        orderedQuantity === null
+          ? null
+          : Math.max(orderedQuantity - alreadyReceivedQuantity, 0)
+
+      hydratedItems.push({
+        ...item,
+        purchase_order_item_id: purchaseOrderItem
+          ? Number(purchaseOrderItem.id)
+          : item.purchase_order_item_id,
+        quantity: item.quantity ?? orderedQuantity,
+        received_quantity: item.received_quantity ?? remainingQuantity,
+      })
+    }
+
+    const invalidQuantityItem = hydratedItems.find(
+      (item) => !item.quantity || !item.received_quantity,
+    )
+
+    if (invalidQuantityItem) {
+      await client.query("ROLLBACK")
+
+      return res.status(400).json({
+        message:
+          "Each item needs quantity and received_quantity unless it is linked to a receivable purchase order item",
+      })
+    }
+
+    const purchaseOrderItemIds = hydratedItems
+      .map((item) => item.purchase_order_item_id)
+      .filter((id): id is number => !!id)
+    const uniquePurchaseOrderItemIds = [...new Set(purchaseOrderItemIds)]
+
+    if (uniquePurchaseOrderItemIds.length > 0) {
+      const incomingReceivedByOrderItem: Record<number, number> = {}
+
+      hydratedItems.forEach((item) => {
+        if (!item.purchase_order_item_id || !item.received_quantity) {
+          return
+        }
+
+        incomingReceivedByOrderItem[item.purchase_order_item_id] =
+          (incomingReceivedByOrderItem[item.purchase_order_item_id] ?? 0) +
+          item.received_quantity
+      })
+
+      const overReceivedItem = uniquePurchaseOrderItemIds
+        .map((id) => purchaseOrderItemsById.get(id))
+        .find((item) => {
         const incomingQuantity = incomingReceivedByOrderItem[Number(item.id)] ?? 0
         const orderedQuantity = Number(item.ordered_quantity || 0)
         const alreadyReceivedQuantity = Number(
@@ -564,7 +694,7 @@ const voucherResult = await client.query(
 
     const insertedItems = []
 
-    for (const item of normalizedItems) {
+    for (const item of hydratedItems) {
       const itemResult = await client.query(
         `
         INSERT INTO portal.receipt_voucher_items (

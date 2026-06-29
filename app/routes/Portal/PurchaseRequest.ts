@@ -418,7 +418,133 @@ export async function getPurchaseRequestWithItems(
     [purchaseRequestId]
   )
 
-  return result.rows[0] ?? null
+  const purchaseRequest = result.rows[0] ?? null
+
+  if (!purchaseRequest) return null
+
+  const purchaseOrdersResult = await client.query(
+    `
+    SELECT
+      po.id,
+      po.purchase_request_id,
+      po.purchase_order_reference,
+      po.purchase_order_sequence,
+      po.purchase_order_subsequence,
+      po.supplier_id,
+      po.supplier,
+      po.supplier_name,
+      po.supplier_address_snapshot,
+      po.supplier_phone,
+      po.supplier_reference,
+      po.purchase_note,
+      po.status,
+      po.created_at,
+      po.updated_at,
+      po.purchased_at
+    FROM portal.purchase_orders po
+    WHERE po.purchase_request_id = $1
+    ORDER BY po.purchase_order_sequence ASC, po.purchase_order_subsequence ASC NULLS FIRST, po.id ASC
+    `,
+    [purchaseRequestId],
+  )
+
+  const purchaseOrderIds = purchaseOrdersResult.rows.map((order) => order.id)
+  let purchaseOrderItemsByOrderId: Record<number, any[]> = {}
+
+  if (purchaseOrderIds.length > 0) {
+    const purchaseOrderItemsResult = await client.query(
+      `
+      SELECT
+        poi.id,
+        poi.purchase_order_id,
+        poi.purchase_request_item_id,
+        poi.item_code,
+        poi.item_description,
+        poi.ordered_quantity,
+        poi.ordered_unit,
+        poi.final_unit_price,
+        poi.final_total_price,
+        poi.number_of_pallets,
+        poi.location,
+        COALESCE(received.received_quantity, 0)::numeric
+          AS already_received_quantity,
+        GREATEST(
+          poi.ordered_quantity - COALESCE(received.received_quantity, 0),
+          0
+        )::numeric AS remaining_quantity
+      FROM portal.purchase_order_items poi
+      LEFT JOIN (
+        SELECT
+          purchase_order_item_id,
+          SUM(received_quantity)::numeric AS received_quantity
+        FROM portal.receipt_voucher_items
+        WHERE purchase_order_item_id IS NOT NULL
+        GROUP BY purchase_order_item_id
+      ) received
+        ON received.purchase_order_item_id = poi.id
+      WHERE poi.purchase_order_id = ANY($1::int[])
+      ORDER BY poi.purchase_order_id ASC, poi.id ASC
+      `,
+      [purchaseOrderIds],
+    )
+
+    purchaseOrderItemsByOrderId = purchaseOrderItemsResult.rows.reduce(
+      (acc, item) => {
+        if (!acc[item.purchase_order_id]) {
+          acc[item.purchase_order_id] = []
+        }
+
+        acc[item.purchase_order_id].push(item)
+
+        return acc
+      },
+      {} as Record<number, any[]>,
+    )
+  }
+
+  const purchaseOrders = purchaseOrdersResult.rows.map((order) => ({
+    ...order,
+    items: purchaseOrderItemsByOrderId[order.id] ?? [],
+  }))
+
+  return {
+    ...purchaseRequest,
+    purchase_orders: purchaseOrders,
+    receipt_voucher_defaults: {
+      suppliers: purchaseOrders.map((order) => ({
+        purchase_order_id: order.id,
+        purchase_order_reference: order.purchase_order_reference,
+        supplier_id: order.supplier_id,
+        supplier: order.supplier,
+        supplier_name: order.supplier_name,
+        supplier_address_snapshot: order.supplier_address_snapshot,
+        supplier_phone: order.supplier_phone,
+        supplier_reference: order.supplier_reference,
+      })),
+      items: purchaseOrders.flatMap((order) =>
+        order.items
+          .filter((item: any) => Number(item.remaining_quantity || 0) > 0)
+          .map((item: any) => ({
+            purchase_request_item_id: item.purchase_request_item_id,
+            purchase_order_item_id: item.id,
+            purchase_order_id: order.id,
+            purchase_order_reference: order.purchase_order_reference,
+            supplier_id: order.supplier_id,
+            supplier_name: order.supplier_name,
+            item_code: item.item_code,
+            item_description: item.item_description,
+            quantity: item.ordered_quantity,
+            received_quantity: item.remaining_quantity,
+            ordered_quantity: item.ordered_quantity,
+            already_received_quantity: item.already_received_quantity,
+            remaining_quantity: item.remaining_quantity,
+            ordered_unit: item.ordered_unit,
+            number_of_pallets: item.number_of_pallets,
+            location: item.location,
+          })),
+      ),
+    },
+  }
 }
 
 router.post("/send-email", createPurchaseRequestLimiter, async (req, res) => {
