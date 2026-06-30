@@ -360,6 +360,9 @@ pr.updated_at,
 
         COALESCE(items.item_count, 0)::int AS item_count,
 
+        COALESCE(items.requested_total_quantity, 0)::numeric
+          AS requested_total_quantity,
+
         COALESCE(items.requested_total_price, 0)::numeric
           AS requested_total_price,
 
@@ -374,6 +377,9 @@ pr.updated_at,
 
         COALESCE(orders.ordered_total_quantity, 0)::numeric
           AS ordered_total_quantity,
+
+        COALESCE(orders.purchased_item_count, 0)::int
+          AS purchased_item_count,
 
         COALESCE(receipts.received_total_quantity, 0)::numeric
           AS received_total_quantity,
@@ -404,7 +410,9 @@ pr.updated_at,
           COALESCE(
             SUM(buyer_confirmed_total_price),
             0
-          )::numeric AS buyer_confirmed_total_price
+          )::numeric AS buyer_confirmed_total_price,
+
+          COUNT(*)::numeric AS requested_total_quantity
 
         FROM portal.purchase_request_items
         GROUP BY purchase_request_id
@@ -438,6 +446,9 @@ pr.updated_at,
 
           COALESCE(SUM(poi.ordered_quantity), 0)::numeric
             AS ordered_total_quantity,
+
+          COUNT(DISTINCT poi.purchase_request_item_id)::int
+            AS purchased_item_count,
 
           MAX(po.purchased_at) AS last_purchased_at,
           MAX(po.received_at) AS last_received_at
@@ -477,6 +488,8 @@ pr.updated_at,
       const buyerConfirmedTotal = Number(row.buyer_confirmed_total_price || 0)
       const requestedTotal = Number(row.requested_total_price || 0)
       const actualPurchasedTotal = Number(row.actual_purchased_total_price || 0)
+      const requestedTotalQuantity = Number(row.requested_total_quantity || 0)
+      const purchasedItemCount = Number(row.purchased_item_count || 0)
       const orderedTotalQuantity = Number(row.ordered_total_quantity || 0)
       const receivedTotalQuantity = Number(row.received_total_quantity || 0)
 
@@ -503,6 +516,8 @@ pr.updated_at,
         item_count: Number(row.item_count || 0),
         purchase_order_count: purchaseOrderCount,
         receipt_voucher_count: Number(row.receipt_voucher_count || 0),
+        requested_total_quantity: requestedTotalQuantity,
+        purchased_total_quantity: purchasedItemCount,
         ordered_total_quantity: orderedTotalQuantity,
         received_total_quantity: receivedTotalQuantity,
         has_receivable_items:
