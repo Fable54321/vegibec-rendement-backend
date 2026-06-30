@@ -411,7 +411,9 @@ pr.updated_at,
           JSON_AGG(
             JSON_BUILD_OBJECT(
               'id', id,
-              'description', description
+              'description', description,
+              'quantity', quantity,
+              'quantity_format', quantity_format
             )
             ORDER BY item_index ASC, id ASC
           ) AS items,
