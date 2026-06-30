@@ -727,7 +727,9 @@ router.get("/:id", async (req, res) => {
         purchased_by.email AS purchased_by_email,
 
         COALESCE(item_totals.requested_total_price, 0)::numeric AS requested_total_price,
-        COALESCE(item_totals.buyer_confirmed_total_price, 0)::numeric AS buyer_confirmed_total_price
+        COALESCE(item_totals.buyer_confirmed_total_price, 0)::numeric AS buyer_confirmed_total_price,
+        COALESCE(item_totals.requested_total_quantity, 0)::numeric AS requested_total_quantity,
+        COALESCE(purchased_items.purchased_total_quantity, 0)::numeric AS purchased_total_quantity
 
       FROM portal.purchase_requests pr
 
@@ -747,11 +749,23 @@ router.get("/:id", async (req, res) => {
         SELECT
           purchase_request_id,
           COALESCE(SUM(requested_total_price), 0)::numeric AS requested_total_price,
-          COALESCE(SUM(buyer_confirmed_total_price), 0)::numeric AS buyer_confirmed_total_price
+          COALESCE(SUM(buyer_confirmed_total_price), 0)::numeric AS buyer_confirmed_total_price,
+          COUNT(*)::numeric AS requested_total_quantity
         FROM portal.purchase_request_items
         GROUP BY purchase_request_id
       ) item_totals
         ON item_totals.purchase_request_id = pr.id
+
+      LEFT JOIN (
+        SELECT
+          po.purchase_request_id,
+          COUNT(DISTINCT poi.purchase_request_item_id)::numeric AS purchased_total_quantity
+        FROM portal.purchase_orders po
+        LEFT JOIN portal.purchase_order_items poi
+          ON poi.purchase_order_id = po.id
+        GROUP BY po.purchase_request_id
+      ) purchased_items
+        ON purchased_items.purchase_request_id = pr.id
 
       WHERE pr.id = $1
 
@@ -789,9 +803,14 @@ router.get("/:id", async (req, res) => {
         buyer_confirmed_supplier,
         status,
         created_at,
-        updated_at
-      FROM portal.purchase_request_items
-      WHERE purchase_request_id = $1
+        updated_at,
+        EXISTS (
+          SELECT 1
+          FROM portal.purchase_order_items poi
+          WHERE poi.purchase_request_item_id = pri.id
+        ) AS has_purchase_order
+      FROM portal.purchase_request_items pri
+      WHERE pri.purchase_request_id = $1
       ORDER BY item_index ASC, id ASC
       `,
       [id],
