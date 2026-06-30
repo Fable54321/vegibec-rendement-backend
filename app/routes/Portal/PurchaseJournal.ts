@@ -360,6 +360,9 @@ pr.updated_at,
 
         COALESCE(items.item_count, 0)::int AS item_count,
 
+        COALESCE(items.item_descriptions, ARRAY[]::text[]) AS item_descriptions,
+        COALESCE(items.items, '[]'::json) AS items,
+
         COALESCE(items.requested_total_quantity, 0)::numeric
           AS requested_total_quantity,
 
@@ -401,6 +404,17 @@ pr.updated_at,
         SELECT
           purchase_request_id,
           COUNT(*)::int AS item_count,
+
+          ARRAY_AGG(description ORDER BY item_index ASC, id ASC)
+            AS item_descriptions,
+
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', id,
+              'description', description
+            )
+            ORDER BY item_index ASC, id ASC
+          ) AS items,
 
           COALESCE(
             SUM(requested_total_price),
@@ -514,6 +528,10 @@ pr.updated_at,
         id: Number(row.id),
 
         item_count: Number(row.item_count || 0),
+        item_descriptions: Array.isArray(row.item_descriptions)
+          ? row.item_descriptions.filter(Boolean)
+          : [],
+        items: Array.isArray(row.items) ? row.items : [],
         purchase_order_count: purchaseOrderCount,
         receipt_voucher_count: Number(row.receipt_voucher_count || 0),
         requested_total_quantity: requestedTotalQuantity,
