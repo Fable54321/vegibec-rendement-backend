@@ -554,6 +554,7 @@ pr.updated_at,
         // Compatibility aliases for the frontend context
         admin_decided_at: row.admin_decision_at,
         purchased_at: row.last_purchased_at,
+        received_at: row.last_received_at,
         cancelled_at: row.cancelled_at,
 cancelled_by_name: row.cancelled_by_name,
 cancelled_by_email: row.cancelled_by_email,
