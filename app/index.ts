@@ -55,6 +55,7 @@ import buyingRoute from "./routes/Portal/BuyingRoute";
 import receiptVoucherRoute from "./routes/Portal/ReceiptVoucherRoute";
 import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
+import suppliersRoute from "./routes/Portal/SuppliersRoute";
 
 
 
@@ -169,6 +170,7 @@ app.set("trust proxy", 1);
 app.use("/purchase-request", purchaseRequest);
 app.use("/buying", buyingRoute);
 app.use("/receipt-vouchers", receiptVoucherRoute);
+app.use("/suppliers", suppliersRoute);
 
 app.use("/portal-unprotected", portalUnprotectedRoute);
 
@@ -1019,6 +1021,8 @@ app.use("/facebook", facebookRoute);
 app.use("/get-url", getURlRoute);
 
 app.use("/purchase-journal", purchaseJournalRoute);
+
+
 
 
 
