@@ -56,6 +56,7 @@ import receiptVoucherRoute from "./routes/Portal/ReceiptVoucherRoute";
 import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
+import agendaRoute from "./routes/Agenda/Agenda";
 
 
 
@@ -988,7 +989,7 @@ app.use("/portal", portalRoute);
 
 app.use("/portal/foreign-workers", foreignWorkersRoute);
 
-
+app.use("/agenda", agendaRoute)
 
 app.use("/warehouse", warehouseProductsRoute);
 
