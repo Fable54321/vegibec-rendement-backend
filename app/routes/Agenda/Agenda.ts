@@ -198,7 +198,7 @@ router.get("/month", async (req, res) => {
         is_active,
         created_at,
         updated_at
-      FROM portal.agenda_tasks
+      FROM agenda.agenda_tasks
       WHERE user_id = $1
         AND is_active = true
         AND (
@@ -237,7 +237,7 @@ router.get("/month", async (req, res) => {
     for (const occurrence of occurrenceInputs) {
       await client.query(
         `
-        INSERT INTO portal.agenda_task_occurrences (
+        INSERT INTO agenda.agenda_task_occurrences (
           task_id,
           occurrence_date,
           scheduled_for,
@@ -277,8 +277,8 @@ router.get("/month", async (req, res) => {
         at.recurrence_type,
         at.recurrence_interval,
         at.recurrence_end_date::text
-      FROM portal.agenda_task_occurrences ato
-      JOIN portal.agenda_tasks at
+      FROM agenda.agenda_task_occurrences ato
+      JOIN agenda.agenda_tasks at
         ON at.id = ato.task_id
       WHERE at.user_id = $1
         AND at.is_active = true
@@ -383,7 +383,7 @@ router.post("/tasks", async (req, res) => {
 
     const result = await client.query(
       `
-      INSERT INTO portal.agenda_tasks (
+      INSERT INTO agenda.agenda_tasks (
         user_id,
         task_description,
         task_icon,
@@ -539,7 +539,7 @@ router.patch("/tasks/:id", async (req, res) => {
 
     const result = await client.query(
       `
-      UPDATE portal.agenda_tasks
+      UPDATE agenda.agenda_tasks
       SET
         task_description = COALESCE($3, task_description),
         task_icon = COALESCE($4, task_icon),
@@ -634,7 +634,7 @@ router.delete("/tasks/:id", async (req, res) => {
 
     const result = await client.query(
       `
-      UPDATE portal.agenda_tasks
+      UPDATE agenda.agenda_tasks
       SET
         is_active = false,
         updated_at = now()
@@ -687,12 +687,12 @@ router.patch("/occurrences/:id/complete", async (req, res) => {
 
     const result = await client.query(
       `
-      UPDATE portal.agenda_task_occurrences ato
+      UPDATE agenda.agenda_task_occurrences ato
       SET
         status = 'completed',
         completed_at = now(),
         updated_at = now()
-      FROM portal.agenda_tasks at
+      FROM agenda.agenda_tasks at
       WHERE ato.task_id = at.id
         AND ato.id = $1
         AND at.user_id = $2
@@ -754,12 +754,12 @@ router.patch("/occurrences/:id/dismiss", async (req, res) => {
 
     const result = await client.query(
       `
-      UPDATE portal.agenda_task_occurrences ato
+      UPDATE agenda.agenda_task_occurrences ato
       SET
         status = 'dismissed',
         dismissed_at = now(),
         updated_at = now()
-      FROM portal.agenda_tasks at
+      FROM agenda.agenda_tasks at
       WHERE ato.task_id = at.id
         AND ato.id = $1
         AND at.user_id = $2
@@ -853,14 +853,14 @@ router.patch("/occurrences/:id/snooze", async (req, res) => {
 
     const result = await client.query(
       `
-      UPDATE portal.agenda_task_occurrences ato
+      UPDATE agenda.agenda_task_occurrences ato
       SET
         status = 'snoozed',
         next_reminder_at = ato.next_reminder_at + ${intervalExpression},
         snooze_count = ato.snooze_count + 1,
         last_snoozed_at = now(),
         updated_at = now()
-      FROM portal.agenda_tasks at
+      FROM agenda.agenda_tasks at
       WHERE ato.task_id = at.id
         AND ato.id = $1
         AND at.user_id = $2
@@ -938,14 +938,14 @@ router.patch("/occurrences/:id/reschedule", async (req, res) => {
 
     const result = await client.query(
       `
-      UPDATE portal.agenda_task_occurrences ato
+      UPDATE agenda.agenda_task_occurrences ato
       SET
         status = 'snoozed',
         next_reminder_at = $3,
         snooze_count = ato.snooze_count + 1,
         last_snoozed_at = now(),
         updated_at = now()
-      FROM portal.agenda_tasks at
+      FROM agenda.agenda_tasks at
       WHERE ato.task_id = at.id
         AND ato.id = $1
         AND at.user_id = $2
@@ -1016,8 +1016,8 @@ router.get("/due", async (req, res) => {
         at.task_description,
         at.task_icon,
         at.user_id
-      FROM portal.agenda_task_occurrences ato
-      JOIN portal.agenda_tasks at
+      FROM agenda.agenda_task_occurrences ato
+      JOIN agenda.agenda_tasks at
         ON at.id = ato.task_id
       WHERE at.user_id = $1
         AND at.is_active = true
@@ -1066,12 +1066,12 @@ router.patch("/occurrences/:id/notified", async (req, res) => {
 
     const result = await client.query(
       `
-      UPDATE portal.agenda_task_occurrences ato
+      UPDATE agenda.agenda_task_occurrences ato
       SET
         status = 'notified',
         notified_at = now(),
         updated_at = now()
-      FROM portal.agenda_tasks at
+      FROM agenda.agenda_tasks at
       WHERE ato.task_id = at.id
         AND ato.id = $1
         AND at.user_id = $2
