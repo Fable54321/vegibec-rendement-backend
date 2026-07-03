@@ -121,9 +121,11 @@ const getNextOccurrenceDate = (
 }
 
 const combineDateAndTime = (dateKey: string, time: string | null) => {
-  const reminderTime = time || "09:00"
+  const [hours = "09", minutes = "00", seconds = "00"] = (time || "09:00")
+    .split(":")
+    .map((part) => part.padStart(2, "0"))
 
-  return `${dateKey}T${reminderTime}:00`
+  return `${dateKey}T${hours}:${minutes}:${seconds}`
 }
 
 const ensurePushSchema = async () => {
