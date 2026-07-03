@@ -13,7 +13,8 @@
     "scrape:website": "ts-node app/Utils/WebsiteScraper.ts",
     "scrape:weather": "ts-node app/Utils/Weather/runWeatherScrape.ts",
     "test:smtp": "tsx app/routes/Visitors/Utils/testSMTP.ts",
-    "test": "tsx --test \"app/**/*.test.ts\""
+    "test": "tsx --test \"app/**/*.test.ts\"",
+    "generate:vapid": "web-push generate-vapid-keys"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +24,7 @@
     "@aws-sdk/client-s3": "^3.1025.0",
     "@aws-sdk/s3-request-presigner": "^3.1025.0",
     "@napi-rs/canvas": "^0.1.97",
+    "@types/web-push": "^3.6.4",
     "bcrypt": "^6.0.0",
     "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",
@@ -39,6 +41,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.6.205",
     "pg": "^8.16.3",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

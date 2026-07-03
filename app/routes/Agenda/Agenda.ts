@@ -1,9 +1,34 @@
 import { Router } from "express"
 import { pool } from "../../db"
+import webpush, { type PushSubscription } from "web-push"
+import type { PoolClient } from "pg"
 
 const router = Router()
 
 type RecurrenceType = "none" | "daily" | "weekly" | "monthly" | "yearly"
+
+type PushSubscriptionBody = PushSubscription & {
+  keys?: {
+    p256dh?: string
+    auth?: string
+  }
+}
+
+let hasEnsuredPushSchema = false
+let notificationWorkerHandle: NodeJS.Timeout | null = null
+
+const vapidPublicKey = process.env.AGENDA_VAPID_PUBLIC_KEY || ""
+const vapidPrivateKey = process.env.AGENDA_VAPID_PRIVATE_KEY || ""
+const vapidSubject =
+  process.env.AGENDA_VAPID_SUBJECT || "mailto:admin@vegibec-portail.com"
+const agendaApiBaseUrl =
+  process.env.AGENDA_API_BASE_URL || "https://api.vegibec-portail.com"
+
+const isPushConfigured = Boolean(vapidPublicKey && vapidPrivateKey)
+
+if (isPushConfigured) {
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey)
+}
 
 const VALID_ICONS = new Set([
   "shopping",
@@ -101,6 +126,32 @@ const combineDateAndTime = (dateKey: string, time: string | null) => {
   return `${dateKey}T${reminderTime}:00`
 }
 
+const ensurePushSchema = async () => {
+  if (hasEnsuredPushSchema) return
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agenda.push_subscriptions (
+      id bigserial PRIMARY KEY,
+      user_id integer NOT NULL,
+      endpoint text NOT NULL UNIQUE,
+      p256dh text NOT NULL,
+      auth text NOT NULL,
+      user_agent text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      last_success_at timestamptz,
+      last_error text
+    )
+  `)
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS push_subscriptions_user_id_idx
+    ON agenda.push_subscriptions (user_id)
+  `)
+
+  hasEnsuredPushSchema = true
+}
+
 const getMonthRange = (year: number, month: number) => {
   const start = new Date(year, month - 1, 1)
   const end = new Date(year, month, 0)
@@ -151,6 +202,89 @@ const buildOccurrencesForMonth = (task: any, monthStart: string, monthEnd: strin
   }
 
   return occurrenceDates
+}
+
+const ensureOccurrencesForRange = async (
+  client: PoolClient,
+  rangeStart: string,
+  rangeEnd: string,
+) => {
+  const tasksResult = await client.query(
+    `
+    SELECT
+      id,
+      user_id,
+      task_description,
+      task_icon,
+      start_date::text,
+      reminder_time::text,
+      recurrence_type,
+      recurrence_interval,
+      recurrence_end_date::text,
+      is_active,
+      created_at,
+      updated_at
+    FROM agenda.agenda_tasks
+    WHERE is_active = true
+      AND (
+        start_date <= $2::date
+        AND (
+          recurrence_end_date IS NULL
+          OR recurrence_end_date >= $1::date
+        )
+      )
+    ORDER BY start_date ASC, id ASC
+    `,
+    [rangeStart, rangeEnd],
+  )
+
+  for (const task of tasksResult.rows) {
+    const dates = buildOccurrencesForMonth(task, rangeStart, rangeEnd)
+
+    for (const occurrenceDate of dates) {
+      await client.query(
+        `
+        INSERT INTO agenda.agenda_task_occurrences (
+          task_id,
+          occurrence_date,
+          scheduled_for,
+          next_reminder_at
+        )
+        VALUES ($1, $2, $3, $3)
+        ON CONFLICT (task_id, occurrence_date)
+        DO NOTHING
+        `,
+        [
+          task.id,
+          occurrenceDate,
+          combineDateAndTime(occurrenceDate, task.reminder_time),
+        ],
+      )
+    }
+  }
+}
+
+const getUpcomingOccurrenceRange = () => {
+  const start = new Date()
+  const end = new Date()
+  end.setDate(end.getDate() + 7)
+
+  return {
+    rangeStart: toDateKey(start),
+    rangeEnd: toDateKey(end),
+  }
+}
+
+const buildNotificationPayload = (occurrence: any) => {
+  return JSON.stringify({
+    title: "Rappel agenda",
+    body: occurrence.task_description,
+    url: `/?occurrence=${occurrence.id}`,
+    tag: `agenda-occurrence-${occurrence.id}`,
+    occurrenceId: occurrence.id,
+    taskId: occurrence.task_id,
+    apiBaseUrl: agendaApiBaseUrl,
+  })
 }
 
 /**
@@ -1110,5 +1244,294 @@ router.patch("/occurrences/:id/notified", async (req, res) => {
     client.release()
   }
 })
+
+/**
+ * GET /agenda/notifications/vapid-public-key
+ *
+ * The frontend needs this key before it can subscribe the device/browser
+ * to native Web Push notifications.
+ */
+router.get("/notifications/vapid-public-key", (_req, res) => {
+  return res.json({
+    publicKey: vapidPublicKey,
+    isConfigured: isPushConfigured,
+  })
+})
+
+/**
+ * POST /agenda/notifications/subscriptions
+ *
+ * Stores the current browser/device push subscription for the authenticated user.
+ */
+router.post("/notifications/subscriptions", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    await ensurePushSchema()
+
+    const userId = getUserId(req)
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" })
+    }
+
+    if (!isPushConfigured) {
+      return res.status(503).json({
+        message: "Agenda push notifications are not configured",
+      })
+    }
+
+    const subscription = req.body?.subscription as PushSubscriptionBody
+    const endpoint = subscription?.endpoint
+    const p256dh = subscription?.keys?.p256dh
+    const auth = subscription?.keys?.auth
+
+    if (!endpoint || !p256dh || !auth) {
+      return res.status(400).json({
+        message: "Invalid push subscription",
+      })
+    }
+
+    await client.query(
+      `
+      INSERT INTO agenda.push_subscriptions (
+        user_id,
+        endpoint,
+        p256dh,
+        auth,
+        user_agent
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (endpoint)
+      DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        p256dh = EXCLUDED.p256dh,
+        auth = EXCLUDED.auth,
+        user_agent = EXCLUDED.user_agent,
+        updated_at = now(),
+        last_error = NULL
+      `,
+      [
+        userId,
+        endpoint,
+        p256dh,
+        auth,
+        req.get("user-agent") || null,
+      ],
+    )
+
+    return res.status(201).json({
+      message: "Push subscription saved",
+    })
+  } catch (error) {
+    console.error("Agenda push subscription save failed:", error)
+
+    return res.status(500).json({
+      message: "Unable to save push subscription",
+    })
+  } finally {
+    client.release()
+  }
+})
+
+/**
+ * DELETE /agenda/notifications/subscriptions
+ *
+ * Removes the current browser/device push subscription for the authenticated user.
+ */
+router.delete("/notifications/subscriptions", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    await ensurePushSchema()
+
+    const userId = getUserId(req)
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" })
+    }
+
+    const endpoint = req.body?.endpoint
+
+    if (typeof endpoint !== "string" || endpoint.length === 0) {
+      return res.status(400).json({
+        message: "Invalid push subscription endpoint",
+      })
+    }
+
+    await client.query(
+      `
+      DELETE FROM agenda.push_subscriptions
+      WHERE user_id = $1
+        AND endpoint = $2
+      `,
+      [userId, endpoint],
+    )
+
+    return res.json({
+      message: "Push subscription removed",
+    })
+  } catch (error) {
+    console.error("Agenda push subscription delete failed:", error)
+
+    return res.status(500).json({
+      message: "Unable to remove push subscription",
+    })
+  } finally {
+    client.release()
+  }
+})
+
+export const processDueAgendaNotifications = async () => {
+  if (!isPushConfigured) return
+
+  await ensurePushSchema()
+
+  const client = await pool.connect()
+
+  try {
+    const { rangeStart, rangeEnd } = getUpcomingOccurrenceRange()
+
+    await client.query("BEGIN")
+    await ensureOccurrencesForRange(client, rangeStart, rangeEnd)
+
+    const occurrencesResult = await client.query(
+      `
+      SELECT
+        ato.id,
+        ato.task_id,
+        ato.occurrence_date::text,
+        ato.status,
+        ato.scheduled_for,
+        ato.next_reminder_at,
+        ato.notified_at,
+        ato.snooze_count,
+        ato.last_snoozed_at,
+
+        at.task_description,
+        at.task_icon,
+        at.user_id
+      FROM agenda.agenda_task_occurrences ato
+      JOIN agenda.agenda_tasks at
+        ON at.id = ato.task_id
+      WHERE at.is_active = true
+        AND ato.status IN ('pending', 'snoozed')
+        AND ato.next_reminder_at <= now()
+      ORDER BY ato.next_reminder_at ASC
+      LIMIT 100
+      `,
+    )
+
+    await client.query("COMMIT")
+
+    for (const occurrence of occurrencesResult.rows) {
+      const subscriptionsResult = await pool.query(
+        `
+        SELECT id, endpoint, p256dh, auth
+        FROM agenda.push_subscriptions
+        WHERE user_id = $1
+        `,
+        [occurrence.user_id],
+      )
+
+      if (subscriptionsResult.rowCount === 0) {
+        continue
+      }
+
+      const payload = buildNotificationPayload(occurrence)
+      let sentCount = 0
+
+      for (const subscription of subscriptionsResult.rows) {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: subscription.endpoint,
+              keys: {
+                p256dh: subscription.p256dh,
+                auth: subscription.auth,
+              },
+            },
+            payload,
+          )
+
+          sentCount += 1
+
+          await pool.query(
+            `
+            UPDATE agenda.push_subscriptions
+            SET
+              last_success_at = now(),
+              last_error = NULL,
+              updated_at = now()
+            WHERE id = $1
+            `,
+            [subscription.id],
+          )
+        } catch (error: any) {
+          const statusCode = Number(error?.statusCode)
+
+          if (statusCode === 404 || statusCode === 410) {
+            await pool.query(
+              "DELETE FROM agenda.push_subscriptions WHERE id = $1",
+              [subscription.id],
+            )
+          } else {
+            await pool.query(
+              `
+              UPDATE agenda.push_subscriptions
+              SET
+                last_error = $2,
+                updated_at = now()
+              WHERE id = $1
+              `,
+              [subscription.id, error?.message || "Push send failed"],
+            )
+          }
+        }
+      }
+
+      if (sentCount > 0) {
+        await pool.query(
+          `
+          UPDATE agenda.agenda_task_occurrences
+          SET
+            status = 'notified',
+            notified_at = now(),
+            updated_at = now()
+          WHERE id = $1
+            AND status IN ('pending', 'snoozed')
+          `,
+          [occurrence.id],
+        )
+      }
+    }
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined)
+    console.error("Agenda due notification processing failed:", error)
+  } finally {
+    client.release()
+  }
+}
+
+export const startAgendaNotificationWorker = () => {
+  if (notificationWorkerHandle) return
+
+  if (!isPushConfigured) {
+    console.warn(
+      "Agenda push notifications disabled: missing AGENDA_VAPID_PUBLIC_KEY or AGENDA_VAPID_PRIVATE_KEY",
+    )
+    return
+  }
+
+  processDueAgendaNotifications().catch((error) => {
+    console.error("Initial agenda notification processing failed:", error)
+  })
+
+  notificationWorkerHandle = setInterval(() => {
+    processDueAgendaNotifications().catch((error) => {
+      console.error("Agenda notification worker failed:", error)
+    })
+  }, 60_000)
+}
 
 export default router

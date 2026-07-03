@@ -56,7 +56,7 @@ import receiptVoucherRoute from "./routes/Portal/ReceiptVoucherRoute";
 import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
-import agendaRoute from "./routes/Agenda/Agenda";
+import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
 
 
 
@@ -1032,6 +1032,8 @@ const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () =>
   console.log("✅ Server running on http://localhost:3000"),
 );
+
+startAgendaNotificationWorker();
 
 server.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {
