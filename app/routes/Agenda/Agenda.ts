@@ -120,12 +120,22 @@ const getNextOccurrenceDate = (
   return nextDate
 }
 
-const combineDateAndTime = (dateKey: string, time: string | null) => {
-  const [hours = "09", minutes = "00", seconds = "00"] = (time || "09:00")
-    .split(":")
-    .map((part) => part.padStart(2, "0"))
+const normalizeReminderTime = (time: string | null) => {
+  const match = (time || "09:00").match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/)
 
-  return `${dateKey}T${hours}:${minutes}:${seconds}`
+  if (!match) {
+    return "09:00:00"
+  }
+
+  const hours = match[1].padStart(2, "0")
+  const minutes = match[2]
+  const seconds = match[3] || "00"
+
+  return `${hours}:${minutes}:${seconds}`
+}
+
+const combineDateAndTime = (dateKey: string, time: string | null) => {
+  return `${dateKey} ${normalizeReminderTime(time)}`
 }
 
 const ensurePushSchema = async () => {
