@@ -111,6 +111,7 @@ const allowedOrigins = [
   "https://horario.vegibec-portail.com",
   "https://devis.vegibec-portail.com",
   "https://achats.vegibec-portail.com",
+  "https://agenda.vegibec-portail.com"
 ];
 
 app.use(
