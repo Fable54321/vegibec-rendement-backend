@@ -370,28 +370,39 @@ function assertRequesterCanEdit(request: EditableRequestCheck) {
   return null
 }
 
+function getRequestReferenceParts(requestReference: string) {
+  const match = requestReference.match(/^req-(\d{2})-(\d{1,2})-(\d{2,})$/)
+
+  if (!match) {
+    throw new Error(`Invalid purchase request reference: ${requestReference}`)
+  }
+
+  const [, shortYear, month, sequence] = match
+
+  return {
+    request_year: 2000 + Number(shortYear),
+    request_month: Number(month),
+    request_month_sequence: Number(sequence),
+  }
+}
 
 
 async function getNextPurchaseRequestReference(client: PoolClient) {
   const result = await client.query<{
     request_reference: string
-    request_year: number
-    request_month: number
-    request_month_sequence: number
   }>(
     `
-    SELECT *
-    FROM portal.next_purchase_request_reference()
+    SELECT portal.next_purchase_request_reference() AS request_reference
     `
   )
 
-  const row = result.rows[0]
+  const requestReference = result.rows[0]?.request_reference
 
-  if (!row) {
+  if (!requestReference) {
     throw new Error("Could not generate purchase request reference")
   }
 
-  return row
+  return requestReference
 }
 
 export async function getPurchaseRequestWithItems(
@@ -1642,39 +1653,40 @@ router.post(
         })
       }
 
-      const requestReference = await getNextPurchaseRequestReference(client)
+     const requestReference = await getNextPurchaseRequestReference(client)
+const requestReferenceParts = getRequestReferenceParts(requestReference)
 
-      const requestResult = await client.query(
-        `
-        INSERT INTO portal.purchase_requests (
-          request_reference,
-          request_year,
-          request_month,
-          request_month_sequence,
-          requested_by,
-          requester_email,
-          urgency,
-          needed_by_date,
-          status
-        )
-        VALUES (
-          $1, $2, $3, $4,
-          $5, $6, $7, $8,
-          'pending_buyer_validation'
-        )
-        RETURNING *
-        `,
-        [
-          requestReference.request_reference,
-          requestReference.request_year,
-          requestReference.request_month,
-          requestReference.request_month_sequence,
-          cleanRequestedBy,
-          cleanRequesterEmail,
-          urgency,
-          cleanNeededByDate,
-        ]
-      )
+const requestResult = await client.query(
+  `
+  INSERT INTO portal.purchase_requests (
+    request_reference,
+    request_year,
+    request_month,
+    request_month_sequence,
+    requested_by,
+    requester_email,
+    urgency,
+    needed_by_date,
+    status
+  )
+  VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8,
+    'pending_buyer_validation'
+  )
+  RETURNING *
+  `,
+  [
+    requestReference,
+    requestReferenceParts.request_year,
+    requestReferenceParts.request_month,
+    requestReferenceParts.request_month_sequence,
+    cleanRequestedBy,
+    cleanRequesterEmail,
+    urgency,
+    cleanNeededByDate,
+  ]
+)
 
       let createdRequest = requestResult.rows[0]
 

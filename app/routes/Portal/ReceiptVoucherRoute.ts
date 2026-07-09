@@ -129,13 +129,50 @@ const getReceiptVoucherPdfLinks = async (receiptVoucher: {
   )
 }
 
-const formatReceiptVoucherReference = (
-  requestReference: string,
-  sequence: number,
-) => {
-  if (sequence === 1) return requestReference
+const getReferenceBaseFromRequest = (requestReference: string) => {
+  const match = requestReference.match(/^req-(\d{2})-(\d{1,2})-(\d{2,})$/)
 
-  return `${requestReference}-R${String(sequence).padStart(2, "0")}`
+  if (!match) {
+    throw new Error(`Invalid purchase request reference: ${requestReference}`)
+  }
+
+  const [, shortYear, month, sequence] = match
+
+  return `${shortYear}-${month}-${sequence}`
+}
+
+const getPurchaseOrderSubsequenceFromReference = (
+  purchaseOrderReference: string | null,
+) => {
+  if (!purchaseOrderReference) return null
+
+  const match = purchaseOrderReference.match(
+    /^bc-\d{2}-\d{1,2}-\d{2,}-(\d+)$/,
+  )
+
+  if (!match) return null
+
+  return Number(match[1])
+}
+
+const formatReceiptVoucherReference = ({
+  requestReference,
+  receiptVoucherSequence,
+  purchaseOrderSubsequence,
+  hasMultiplePurchaseOrders,
+}: {
+  requestReference: string
+  receiptVoucherSequence: number
+  purchaseOrderSubsequence: number | null
+  hasMultiplePurchaseOrders: boolean
+}) => {
+  const baseReference = getReferenceBaseFromRequest(requestReference)
+
+  if (hasMultiplePurchaseOrders && purchaseOrderSubsequence !== null) {
+    return `br-${baseReference}-${purchaseOrderSubsequence}-${receiptVoucherSequence}`
+  }
+
+  return `br-${baseReference}-${receiptVoucherSequence}`
 }
 
 const getReceiptVoucherPdfData = async (
@@ -784,7 +821,84 @@ const requestedDeliveryMethod = cleanText(delivery_method)
     const receiptDeliveryMethod =
       requestedDeliveryMethod ?? firstPurchaseOrderItem?.delivery_method ?? null
 
-    const sequenceResult = await client.query(
+  const purchaseOrderCountResult = await client.query(
+  `
+  SELECT COUNT(*)::int AS purchase_order_count
+  FROM portal.purchase_orders
+  WHERE purchase_request_id = $1
+  `,
+  [purchaseRequestId],
+)
+
+const purchaseOrderCount = Number(
+  purchaseOrderCountResult.rows[0]?.purchase_order_count || 0,
+)
+
+const hasMultiplePurchaseOrders = purchaseOrderCount > 1
+
+const linkedPurchaseOrderIds = [
+  ...new Set(
+    linkedPurchaseOrderItems
+      .map((item) => Number(item.purchase_order_id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  ),
+]
+
+if (linkedPurchaseOrderIds.length > 1) {
+  await client.query("ROLLBACK")
+
+  return res.status(400).json({
+    message:
+      "A receipt voucher can only be created for one purchase order at a time",
+  })
+}
+
+const linkedPurchaseOrderId = linkedPurchaseOrderIds[0] ?? null
+
+const firstPurchaseOrderReference =
+  firstPurchaseOrderItem?.purchase_order_reference ?? null
+
+const purchaseOrderSubsequence = hasMultiplePurchaseOrders
+  ? getPurchaseOrderSubsequenceFromReference(firstPurchaseOrderReference)
+  : null
+
+if (hasMultiplePurchaseOrders && !purchaseOrderSubsequence) {
+  await client.query("ROLLBACK")
+
+  return res.status(500).json({
+    message: "Unable to identify purchase order sequence for receipt voucher",
+  })
+}
+
+await client.query(
+  `
+  SELECT pg_advisory_xact_lock(hashtext($1))
+  `,
+  [
+    linkedPurchaseOrderId
+      ? `portal.receipt_vouchers.purchase_order.${linkedPurchaseOrderId}`
+      : `portal.receipt_vouchers.request.${purchaseRequestId}`,
+  ],
+)
+
+const sequenceResult = linkedPurchaseOrderId
+  ? await client.query(
+      `
+      SELECT COALESCE(MAX(rv.receipt_voucher_sequence), 0) + 1 AS next_sequence
+      FROM portal.receipt_vouchers rv
+      WHERE rv.purchase_request_id = $1
+        AND EXISTS (
+          SELECT 1
+          FROM portal.receipt_voucher_items rvi
+          INNER JOIN portal.purchase_order_items poi
+            ON poi.id = rvi.purchase_order_item_id
+          WHERE rvi.receipt_voucher_id = rv.id
+            AND poi.purchase_order_id = $2
+        )
+      `,
+      [purchaseRequestId, linkedPurchaseOrderId],
+    )
+  : await client.query(
       `
       SELECT COALESCE(MAX(receipt_voucher_sequence), 0) + 1 AS next_sequence
       FROM portal.receipt_vouchers
@@ -793,11 +907,14 @@ const requestedDeliveryMethod = cleanText(delivery_method)
       [purchaseRequestId],
     )
 
-    const receiptVoucherSequence = Number(sequenceResult.rows[0].next_sequence)
-    const receiptVoucherReference = formatReceiptVoucherReference(
-      requestReference,
-      receiptVoucherSequence,
-    )
+const receiptVoucherSequence = Number(sequenceResult.rows[0].next_sequence)
+
+const receiptVoucherReference = formatReceiptVoucherReference({
+  requestReference,
+  receiptVoucherSequence,
+  purchaseOrderSubsequence,
+  hasMultiplePurchaseOrders,
+})
 
 const voucherResult = await client.query(
   `

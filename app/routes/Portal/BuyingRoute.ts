@@ -69,6 +69,41 @@ const cleanDate = (value: unknown) => {
   return trimmed
 }
 
+const getReferenceBaseFromRequest = (requestReference: string) => {
+  const match = requestReference.match(/^req-(\d{2})-(\d{1,2})-(\d{2,})$/)
+
+  if (!match) {
+    throw new Error(`Invalid purchase request reference: ${requestReference}`)
+  }
+
+  const [, shortYear, month, sequence] = match
+
+  return `${shortYear}-${month}-${sequence}`
+}
+
+const getRequestSequenceFromReference = (requestReference: string) => {
+  const match = requestReference.match(/^req-(\d{2})-(\d{1,2})-(\d{2,})$/)
+
+  if (!match) {
+    throw new Error(`Invalid purchase request reference: ${requestReference}`)
+  }
+
+  return Number(match[3])
+}
+
+const formatPurchaseOrderReference = (
+  requestReference: string,
+  purchaseOrderSubsequence: number | null,
+) => {
+  const baseReference = getReferenceBaseFromRequest(requestReference)
+
+  if (purchaseOrderSubsequence === null) {
+    return `bc-${baseReference}`
+  }
+
+  return `bc-${baseReference}-${purchaseOrderSubsequence}`
+}
+
 const getOrderMonthKey = (dateValue: unknown) => {
   const cleanedDate = cleanDate(dateValue)
   const date = cleanedDate ? new Date(cleanedDate) : new Date()
@@ -453,7 +488,21 @@ if (!requestReference) {
   })
 }
 
-const requestSequence = Number(requestReference.split("-").at(-1))
+let requestSequence: number
+
+try {
+  requestSequence = getRequestSequenceFromReference(requestReference)
+} catch (error) {
+  await client.query("ROLLBACK")
+  transactionStarted = false
+
+  return res.status(500).json({
+    message:
+      error instanceof Error
+        ? error.message
+        : "Invalid purchase request reference sequence",
+  })
+}
 
 if (!Number.isInteger(requestSequence) || requestSequence <= 0) {
   await client.query("ROLLBACK")
@@ -495,10 +544,10 @@ if (shouldUseSubsequence) {
     Number(existingOrdersForRequest.rows[0].max_subsequence) + 1
 }
 
-const purchaseOrderReference =
-  purchaseOrderSubsequence === null
-    ? requestReference
-    : `${requestReference}-${String(purchaseOrderSubsequence).padStart(2, "0")}`
+const purchaseOrderReference = formatPurchaseOrderReference(
+  requestReference,
+  purchaseOrderSubsequence,
+)
 
     const purchaseOrderResult = await client.query(
       `
