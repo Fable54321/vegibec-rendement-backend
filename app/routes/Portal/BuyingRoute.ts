@@ -343,6 +343,7 @@ router.post(
       supplier_phone,
       buyer_name,
       buyer_email,
+      buyer_phone,
       requested_delivery_date,
       received_at,
       invoice_number,
@@ -566,6 +567,7 @@ const purchaseOrderReference = formatPurchaseOrderReference(
         purchase_note,
         buyer_name,
         buyer_email,
+        buyer_phone,
         requested_delivery_date,
         received_at,
         invoice_number,
@@ -579,6 +581,7 @@ const purchaseOrderReference = formatPurchaseOrderReference(
         $6, $7, $8, $9, COALESCE($10::timestamptz, now()),
         $11, $12, $13, $14, $15,
         $16, $17, $18, $19, $20,
+        $21,
         'ordered'
       )
       RETURNING *
@@ -598,6 +601,7 @@ const purchaseOrderReference = formatPurchaseOrderReference(
   cleanText(purchase_note),
   cleanText(buyer_name),
   cleanText(buyer_email),
+  cleanText(buyer_phone),
   cleanDate(requested_delivery_date),
   cleanDate(received_at),
   cleanText(invoice_number),

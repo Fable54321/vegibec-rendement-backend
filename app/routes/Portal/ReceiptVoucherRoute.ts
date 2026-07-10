@@ -472,6 +472,7 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
   purchase_request_id,
   received_by_name,
   received_by_email,
+  buyer_phone,
   received_at,
   receipt_note,
   supplier_name,
@@ -485,6 +486,7 @@ router.post(["/", "/:id/:token", "/:id/reception/:token"], async (req, res) => {
       toPositiveInteger(req.params.id) || toPositiveInteger(purchase_request_id)
    const receivedByName = cleanText(received_by_name)
 const receivedByEmail = cleanText(received_by_email)
+const buyerPhone = cleanText(buyer_phone)
 const requestedSupplierName = cleanText(supplier_name)
 const requestedSupplierAddressSnapshot = cleanText(supplier_address_snapshot)
 const requestedSupplierPhone = cleanText(supplier_phone)
@@ -924,6 +926,7 @@ const voucherResult = await client.query(
     receipt_voucher_sequence,
     received_by_name,
     received_by_email,
+    buyer_phone,
     received_at,
     receipt_note,
     supplier_name,
@@ -933,8 +936,8 @@ const voucherResult = await client.query(
     status
   )
   VALUES (
-    $1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()), $7,
-    $8, $9, $10, $11, 'received'
+    $1, $2, $3, $4, $5, $6, COALESCE($7::timestamptz, now()), $8,
+    $9, $10, $11, $12, 'received'
   )
   RETURNING *
   `,
@@ -944,6 +947,7 @@ const voucherResult = await client.query(
     receiptVoucherSequence,
     receivedByName,
     receivedByEmail,
+    buyerPhone,
     received_at || null,
     cleanText(receipt_note),
     receiptSupplierName,
