@@ -575,7 +575,11 @@ const requestedDeliveryMethod = cleanText(delivery_method)
     const requestReference = requestResult.rows[0].request_reference
     const requestStatus = requestResult.rows[0].status
 
-    if (requestStatus !== "purchased" && requestStatus !== "partially_received") {
+    if (
+      requestStatus !== "purchased" &&
+      requestStatus !== "partially_purchased" &&
+      requestStatus !== "partially_received"
+    ) {
       await client.query("ROLLBACK")
 
       return res.status(400).json({

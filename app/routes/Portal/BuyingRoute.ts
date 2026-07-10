@@ -261,13 +261,30 @@ router.get(
         return res.status(404).json({ message: "Purchase request not found" })
       }
 
-      if (purchaseRequest.status !== "ready_to_purchase") {
+      if (
+        purchaseRequest.status !== "ready_to_purchase" &&
+        purchaseRequest.status !== "partially_purchased" &&
+        purchaseRequest.status !== "partially_received"
+      ) {
         return res.status(400).json({
           message: "This request is not ready to purchase",
         })
       }
 
-      return res.json(purchaseRequest)
+      const remainingItems = (purchaseRequest.items ?? []).filter(
+        (item: any) => !item.has_purchase_order,
+      )
+
+      if (remainingItems.length === 0) {
+        return res.status(400).json({
+          message: "All items in this request already have a purchase order",
+        })
+      }
+
+      return res.json({
+        ...purchaseRequest,
+        items: remainingItems,
+      })
     } catch (error) {
       console.error("Error fetching purchase request for buying:", error)
 
@@ -414,7 +431,11 @@ if (!isPurchaseTokenValid || !purchaseToken) {
       return res.status(404).json({ message: "Purchase request not found" })
     }
 
-   const allowedPurchaseStatuses = ["ready_to_purchase", "partially_purchased"]
+   const allowedPurchaseStatuses = [
+     "ready_to_purchase",
+     "partially_purchased",
+     "partially_received",
+   ]
 
 if (!allowedPurchaseStatuses.includes(currentRequest.rows[0].status)) {
       await client.query("ROLLBACK")
@@ -423,6 +444,38 @@ if (!allowedPurchaseStatuses.includes(currentRequest.rows[0].status)) {
       return res.status(400).json({
         message: "This request is not ready to purchase",
       })
+    }
+
+    const requestedItemIds = [
+      ...new Set(
+        orderItems
+          .map((item) => cleanPositiveInteger(item.purchase_request_item_id))
+          .filter((itemId): itemId is number => Boolean(itemId)),
+      ),
+    ]
+
+    if (requestedItemIds.length > 0) {
+      const alreadyPurchasedItemsResult = await client.query(
+        `
+        SELECT poi.purchase_request_item_id
+        FROM portal.purchase_order_items poi
+        INNER JOIN portal.purchase_orders po
+          ON po.id = poi.purchase_order_id
+        WHERE po.purchase_request_id = $1
+          AND poi.purchase_request_item_id = ANY($2::bigint[])
+        LIMIT 1
+        `,
+        [purchaseRequestId, requestedItemIds],
+      )
+
+      if (alreadyPurchasedItemsResult.rows.length > 0) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
+
+        return res.status(400).json({
+          message: "One of the selected items already has a purchase order",
+        })
+      }
     }
 
 

@@ -223,7 +223,53 @@ const toRecipientArray = (recipients: string | string[]) => {
     .filter(Boolean)
 }
 
-const getPurchaseRequestRecipients = (
+const uniqueRecipients = (recipients: string[]) => {
+  const seenRecipients = new Set<string>()
+
+  return recipients.filter((recipient) => {
+    const cleanRecipient = recipient.trim()
+    const key = cleanRecipient.toLowerCase()
+
+    if (!cleanRecipient || seenRecipients.has(key)) return false
+
+    seenRecipients.add(key)
+    return true
+  })
+}
+
+const getActivePurchaseCopyRecipients = async () => {
+  const defaultCopyRecipients = toRecipientArray(
+    getEmailRecipients("PURCHASE_EMAIL_COPY")
+  )
+
+  const activeDelegationResult = await pool.query(
+    `
+    SELECT
+      delegate_email,
+      send_copy_to_buyer
+    FROM portal.purchase_email_delegations
+    WHERE is_active = true
+      AND now() >= starts_at
+      AND now() <= ends_at
+    ORDER BY starts_at DESC, id DESC
+    LIMIT 1
+    `
+  )
+
+  if (activeDelegationResult.rows.length === 0) {
+    return defaultCopyRecipients
+  }
+
+  const delegation = activeDelegationResult.rows[0]
+  const delegatedRecipients = toRecipientArray(delegation.delegate_email ?? "")
+
+  return uniqueRecipients([
+    ...delegatedRecipients,
+    ...(delegation.send_copy_to_buyer ? defaultCopyRecipients : []),
+  ])
+}
+
+const getPurchaseRequestRecipients = async (
   request?: PurchaseRequestRecipientSource
 ) => {
   const requesterEmail =
@@ -231,18 +277,17 @@ const getPurchaseRequestRecipients = (
       ? request.requester_email.trim().toLowerCase()
       : ""
 
-  const recipients = toRecipientArray(
-    getEmailRecipients(
-      "PURCHASE_BUYER_EMAIL",
-      "PURCHASE_EMAIL_COPY",
-      TEMP_PURCHASE_REQUEST_RECIPIENT
-    )
-  )
+  const recipients = uniqueRecipients([
+    ...toRecipientArray(
+      getEmailRecipients("PURCHASE_BUYER_EMAIL", TEMP_PURCHASE_REQUEST_RECIPIENT)
+    ),
+    ...(await getActivePurchaseCopyRecipients()),
+  ])
 
   if (
     requesterEmail &&
     requesterEmail !== CONFLICT_REQUESTER_EMAIL &&
-    !recipients.includes(requesterEmail)
+    !recipients.some((recipient) => recipient.toLowerCase() === requesterEmail)
   ) {
     recipients.push(requesterEmail)
   }
@@ -250,14 +295,13 @@ const getPurchaseRequestRecipients = (
   return recipients
 }
 
-const getPurchaseRequestReplyToRecipients = () => {
-  return toRecipientArray(
-    getEmailRecipients(
-      "PURCHASE_BUYER_EMAIL",
-      "PURCHASE_EMAIL_COPY",
-      TEMP_PURCHASE_REQUEST_RECIPIENT
-    )
-  )
+const getPurchaseRequestReplyToRecipients = async () => {
+  return uniqueRecipients([
+    ...toRecipientArray(
+      getEmailRecipients("PURCHASE_BUYER_EMAIL", TEMP_PURCHASE_REQUEST_RECIPIENT)
+    ),
+    ...(await getActivePurchaseCopyRecipients()),
+  ])
 }
 
 const VALID_STATUSES = [
@@ -518,9 +562,20 @@ export async function getPurchaseRequestWithItems(
     ...order,
     items: purchaseOrderItemsByOrderId[order.id] ?? [],
   }))
+  const purchasedRequestItemIds = new Set(
+    purchaseOrders.flatMap((order) =>
+      order.items
+        .map((item: any) => Number(item.purchase_request_item_id))
+        .filter((id: number) => Number.isInteger(id) && id > 0),
+    ),
+  )
 
   return {
     ...purchaseRequest,
+    items: (purchaseRequest.items ?? []).map((item: any) => ({
+      ...item,
+      has_purchase_order: purchasedRequestItemIds.has(Number(item.id)),
+    })),
     purchase_orders: purchaseOrders,
     receipt_voucher_defaults: {
       suppliers: purchaseOrders.map((order) => ({
@@ -575,7 +630,7 @@ router.post("/send-email", createPurchaseRequestLimiter, async (req, res) => {
       })
     }
 
-    const replyToRecipients = getPurchaseRequestRecipients({
+    const replyToRecipients = await getPurchaseRequestRecipients({
       requester_email: cleanTo,
     })
 
@@ -1105,7 +1160,7 @@ router.patch("/:id/editable", async (req, res) => {
     await client.query("COMMIT")
 
     const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
-    const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+    const emailRecipients = await getPurchaseRequestRecipients(updatedRequest)
     const buyerValidationUrl = buildBuyerValidationUrl(
       req,
       updatedRequest.id,
@@ -1117,7 +1172,7 @@ router.patch("/:id/editable", async (req, res) => {
       `Demande d'achat #${displayRequestNumber} modifiée - validation requise`,
       buildPurchaseRequestModifiedEmail(updatedRequest, buyerValidationUrl),
       buildPurchaseRequestModifiedEmailHtml(updatedRequest, buyerValidationUrl),
-      getPurchaseRequestReplyToRecipients(),
+      await getPurchaseRequestReplyToRecipients(),
     )
 
     return res.json({
@@ -1248,14 +1303,14 @@ router.delete("/:id/editable", async (req, res) => {
     await client.query("COMMIT")
 
     const displayRequestNumber = getPurchaseRequestDisplayNumber(cancelledRequest)
-    const emailRecipients = getPurchaseRequestRecipients(cancelledRequest)
+    const emailRecipients = await getPurchaseRequestRecipients(cancelledRequest)
 
     await sendPurchaseRequestEmailSafely(
       emailRecipients,
       `Demande d'achat #${displayRequestNumber} annulée`,
       buildPurchaseRequestCancelledEmail(cancelledRequest),
       buildPurchaseRequestCancelledEmailHtml(cancelledRequest),
-      getPurchaseRequestReplyToRecipients(),
+      await getPurchaseRequestReplyToRecipients(),
     )
 
     return res.json({
@@ -1782,7 +1837,7 @@ const requestResult = await client.query(
       const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
       const displayRequestNumber =
         getPurchaseRequestDisplayNumber(createdRequestWithItems)
-      const emailRecipients = getPurchaseRequestRecipients(createdRequestWithItems)
+      const emailRecipients = await getPurchaseRequestRecipients(createdRequestWithItems)
 
       await sendPurchaseRequestEmailSafely(
         emailRecipients,
@@ -2088,7 +2143,7 @@ router.patch(
 
       if (updatedRequest.status === "pending_admin_approval" && adminApprovalToken) {
         const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
-        const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+        const emailRecipients = await getPurchaseRequestRecipients(updatedRequest)
         const adminApprovalUrl = buildAdminApprovalUrl(
           req,
           updatedRequest.id,
@@ -2105,7 +2160,7 @@ router.patch(
 
       if (updatedRequest.status === "ready_to_purchase" && purchaseToken) {
         const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
-        const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+        const emailRecipients = await getPurchaseRequestRecipients(updatedRequest)
         const finalRequestUrl = buildFinalPurchaseRequestUrl(
           req,
           updatedRequest.id,
@@ -2133,7 +2188,7 @@ router.patch(
           `Mise à jour de la date pour votre demande d'achat #${displayRequestNumber}`,
           buildRequesterDateChangedEmail(updatedRequest),
           buildRequesterDateChangedEmailHtml(updatedRequest),
-          getPurchaseRequestReplyToRecipients()
+          await getPurchaseRequestReplyToRecipients()
         )
       }
 
@@ -2296,7 +2351,7 @@ router.patch(
       const displayRequestNumber =
         getPurchaseRequestDisplayNumber(updatedRequest)
 
-      const emailRecipients = getPurchaseRequestRecipients(updatedRequest)
+      const emailRecipients = await getPurchaseRequestRecipients(updatedRequest)
 
       if (decision === "approved" || decision === "rejected") {
         await sendPurchaseRequestEmailSafely(
@@ -2336,7 +2391,7 @@ ${updatedRequest.admin_note || "Aucune raison indiquée"}`,
             : `Votre demande d'achat #${displayRequestNumber} a ete refusee`,
           buildRequesterDecisionEmail(updatedRequest),
           buildRequesterDecisionEmailHtml(updatedRequest),
-          getPurchaseRequestReplyToRecipients(),
+          await getPurchaseRequestReplyToRecipients(),
         )
       }
 
@@ -2401,14 +2456,14 @@ router.patch("/:id/cancel", actionPurchaseRequestLimiter, async (req, res) => {
     await client.query("COMMIT")
 
     const displayRequestNumber = getPurchaseRequestDisplayNumber(cancelledRequest)
-    const emailRecipients = getPurchaseRequestRecipients(cancelledRequest)
+    const emailRecipients = await getPurchaseRequestRecipients(cancelledRequest)
 
     await sendPurchaseRequestEmailSafely(
       emailRecipients,
       `Demande d'achat #${displayRequestNumber} annulée`,
       buildPurchaseRequestCancelledEmail(cancelledRequest),
       buildPurchaseRequestCancelledEmailHtml(cancelledRequest),
-      getPurchaseRequestReplyToRecipients(),
+      await getPurchaseRequestReplyToRecipients(),
     )
 
     res.json(cancelledRequest)

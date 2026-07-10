@@ -325,6 +325,42 @@ async function buildCurrentActionLink(
   }
 }
 
+function cleanEmail(value: unknown) {
+  return typeof value === "string" ? value.trim().toLowerCase() : ""
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function isValidDateOnly(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+function getDelegationSelectSql(whereClause: string) {
+  return `
+    SELECT
+      ped.id,
+      ped.buyer_user_id,
+      ped.delegate_user_id,
+      ped.delegate_email,
+      ped.starts_at,
+      ped.ends_at,
+      ped.send_copy_to_buyer,
+      ped.is_active,
+      ped.created_at,
+      ped.updated_at,
+      to_char(ped.starts_at AT TIME ZONE 'America/Toronto', 'YYYY-MM-DD') AS starts_on,
+      to_char(ped.ends_at AT TIME ZONE 'America/Toronto', 'YYYY-MM-DD') AS ends_on,
+      delegate_user.name AS delegate_name,
+      delegate_user.surname AS delegate_surname
+    FROM portal.purchase_email_delegations ped
+    LEFT JOIN public.users delegate_user
+      ON delegate_user.id = ped.delegate_user_id
+    ${whereClause}
+  `
+}
+
 router.get("/", async (req, res) => {
   try {
     const { status } = req.query
@@ -575,6 +611,195 @@ cancellation_reason: row.cancellation_reason,
   }
 })
 
+router.get("/email-delegation", async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" })
+    }
+
+    const result = await pool.query(
+      `
+      ${getDelegationSelectSql(`
+      WHERE ped.buyer_user_id = $1
+        AND ped.is_active = true
+        AND ped.ends_at >= now()
+      `)}
+      ORDER BY ped.starts_at DESC, ped.id DESC
+      LIMIT 1
+      `,
+      [req.user.id],
+    )
+
+    return res.json({
+      delegation: result.rows[0] ?? null,
+    })
+  } catch (error) {
+    console.error("Purchase email delegation load error:", error)
+
+    return res.status(500).json({
+      message: "Unable to load purchase email delegation",
+    })
+  }
+})
+
+router.post("/email-delegation", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" })
+    }
+
+    const delegateEmail = cleanEmail(req.body?.delegate_email)
+    const startsOn = req.body?.starts_on
+    const endsOn = req.body?.ends_on
+    const sendCopyToBuyer = Boolean(req.body?.send_copy_to_buyer)
+
+    if (!isValidEmail(delegateEmail)) {
+      return res.status(400).json({
+        message: "Delegate email is invalid",
+      })
+    }
+
+    if (!isValidDateOnly(startsOn) || !isValidDateOnly(endsOn)) {
+      return res.status(400).json({
+        message: "Start and end dates are required",
+      })
+    }
+
+    if (startsOn > endsOn) {
+      return res.status(400).json({
+        message: "End date must be on or after start date",
+      })
+    }
+
+    await client.query("BEGIN")
+
+    const delegateUserResult = await client.query(
+      `
+      SELECT id
+      FROM public.users
+      WHERE LOWER(email) = $1
+      LIMIT 1
+      `,
+      [delegateEmail],
+    )
+
+    const delegateUserId = delegateUserResult.rows[0]?.id ?? null
+
+    await client.query(
+      `
+      UPDATE portal.purchase_email_delegations
+      SET
+        is_active = false,
+        updated_at = now()
+      WHERE buyer_user_id = $1
+        AND is_active = true
+        AND ends_at >= now()
+      `,
+      [req.user.id],
+    )
+
+    const insertResult = await client.query(
+      `
+      INSERT INTO portal.purchase_email_delegations (
+        buyer_user_id,
+        delegate_user_id,
+        delegate_email,
+        starts_at,
+        ends_at,
+        send_copy_to_buyer,
+        is_active
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        ($4::date::timestamp AT TIME ZONE 'America/Toronto'),
+        ((($5::date + 1)::timestamp AT TIME ZONE 'America/Toronto') - interval '1 millisecond'),
+        $6,
+        true
+      )
+      RETURNING id
+      `,
+      [
+        req.user.id,
+        delegateUserId,
+        delegateEmail,
+        startsOn,
+        endsOn,
+        sendCopyToBuyer,
+      ],
+    )
+
+    const delegationResult = await client.query(
+      `
+      ${getDelegationSelectSql("WHERE ped.id = $1")}
+      `,
+      [insertResult.rows[0].id],
+    )
+
+    await client.query("COMMIT")
+
+    return res.status(201).json({
+      delegation: delegationResult.rows[0],
+    })
+  } catch (error) {
+    await client.query("ROLLBACK")
+
+    console.error("Purchase email delegation save error:", error)
+
+    return res.status(500).json({
+      message: "Unable to save purchase email delegation",
+    })
+  } finally {
+    client.release()
+  }
+})
+
+router.delete("/email-delegation/:id", async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" })
+    }
+
+    const delegationId = Number(req.params.id)
+
+    if (!Number.isInteger(delegationId) || delegationId <= 0) {
+      return res.status(404).json({
+        message: "Purchase email delegation not found",
+      })
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE portal.purchase_email_delegations
+      SET
+        is_active = false,
+        updated_at = now()
+      WHERE id = $1
+        AND buyer_user_id = $2
+      RETURNING id
+      `,
+      [delegationId, req.user.id],
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: "Purchase email delegation not found",
+      })
+    }
+
+    return res.json({ message: "Purchase email delegation disabled" })
+  } catch (error) {
+    console.error("Purchase email delegation disable error:", error)
+
+    return res.status(500).json({
+      message: "Unable to disable purchase email delegation",
+    })
+  }
+})
+
 
 router.post("/:id/action-link", async (req, res) => {
   const client = await pool.connect()
@@ -671,20 +896,21 @@ router.post("/:id/purchase-link", async (req, res) => {
 
     if (
       request.status !== "ready_to_purchase" &&
-      request.status !== "partially_purchased"
+      request.status !== "partially_purchased" &&
+      request.status !== "partially_received"
     ) {
       return res.status(400).json({
         message: "This request is not ready to purchase",
       })
     }
 
+    const token = await getOrCreateActivePurchaseToken(
+      client,
+      purchaseRequestId,
+    )
+
     return res.json({
-      href: await buildCurrentActionLink(
-        client,
-        req,
-        purchaseRequestId,
-        request.status,
-      ),
+      href: buildFinalPurchaseRequestUrl(req, purchaseRequestId, token),
       kind: "purchase",
     })
   } catch (error) {
@@ -692,6 +918,98 @@ router.post("/:id/purchase-link", async (req, res) => {
 
     return res.status(500).json({
       message: "Unable to generate purchase link",
+    })
+  } finally {
+    client.release()
+  }
+})
+
+router.post("/:id/receipt-voucher-link", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    const purchaseRequestId = Number(req.params.id)
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const requestResult = await client.query(
+      `
+      SELECT
+        pr.id,
+        pr.status,
+        COALESCE(orders.ordered_total_quantity, 0)::numeric
+          AS ordered_total_quantity,
+        COALESCE(receipts.received_total_quantity, 0)::numeric
+          AS received_total_quantity
+      FROM portal.purchase_requests pr
+      LEFT JOIN (
+        SELECT
+          po.purchase_request_id,
+          COALESCE(SUM(poi.ordered_quantity), 0)::numeric
+            AS ordered_total_quantity
+        FROM portal.purchase_orders po
+        LEFT JOIN portal.purchase_order_items poi
+          ON poi.purchase_order_id = po.id
+        GROUP BY po.purchase_request_id
+      ) orders
+        ON orders.purchase_request_id = pr.id
+      LEFT JOIN (
+        SELECT
+          rv.purchase_request_id,
+          COALESCE(SUM(rvi.received_quantity), 0)::numeric
+            AS received_total_quantity
+        FROM portal.receipt_vouchers rv
+        LEFT JOIN portal.receipt_voucher_items rvi
+          ON rvi.receipt_voucher_id = rv.id
+        GROUP BY rv.purchase_request_id
+      ) receipts
+        ON receipts.purchase_request_id = pr.id
+      WHERE pr.id = $1
+      `,
+      [purchaseRequestId],
+    )
+
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({
+        message: "Purchase request not found",
+      })
+    }
+
+    const request = requestResult.rows[0]
+    const orderedTotalQuantity = Number(request.ordered_total_quantity || 0)
+    const receivedTotalQuantity = Number(request.received_total_quantity || 0)
+    const hasReceivableItems =
+      orderedTotalQuantity > 0 && receivedTotalQuantity < orderedTotalQuantity
+
+    if (
+      !hasReceivableItems ||
+      !["partially_purchased", "purchased", "partially_received"].includes(
+        request.status,
+      )
+    ) {
+      return res.status(400).json({
+        message: "This purchase request is not ready to receive",
+      })
+    }
+
+    const token = await getOrCreateActiveReceiptVoucherToken(
+      client,
+      purchaseRequestId,
+    )
+
+    return res.json({
+      href: buildReceiptVoucherUrl(req, purchaseRequestId, token),
+      kind: "receipt_voucher",
+    })
+  } catch (error) {
+    console.error("Receipt voucher link generation error:", error)
+
+    return res.status(500).json({
+      message: "Unable to generate receipt voucher link",
     })
   } finally {
     client.release()
