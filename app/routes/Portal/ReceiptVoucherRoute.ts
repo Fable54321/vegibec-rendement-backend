@@ -357,26 +357,8 @@ router.get("/:receiptVoucherId/pdf", async (req, res) => {
       return res.status(404).json({ message: "Receipt voucher not found" })
     }
 
-    const keys = getReceiptVoucherPdfKeys(
-      voucherResult.rows[0].receipt_document_keys,
-    )
     const shouldDownload =
       req.query.download === "1" || req.query.download === "true"
-
-    if (keys.length > 0) {
-      const filename = createReceiptVoucherPdfFilename(
-        voucherResult.rows[0].receipt_voucher_reference,
-      )
-      const url = await getSignedUrlForKey(keys[0], {
-        expiresIn: 60 * 60,
-        responseContentDisposition: shouldDownload
-          ? createPdfDownloadDisposition(filename)
-          : createPdfPreviewDisposition(filename),
-        responseContentType: "application/pdf",
-      })
-
-      return res.redirect(url)
-    }
 
     const receiptVoucherPdfData = await getReceiptVoucherPdfData(
       client,

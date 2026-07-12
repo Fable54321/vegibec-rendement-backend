@@ -208,47 +208,15 @@ async function getPurchaseOrderPdfLinks(po: {
   purchase_order_reference: string
   purchase_document_keys?: unknown
 }): Promise<PurchaseOrderPdfLink[]> {
-  const keys = getPurchaseOrderPdfKeys(po.purchase_document_keys)
+  // Use the generation endpoint so saved order data and the current template
+  // are always reflected, including fields added after an S3 PDF was created.
+  return (["fr", "en"] as const).map((language) => ({
+    key: null,
+    language,
+    preview_url: buildPurchaseOrderPdfUrl(po.id, language),
+    download_url: buildPurchaseOrderPdfDownloadUrl(po.id, language),
+  }))
 
-  if (keys.length === 0) {
-    return (["fr", "en"] as const).map((language) => ({
-        key: null,
-        language,
-        preview_url: buildPurchaseOrderPdfUrl(po.id, language),
-        download_url: buildPurchaseOrderPdfDownloadUrl(po.id, language),
-      }))
-  }
-
-  const storedLinks: PurchaseOrderPdfLink[] = await Promise.all(
-    keys.map(async (key) => {
-      const language: "fr" | "en" = /-en\.pdf$/i.test(key) ? "en" : "fr"
-      const filename = createPurchaseOrderPdfFilename(po.purchase_order_reference, language)
-      return ({
-      key,
-      language,
-      preview_url: await getSignedUrlForKey(key, {
-        expiresIn: 60 * 60,
-        responseContentDisposition: createPdfPreviewDisposition(filename),
-        responseContentType: "application/pdf",
-      }),
-      download_url: await getSignedUrlForKey(key, {
-        expiresIn: 60 * 60,
-        responseContentDisposition: createPdfDownloadDisposition(filename),
-        responseContentType: "application/pdf",
-      }),
-    })}),
-  )
-
-  if (!storedLinks.some((link) => link.language === "en")) {
-    storedLinks.push({
-      key: null,
-      language: "en",
-      preview_url: buildPurchaseOrderPdfUrl(po.id, "en"),
-      download_url: buildPurchaseOrderPdfDownloadUrl(po.id, "en"),
-    })
-  }
-
-  return storedLinks
 }
 
 async function getReceiptVoucherPdfLinks(receiptVoucher: {
@@ -256,7 +224,8 @@ async function getReceiptVoucherPdfLinks(receiptVoucher: {
   receipt_voucher_reference: string
   receipt_document_keys?: unknown
 }): Promise<ReceiptVoucherPdfLink[]> {
-  const keys = getReceiptVoucherPdfKeys(receiptVoucher.receipt_document_keys)
+  // Regenerate from current voucher data instead of serving a stale stored PDF.
+  const keys: string[] = []
 
   if (keys.length === 0) {
     return [
