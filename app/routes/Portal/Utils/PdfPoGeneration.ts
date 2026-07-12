@@ -103,6 +103,7 @@ const formatDateTime = (value: Date) => {
 
 export const generatePurchaseOrderPdf = async (
   purchaseOrder: PurchaseOrderPdfData,
+  language: "fr" | "en" = "fr",
 ) => {
   const templatePath = path.resolve(
     process.cwd(),
@@ -118,6 +119,38 @@ export const generatePurchaseOrderPdf = async (
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+
+  if (language === "en") {
+    const green = rgb(0.12, 0.31, 0.1)
+    const replaceLabel = (
+      text: string,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      size: number,
+      color = green,
+    ) => {
+      page.drawRectangle({ x, y, width, height, color: rgb(1, 1, 1) })
+      page.drawText(text, { x, y: y + 2, size, font: boldFont, color })
+    }
+
+    // Keep the original template geometry and replace only its French labels.
+    replaceLabel("Purchase order", 462, 761, 111, 27, 19, rgb(0, 0, 0))
+    replaceLabel("# Order", 480, 721, 94, 23, 14, rgb(0, 0, 0))
+    replaceLabel("Purchased from", 36, 627, 105, 18, 10)
+    replaceLabel("Shipped to", 229, 627, 91, 18, 10)
+    replaceLabel("Order date", 422, 618, 105, 18, 10)
+    replaceLabel("Buyer", 229, 505, 68, 18, 10)
+    replaceLabel("Delivery method", 422, 552, 125, 18, 10)
+    replaceLabel("Code", 40, 436, 48, 16, 9, rgb(0, 0, 0))
+    replaceLabel("Description", 165, 436, 72, 16, 9, rgb(0, 0, 0))
+    replaceLabel("Quantity", 313, 436, 58, 16, 9, rgb(0, 0, 0))
+    replaceLabel("Unit", 383, 436, 42, 16, 9, rgb(0, 0, 0))
+    replaceLabel("Price", 448, 436, 42, 16, 9, rgb(0, 0, 0))
+    replaceLabel("Amount", 517, 436, 54, 16, 9, rgb(0, 0, 0))
+    replaceLabel("Page 1 of 1", 521, 22, 57, 14, 7, rgb(0, 0, 0))
+  }
 
   const drawText = (
     text: string | number | null | undefined,
@@ -352,7 +385,7 @@ const HEADER_COLUMNS = {
   drawRightAlignedText(
     displayReference,
     HEADER_COLUMNS.orderReferenceLabelX +
-      getTextWidth("# Commande", 14, { bold: true }),
+      getTextWidth(language === "en" ? "# Order" : "# Commande", 14, { bold: true }),
     HEADER_COLUMNS.orderReferenceY,
     { size: 14, bold: true },
   )

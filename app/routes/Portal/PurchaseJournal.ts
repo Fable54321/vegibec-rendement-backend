@@ -128,12 +128,12 @@ function getAvailableAction(
   }
 }
 
-function buildPurchaseOrderPdfUrl(purchaseOrderId: number) {
-  return `/buying/purchase-orders/${purchaseOrderId}/pdf`
+function buildPurchaseOrderPdfUrl(purchaseOrderId: number, language: "fr" | "en" = "fr") {
+  return `/buying/purchase-orders/${purchaseOrderId}/pdf?lang=${language}`
 }
 
-function buildPurchaseOrderPdfDownloadUrl(purchaseOrderId: number) {
-  return `/buying/purchase-orders/${purchaseOrderId}/pdf?download=1`
+function buildPurchaseOrderPdfDownloadUrl(purchaseOrderId: number, language: "fr" | "en" = "fr") {
+  return `/buying/purchase-orders/${purchaseOrderId}/pdf?lang=${language}&download=1`
 }
 
 function buildReceiptVoucherPdfUrl(receiptVoucherId: number) {
@@ -144,10 +144,10 @@ function buildReceiptVoucherPdfDownloadUrl(receiptVoucherId: number) {
   return `/receipt-vouchers/${receiptVoucherId}/pdf?download=1`
 }
 
-function createPurchaseOrderPdfFilename(reference: string) {
+function createPurchaseOrderPdfFilename(reference: string, language: "fr" | "en" = "fr") {
   const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
 
-  return `bon-commande-${safeReference}.pdf`
+  return `${language === "en" ? "purchase-order" : "bon-commande"}-${safeReference}.pdf`
 }
 
 function createPdfDownloadDisposition(filename: string) {
@@ -160,6 +160,7 @@ function createPdfPreviewDisposition(filename: string) {
 
 type PurchaseOrderPdfLink = {
   key: string | null
+  language: "fr" | "en"
   preview_url: string
   download_url: string
 }
@@ -210,20 +211,21 @@ async function getPurchaseOrderPdfLinks(po: {
   const keys = getPurchaseOrderPdfKeys(po.purchase_document_keys)
 
   if (keys.length === 0) {
-    return [
-      {
+    return (["fr", "en"] as const).map((language) => ({
         key: null,
-        preview_url: buildPurchaseOrderPdfUrl(po.id),
-        download_url: buildPurchaseOrderPdfDownloadUrl(po.id),
-      },
-    ]
+        language,
+        preview_url: buildPurchaseOrderPdfUrl(po.id, language),
+        download_url: buildPurchaseOrderPdfDownloadUrl(po.id, language),
+      }))
   }
 
-  const filename = createPurchaseOrderPdfFilename(po.purchase_order_reference)
-
-  return Promise.all(
-    keys.map(async (key) => ({
+  const storedLinks: PurchaseOrderPdfLink[] = await Promise.all(
+    keys.map(async (key) => {
+      const language: "fr" | "en" = /-en\.pdf$/i.test(key) ? "en" : "fr"
+      const filename = createPurchaseOrderPdfFilename(po.purchase_order_reference, language)
+      return ({
       key,
+      language,
       preview_url: await getSignedUrlForKey(key, {
         expiresIn: 60 * 60,
         responseContentDisposition: createPdfPreviewDisposition(filename),
@@ -234,8 +236,19 @@ async function getPurchaseOrderPdfLinks(po: {
         responseContentDisposition: createPdfDownloadDisposition(filename),
         responseContentType: "application/pdf",
       }),
-    })),
+    })}),
   )
+
+  if (!storedLinks.some((link) => link.language === "en")) {
+    storedLinks.push({
+      key: null,
+      language: "en",
+      preview_url: buildPurchaseOrderPdfUrl(po.id, "en"),
+      download_url: buildPurchaseOrderPdfDownloadUrl(po.id, "en"),
+    })
+  }
+
+  return storedLinks
 }
 
 async function getReceiptVoucherPdfLinks(receiptVoucher: {

@@ -122,16 +122,16 @@ const getOrderMonthKey = (dateValue: unknown) => {
   return `${year}-${month}`
 }
 
-const createPurchaseOrderPdfKey = (purchaseOrderId: number, reference: string) => {
+const createPurchaseOrderPdfKey = (purchaseOrderId: number, reference: string, language: "fr" | "en") => {
   const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
 
-  return `portal/purchase-orders/${purchaseOrderId}/bon-commande-${safeReference}.pdf`
+  return `portal/purchase-orders/${purchaseOrderId}/bon-commande-${safeReference}-${language}.pdf`
 }
 
-const createPurchaseOrderPdfFilename = (reference: string) => {
+const createPurchaseOrderPdfFilename = (reference: string, language: "fr" | "en" = "fr") => {
   const safeReference = reference.replace(/[^a-zA-Z0-9_-]/g, "-")
 
-  return `bon-commande-${safeReference}.pdf`
+  return `${language === "en" ? "purchase-order" : "bon-commande"}-${safeReference}.pdf`
 }
 
 const createPdfDownloadDisposition = (filename: string) => {
@@ -192,13 +192,14 @@ router.get("/:purchaseOrderId/pdf", async (req, res) => {
       [purchaseOrderId],
     )
 
+    const language = req.query.lang === "en" ? "en" : "fr"
     const pdfBytes = await generatePurchaseOrderPdf({
       ...purchaseOrderResult.rows[0],
       items: itemsResult.rows,
-    })
+    }, language)
 
     const filename = createPurchaseOrderPdfFilename(
-      purchaseOrderResult.rows[0].purchase_order_reference,
+      purchaseOrderResult.rows[0].purchase_order_reference, language,
     )
     const shouldDownload =
       req.query.download === "1" || req.query.download === "true"
@@ -666,7 +667,7 @@ const purchaseOrderReference = formatPurchaseOrderReference(
 
     let purchaseOrder = purchaseOrderResult.rows[0]
 
-    const insertedItems = []
+    const insertedItems: any[] = []
 
     for (const item of orderItems) {
       const cleanPurchaseRequestItemId = cleanPositiveInteger(
@@ -749,23 +750,15 @@ if (requestItemResult.rows.length === 0) {
       insertedItems.push(itemResult.rows[0])
     }
 
-const purchaseOrderPdfKey = createPurchaseOrderPdfKey(
-  purchaseOrder.id,
-  purchaseOrder.purchase_order_reference,
+const purchaseOrderDocuments = await Promise.all(
+  (["fr", "en"] as const).map(async (language) => {
+    const key = createPurchaseOrderPdfKey(purchaseOrder.id, purchaseOrder.purchase_order_reference, language)
+    const filename = createPurchaseOrderPdfFilename(purchaseOrder.purchase_order_reference, language)
+    const bytes = await generatePurchaseOrderPdf({ ...purchaseOrder, items: insertedItems }, language)
+    await uploadBufferToS3({ key, buffer: Buffer.from(bytes), contentType: "application/pdf" })
+    return { language, key, filename }
+  }),
 )
-const purchaseOrderPdfFilename = createPurchaseOrderPdfFilename(
-  purchaseOrder.purchase_order_reference,
-)
-const purchaseOrderPdfBytes = await generatePurchaseOrderPdf({
-  ...purchaseOrder,
-  items: insertedItems,
-})
-
-await uploadBufferToS3({
-  key: purchaseOrderPdfKey,
-  buffer: Buffer.from(purchaseOrderPdfBytes),
-  contentType: "application/pdf",
-})
 
 const purchaseOrderWithDocumentResult = await client.query(
   `
@@ -774,32 +767,29 @@ const purchaseOrderWithDocumentResult = await client.query(
   WHERE id = $2
   RETURNING *
   `,
-  [[purchaseOrderPdfKey], purchaseOrder.id],
+  [purchaseOrderDocuments.map((document) => document.key), purchaseOrder.id],
 )
 
 purchaseOrder = purchaseOrderWithDocumentResult.rows[0]
 
-const purchaseOrderPdfPreviewUrl = await getSignedUrlForKey(
-  purchaseOrderPdfKey,
-  {
+const purchaseOrderPdfLinks = await Promise.all(purchaseOrderDocuments.map(async (document) => ({
+  language: document.language,
+  key: document.key,
+  preview_url: await getSignedUrlForKey(document.key, {
     expiresIn: 60 * 60,
     responseContentDisposition: createPdfPreviewDisposition(
-      purchaseOrderPdfFilename,
+      document.filename,
     ),
     responseContentType: "application/pdf",
-  },
-)
-
-const purchaseOrderPdfDownloadUrl = await getSignedUrlForKey(
-  purchaseOrderPdfKey,
-  {
+  }),
+  download_url: await getSignedUrlForKey(document.key, {
     expiresIn: 60 * 60,
     responseContentDisposition: createPdfDownloadDisposition(
-      purchaseOrderPdfFilename,
+      document.filename,
     ),
     responseContentType: "application/pdf",
-  },
-)
+  }),
+})))
 
 const nextRequestStatus = isPartialPurchase
   ? "partially_purchased"
@@ -836,15 +826,11 @@ transactionStarted = false
       purchase_request: updatedRequest.rows[0],
       purchase_order: purchaseOrder,
       purchase_order_items: insertedItems,
-      purchase_order_pdf_urls: [purchaseOrderPdfPreviewUrl],
-      purchase_order_pdf_preview_urls: [purchaseOrderPdfPreviewUrl],
-      purchase_order_pdf_download_urls: [purchaseOrderPdfDownloadUrl],
-      purchase_order_pdf: {
-        key: purchaseOrderPdfKey,
-        url: purchaseOrderPdfPreviewUrl,
-        preview_url: purchaseOrderPdfPreviewUrl,
-        download_url: purchaseOrderPdfDownloadUrl,
-      },
+      purchase_order_pdf_urls: purchaseOrderPdfLinks.map((link) => link.preview_url),
+      purchase_order_pdf_preview_urls: purchaseOrderPdfLinks.map((link) => link.preview_url),
+      purchase_order_pdf_download_urls: purchaseOrderPdfLinks.map((link) => link.download_url),
+      purchase_order_pdfs: purchaseOrderPdfLinks,
+      purchase_order_pdf: purchaseOrderPdfLinks[0],
       receipt_voucher_token: receiptVoucherToken,
       receipt_voucher_url: receiptVoucherUrl,
     })
