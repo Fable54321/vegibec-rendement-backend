@@ -22,6 +22,7 @@ type PurchaseOrderPdfData = {
   phone?: string | number | null
   buyer_name: string | null
   buyer_email: string | null
+  buyer_phone?: string | number | null
   requested_delivery_date: string | null
   purchased_at: string | null
   supplier_reference: string | null
@@ -138,19 +139,20 @@ export const generatePurchaseOrderPdf = async (
     }
 
     // Keep the original template geometry and replace only its French labels.
-    page.drawRectangle({ x: 420, y: 752, width: 165, height: 42, color: rgb(1, 1, 1) })
+    page.drawRectangle({ x: 405, y: 752, width: 190, height: 42, color: rgb(1, 1, 1) })
     page.drawText("Purchase order", { x: 437, y: 767, size: 19, font: boldFont, color: rgb(0, 0, 0) })
     // The complete order-number line is drawn below with the dynamic reference.
-    page.drawRectangle({ x: 420, y: 704, width: 165, height: 42, color: rgb(1, 1, 1) })
+    page.drawRectangle({ x: 405, y: 704, width: 190, height: 42, color: rgb(1, 1, 1) })
     replaceLabel("Purchased from", 36, 627, 105, 18, 10)
     replaceLabel("Shipped to", 229, 627, 91, 18, 10)
     replaceLabel("Order date", 422, 618, 105, 18, 10)
-    replaceLabel("Buyer", 229, 505, 68, 18, 10)
+    page.drawRectangle({ x: 225, y: 500, width: 82, height: 30, color: rgb(1, 1, 1) })
+    page.drawText("Buyer", { x: 229, y: 517, size: 10, font: boldFont, color: green })
     replaceLabel("Delivery method", 422, 552, 125, 18, 10)
     replaceLabel("Code", 40, 436, 48, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
     replaceLabel("Description", 165, 436, 72, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
-    replaceLabel("Quantity", 313, 436, 58, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
-    replaceLabel("Unit", 383, 436, 42, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
+    replaceLabel("Quantity", 304, 436, 67, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
+    replaceLabel("Unit", 375, 436, 50, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
     replaceLabel("Price", 448, 436, 42, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
     replaceLabel("Amount", 517, 436, 54, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
     replaceLabel("Page 1 of 1", 521, 22, 57, 14, 7, rgb(0, 0, 0))
@@ -432,6 +434,10 @@ const HEADER_COLUMNS = {
   })
 
   drawText(purchaseOrder.buyer_email ? purchaseOrder.buyer_email : defaultBuyerInfos.email, 228, 490, {
+    size: 9,
+  })
+
+  drawText(purchaseOrder.buyer_phone, 228, 479, {
     size: 9,
   })
 

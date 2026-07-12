@@ -23,6 +23,7 @@ type ReceiptVoucherPdfData = {
   received_at?: string | Date | null
   received_by_name?: string | null
   received_by_email?: string | null
+  buyer_phone?: string | number | null
   receipt_note?: string | null
   purchase_order_references?: string[] | null
   items: ReceiptVoucherPdfItem[]
@@ -411,7 +412,11 @@ drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
     },
   )
 
-  drawFittedText(receiptVoucher.receipt_note, 235, 452, 178, {
+  drawFittedText(receiptVoucher.buyer_phone, 234, 448, 178, {
+    size: 9,
+  })
+
+  drawFittedText(receiptVoucher.receipt_note, 235, 437, 178, {
     size: 8,
   })
 

@@ -277,6 +277,7 @@ router.get("/debug/pdf-preview", async (_req, res) => {
       received_at: "2026-06-29",
       received_by_name: "Ricardo Molière",
       received_by_email: "achats@vegibec.com",
+      buyer_phone: "450-596-0566",
       items: [
         {
           item_code: "CAR-10LB",
