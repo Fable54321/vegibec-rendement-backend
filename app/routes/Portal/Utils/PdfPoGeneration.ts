@@ -122,6 +122,7 @@ export const generatePurchaseOrderPdf = async (
 
   if (language === "en") {
     const green = rgb(0.12, 0.31, 0.1)
+    const tableHeaderBackground = rgb(0.965, 0.973, 0.965)
     const replaceLabel = (
       text: string,
       x: number,
@@ -130,25 +131,28 @@ export const generatePurchaseOrderPdf = async (
       height: number,
       size: number,
       color = green,
+      background = rgb(1, 1, 1),
     ) => {
-      page.drawRectangle({ x, y, width, height, color: rgb(1, 1, 1) })
+      page.drawRectangle({ x, y, width, height, color: background })
       page.drawText(text, { x, y: y + 2, size, font: boldFont, color })
     }
 
     // Keep the original template geometry and replace only its French labels.
-    replaceLabel("Purchase order", 462, 761, 111, 27, 19, rgb(0, 0, 0))
-    replaceLabel("# Order", 480, 721, 94, 23, 14, rgb(0, 0, 0))
+    page.drawRectangle({ x: 420, y: 752, width: 165, height: 42, color: rgb(1, 1, 1) })
+    page.drawText("Purchase order", { x: 437, y: 767, size: 19, font: boldFont, color: rgb(0, 0, 0) })
+    // The complete order-number line is drawn below with the dynamic reference.
+    page.drawRectangle({ x: 420, y: 704, width: 165, height: 42, color: rgb(1, 1, 1) })
     replaceLabel("Purchased from", 36, 627, 105, 18, 10)
     replaceLabel("Shipped to", 229, 627, 91, 18, 10)
     replaceLabel("Order date", 422, 618, 105, 18, 10)
     replaceLabel("Buyer", 229, 505, 68, 18, 10)
     replaceLabel("Delivery method", 422, 552, 125, 18, 10)
-    replaceLabel("Code", 40, 436, 48, 16, 9, rgb(0, 0, 0))
-    replaceLabel("Description", 165, 436, 72, 16, 9, rgb(0, 0, 0))
-    replaceLabel("Quantity", 313, 436, 58, 16, 9, rgb(0, 0, 0))
-    replaceLabel("Unit", 383, 436, 42, 16, 9, rgb(0, 0, 0))
-    replaceLabel("Price", 448, 436, 42, 16, 9, rgb(0, 0, 0))
-    replaceLabel("Amount", 517, 436, 54, 16, 9, rgb(0, 0, 0))
+    replaceLabel("Code", 40, 436, 48, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
+    replaceLabel("Description", 165, 436, 72, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
+    replaceLabel("Quantity", 313, 436, 58, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
+    replaceLabel("Unit", 383, 436, 42, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
+    replaceLabel("Price", 448, 436, 42, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
+    replaceLabel("Amount", 517, 436, 54, 16, 9, rgb(0, 0, 0), tableHeaderBackground)
     replaceLabel("Page 1 of 1", 521, 22, 57, 14, 7, rgb(0, 0, 0))
   }
 
@@ -382,13 +386,20 @@ const HEADER_COLUMNS = {
    purchaseOrder.purchase_order_reference 
 
   // Header / PO number
-  drawRightAlignedText(
-    displayReference,
-    HEADER_COLUMNS.orderReferenceLabelX +
-      getTextWidth(language === "en" ? "# Order" : "# Commande", 14, { bold: true }),
-    HEADER_COLUMNS.orderReferenceY,
-    { size: 14, bold: true },
-  )
+  if (language === "en") {
+    drawRightAlignedText(`# Order ${displayReference}`, 575, HEADER_COLUMNS.orderReferenceY, {
+      size: 14,
+      bold: true,
+    })
+  } else {
+    drawRightAlignedText(
+      displayReference,
+      HEADER_COLUMNS.orderReferenceLabelX +
+        getTextWidth("# Commande", 14, { bold: true }),
+      HEADER_COLUMNS.orderReferenceY,
+      { size: 14, bold: true },
+    )
+  }
 
   // Acheté de
   drawText(purchaseOrder.supplier_name, 26, 610, {
