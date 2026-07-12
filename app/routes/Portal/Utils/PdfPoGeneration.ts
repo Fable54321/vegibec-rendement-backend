@@ -139,10 +139,9 @@ export const generatePurchaseOrderPdf = async (
     }
 
     // Keep the original template geometry and replace only its French labels.
-    page.drawRectangle({ x: 405, y: 752, width: 190, height: 42, color: rgb(1, 1, 1) })
+    page.drawRectangle({ x: 405, y: 704, width: 190, height: 90, color: rgb(1, 1, 1) })
     page.drawText("Purchase order", { x: 437, y: 767, size: 19, font: boldFont, color: rgb(0, 0, 0) })
     // The complete order-number line is drawn below with the dynamic reference.
-    page.drawRectangle({ x: 405, y: 704, width: 190, height: 42, color: rgb(1, 1, 1) })
     replaceLabel("Purchased from", 36, 627, 105, 18, 10)
     replaceLabel("Shipped to", 229, 627, 91, 18, 10)
     replaceLabel("Order date", 422, 618, 105, 18, 10)
