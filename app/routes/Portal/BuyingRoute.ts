@@ -155,7 +155,7 @@ type PurchaseOrderItemPayload = {
 
 
 
-router.get("/:purchaseOrderId/pdf", async (req, res) => {
+router.get(["/purchase-orders/:purchaseOrderId/pdf", "/:purchaseOrderId/pdf"], async (req, res) => {
   const client = await pool.connect()
 
   try {
