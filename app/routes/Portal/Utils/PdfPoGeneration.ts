@@ -102,6 +102,24 @@ const formatDateTime = (value: Date) => {
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
+const translateDeliveryMethod = (
+  value: string | null,
+  language: "fr" | "en",
+) => {
+  if (!value || language === "fr") return value
+
+  const normalizedValue = value
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+
+  if (normalizedValue === "livre") return "Delivered"
+  if (normalizedValue === "ramasse") return "Pick up"
+
+  return value
+}
+
 export const generatePurchaseOrderPdf = async (
   purchaseOrder: PurchaseOrderPdfData,
   language: "fr" | "en" = "fr",
@@ -445,7 +463,7 @@ const HEADER_COLUMNS = {
     size: 9,
   })
 
-  drawText(purchaseOrder.delivery_method, 422, 540, {
+  drawText(translateDeliveryMethod(purchaseOrder.delivery_method, language), 422, 540, {
     size: 9,
   })
 
