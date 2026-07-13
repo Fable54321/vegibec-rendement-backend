@@ -153,6 +153,84 @@ type PurchaseOrderItemPayload = {
   location?: unknown
 }
 
+router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
+  const client = await pool.connect()
+  try {
+    const purchaseOrderId = cleanPositiveInteger(req.params.purchaseOrderId)
+    const items = Array.isArray(req.body?.items) ? req.body.items : []
+    if (!purchaseOrderId || items.length === 0) {
+      return res.status(400).json({ message: "Invalid purchase order update" })
+    }
+
+    await client.query("BEGIN")
+    const orderResult = await client.query(
+      "SELECT id FROM portal.purchase_orders WHERE id = $1 FOR UPDATE",
+      [purchaseOrderId],
+    )
+    if (!orderResult.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ message: "Purchase order not found" })
+    }
+
+    for (const item of items) {
+      const itemId = cleanPositiveInteger(item.id)
+      const quantity = cleanPositiveNumber(item.quantity)
+      const unitPrice = cleanNumber(item.ordered_unit_price)
+      if (!itemId || !quantity || unitPrice === null || unitPrice < 0) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({ message: "Invalid purchase order item" })
+      }
+
+      const updatedItem = await client.query(
+        `UPDATE portal.purchase_order_items poi
+         SET item_description = $3, ordered_quantity = $4,
+             ordered_unit = $5, final_unit_price = $6,
+             final_total_price = $4 * $6, updated_at = now()
+         WHERE poi.id = $1 AND poi.purchase_order_id = $2
+           AND $4 >= COALESCE((
+             SELECT SUM(rvi.received_quantity)
+             FROM portal.receipt_voucher_items rvi
+             WHERE rvi.purchase_order_item_id = poi.id
+           ), 0)
+         RETURNING id`,
+        [itemId, purchaseOrderId, cleanText(item.item_description), quantity,
+          cleanText(item.ordered_unit), unitPrice],
+      )
+      if (!updatedItem.rowCount) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({
+          message: "An item is invalid or its quantity is below the quantity already received",
+        })
+      }
+    }
+
+    const updatedOrder = await client.query(
+      `UPDATE portal.purchase_orders SET
+         supplier_name = $2, supplier_address_snapshot = $3, supplier_phone = $4,
+         buyer_name = $5, buyer_email = $6, buyer_phone = $7,
+         purchased_at = COALESCE($8::timestamptz, purchased_at),
+         delivery_method = $9, shipping_address_snapshot = $10,
+         currency_code = COALESCE($11, currency_code), purchase_note = $12,
+         updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [purchaseOrderId, cleanText(req.body.supplier_name),
+        cleanText(req.body.supplier_address_snapshot), cleanText(req.body.supplier_phone),
+        cleanText(req.body.buyer_name), cleanText(req.body.buyer_email),
+        cleanText(req.body.buyer_phone), cleanDate(req.body.ordered_at),
+        cleanText(req.body.delivery_method), cleanText(req.body.shipping_address_snapshot),
+        cleanText(req.body.currency_code), cleanText(req.body.purchase_note)],
+    )
+    await client.query("COMMIT")
+    return res.json({ purchase_order: updatedOrder.rows[0] })
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined)
+    console.error("Error updating purchase order:", error)
+    return res.status(500).json({ message: "Error updating purchase order" })
+  } finally {
+    client.release()
+  }
+})
+
 
 
 router.get(["/purchase-orders/:purchaseOrderId/pdf", "/:purchaseOrderId/pdf"], async (req, res) => {
