@@ -184,7 +184,7 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
       const updatedItem = await client.query(
         `UPDATE portal.purchase_order_items poi
          SET item_description = $3, ordered_quantity = $4,
-             ordered_unit = $5, final_unit_price = $6,
+             ordered_unit = $5, final_unit_price = $6, item_code = $7,
              final_total_price = $4 * $6, updated_at = now()
          WHERE poi.id = $1 AND poi.purchase_order_id = $2
            AND $4 >= COALESCE((
@@ -194,7 +194,7 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
            ), 0)
          RETURNING id`,
         [itemId, purchaseOrderId, cleanText(item.item_description), quantity,
-          cleanText(item.ordered_unit), unitPrice],
+          cleanText(item.ordered_unit), unitPrice, cleanText(item.item_code)],
       )
       if (!updatedItem.rowCount) {
         await client.query("ROLLBACK")
