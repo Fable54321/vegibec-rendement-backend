@@ -185,7 +185,7 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
         `UPDATE portal.purchase_order_items poi
          SET item_description = $3, ordered_quantity = $4,
              ordered_unit = $5, final_unit_price = $6, item_code = $7,
-             final_total_price = $4 * $6, updated_at = now()
+             updated_at = now()
          WHERE poi.id = $1 AND poi.purchase_order_id = $2
            AND $4 >= COALESCE((
              SELECT SUM(rvi.received_quantity)
