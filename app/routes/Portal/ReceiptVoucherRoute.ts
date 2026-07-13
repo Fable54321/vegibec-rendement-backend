@@ -863,38 +863,19 @@ await client.query(
   `
   SELECT pg_advisory_xact_lock(hashtext($1))
   `,
-  [
-    linkedPurchaseOrderId
-      ? `portal.receipt_vouchers.purchase_order.${linkedPurchaseOrderId}`
-      : `portal.receipt_vouchers.request.${purchaseRequestId}`,
-  ],
+  [`portal.receipt_vouchers.request.${purchaseRequestId}`],
 )
 
-const sequenceResult = linkedPurchaseOrderId
-  ? await client.query(
-      `
-      SELECT COALESCE(MAX(rv.receipt_voucher_sequence), 0) + 1 AS next_sequence
-      FROM portal.receipt_vouchers rv
-      WHERE rv.purchase_request_id = $1
-        AND EXISTS (
-          SELECT 1
-          FROM portal.receipt_voucher_items rvi
-          INNER JOIN portal.purchase_order_items poi
-            ON poi.id = rvi.purchase_order_item_id
-          WHERE rvi.receipt_voucher_id = rv.id
-            AND poi.purchase_order_id = $2
-        )
-      `,
-      [purchaseRequestId, linkedPurchaseOrderId],
-    )
-  : await client.query(
-      `
-      SELECT COALESCE(MAX(receipt_voucher_sequence), 0) + 1 AS next_sequence
-      FROM portal.receipt_vouchers
-      WHERE purchase_request_id = $1
-      `,
-      [purchaseRequestId],
-    )
+// receipt_vouchers_request_sequence_unique is scoped to the purchase request,
+// so the sequence must be allocated globally across all of its purchase orders.
+const sequenceResult = await client.query(
+  `
+  SELECT COALESCE(MAX(receipt_voucher_sequence), 0) + 1 AS next_sequence
+  FROM portal.receipt_vouchers
+  WHERE purchase_request_id = $1
+  `,
+  [purchaseRequestId],
+)
 
 const receiptVoucherSequence = Number(sequenceResult.rows[0].next_sequence)
 
