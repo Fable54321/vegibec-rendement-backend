@@ -35,6 +35,7 @@ import {
   getPurchaseRequestDisplayNumber,
   getUrgencyFromExpectedDate,
   invalidateBuyerValidationTokens,
+  keepAdminApprovalTokenActiveForOnWait,
   markAdminApprovalTokenUsed,
   markBuyerValidationTokenUsed,
   sendPurchaseRequestEmailSafely,
@@ -2277,7 +2278,10 @@ router.patch(
         return res.status(404).json({ message: "Purchase request not found" })
       }
 
-      if (currentRequest.rows[0].status !== "pending_admin_approval") {
+      if (
+        currentRequest.rows[0].status !== "pending_admin_approval" &&
+        currentRequest.rows[0].status !== "admin_on_wait"
+      ) {
         await client.query("ROLLBACK")
 
         return res.status(400).json({
@@ -2318,11 +2322,19 @@ router.patch(
           ? await createPurchaseToken(client, updatedRequest.id)
           : null
 
-      await markAdminApprovalTokenUsed(
-        client,
-        purchaseRequestId,
-        adminApprovalToken,
-      )
+      if (decision === "on_wait") {
+        await keepAdminApprovalTokenActiveForOnWait(
+          client,
+          purchaseRequestId,
+          adminApprovalToken,
+        )
+      } else {
+        await markAdminApprovalTokenUsed(
+          client,
+          purchaseRequestId,
+          adminApprovalToken,
+        )
+      }
 
       const updatedRequestWithItems = await getPurchaseRequestWithItems(
         client,
@@ -2365,16 +2377,25 @@ router.patch(
       }
 
       if (decision === "on_wait") {
+        const adminApprovalUrl = buildAdminApprovalUrl(
+          req,
+          purchaseRequestId,
+          adminApprovalToken,
+        )
+
         await sendPurchaseRequestEmailSafely(
           emailRecipients,
-          `Ricardo - demande d'achat #${displayRequestNumber} mise en attente`,
+          `Michelle - rappel pour la demande d'achat #${displayRequestNumber} mise en attente`,
           `La demande d'achat #${displayRequestNumber} a été mise en attente par Michelle.
 
 Produit :
 ${updatedRequest.description}
 
 Raison :
-${updatedRequest.admin_note || "Aucune raison indiquée"}`,
+${updatedRequest.admin_note || "Aucune raison indiquée"}
+
+Le lien reste actif sans date d'expiration pendant la mise en attente. Michelle peut y retourner pour approuver ou refuser la demande :
+${adminApprovalUrl}`,
         )
       }
 

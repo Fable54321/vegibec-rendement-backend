@@ -677,12 +677,16 @@ export const validateAdminApprovalToken = async (
 
   const result = await client.query(
     `
-    SELECT id
-    FROM portal.purchase_request_admin_approval_tokens
-    WHERE purchase_request_id = $1
-      AND token_hash = $2
-      AND used_at IS NULL
-      AND expires_at > now()
+    SELECT token.id
+    FROM portal.purchase_request_admin_approval_tokens token
+    INNER JOIN portal.purchase_requests request
+      ON request.id = token.purchase_request_id
+    WHERE token.purchase_request_id = $1
+      AND token.token_hash = $2
+      AND (
+        (token.used_at IS NULL AND token.expires_at > now())
+        OR request.status = 'admin_on_wait'
+      )
     LIMIT 1
     `,
     [purchaseRequestId, token]
@@ -700,6 +704,23 @@ export const markAdminApprovalTokenUsed = async (
     `
     UPDATE portal.purchase_request_admin_approval_tokens
     SET used_at = now()
+    WHERE purchase_request_id = $1
+      AND token_hash = $2
+      AND used_at IS NULL
+    `,
+    [purchaseRequestId, token]
+  )
+}
+
+export const keepAdminApprovalTokenActiveForOnWait = async (
+  client: PoolClient,
+  purchaseRequestId: number,
+  token: string
+) => {
+  await client.query(
+    `
+    UPDATE portal.purchase_request_admin_approval_tokens
+    SET expires_at = 'infinity'::timestamptz
     WHERE purchase_request_id = $1
       AND token_hash = $2
       AND used_at IS NULL
