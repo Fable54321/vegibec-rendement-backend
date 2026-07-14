@@ -2423,8 +2423,8 @@ ${adminApprovalUrl}`,
         await sendPurchaseRequestEmailSafely(
           requesterEmail,
           decision === "approved"
-            ? `Votre demande d'achat #${displayRequestNumber} a ete approuvee`
-            : `Votre demande d'achat #${displayRequestNumber} a ete refusee`,
+            ? `Votre demande d'achat #${displayRequestNumber} a été approuvée`
+            : `Votre demande d'achat #${displayRequestNumber} a été refusée`,
           buildRequesterDecisionEmail(updatedRequest),
           buildRequesterDecisionEmailHtml(updatedRequest),
           await getPurchaseRequestReplyToRecipients(),
