@@ -2382,6 +2382,21 @@ router.patch(
           purchaseRequestId,
           adminApprovalToken,
         )
+        const productDescriptions = Array.isArray(updatedRequest.items)
+          ? updatedRequest.items
+              .map((item: { description?: unknown }, index: number) => {
+                const description =
+                  typeof item.description === "string"
+                    ? item.description.trim()
+                    : ""
+
+                return description ? `${index + 1}. ${description}` : null
+              })
+              .filter((description: string | null): description is string =>
+                Boolean(description),
+              )
+              .join("\n")
+          : ""
 
         await sendPurchaseRequestEmailSafely(
           emailRecipients,
@@ -2389,7 +2404,7 @@ router.patch(
           `La demande d'achat #${displayRequestNumber} a été mise en attente par Michelle.
 
 Produit :
-${updatedRequest.description}
+${productDescriptions || "Non indiqué"}
 
 Raison :
 ${updatedRequest.admin_note || "Aucune raison indiquée"}
