@@ -2363,11 +2363,9 @@ router.patch(
       const displayRequestNumber =
         getPurchaseRequestDisplayNumber(updatedRequest)
 
-      const emailRecipients = await getPurchaseRequestRecipients(updatedRequest)
-
       if (decision === "approved" || decision === "rejected") {
         await sendPurchaseRequestEmailSafely(
-          emailRecipients,
+          await getPurchaseRequestReplyToRecipients(),
           decision === "approved"
             ? `Ricardo - demande d'achat #${displayRequestNumber} approuvée, achat à faire`
             : `Ricardo - demande d'achat #${displayRequestNumber} refusée`,
@@ -2399,7 +2397,7 @@ router.patch(
           : ""
 
         await sendPurchaseRequestEmailSafely(
-          emailRecipients,
+          await getPurchaseRequestReplyToRecipients(),
           `Michelle - rappel pour la demande d'achat #${displayRequestNumber} mise en attente`,
           `La demande d'achat #${displayRequestNumber} a été mise en attente par Michelle.
 
@@ -2418,6 +2416,36 @@ ${adminApprovalUrl}`,
         typeof updatedRequest.requester_email === "string"
           ? updatedRequest.requester_email.trim()
           : ""
+
+      if (requesterEmail && decision === "on_wait") {
+        await sendPurchaseRequestEmailSafely(
+          requesterEmail,
+          `Votre demande d'achat #${displayRequestNumber} a été mise en attente`,
+          `Votre demande d'achat #${displayRequestNumber} a été mise en attente par Michelle.
+
+Produits :
+${Array.isArray(updatedRequest.items)
+  ? updatedRequest.items
+      .map((item: { description?: unknown }, index: number) => {
+        const description =
+          typeof item.description === "string" ? item.description.trim() : ""
+
+        return description ? `${index + 1}. ${description}` : null
+      })
+      .filter((description: string | null): description is string =>
+        Boolean(description),
+      )
+      .join("\n") || "Non indiqué"
+  : "Non indiqué"}
+
+Raison :
+${updatedRequest.admin_note || "Aucune raison indiquée"}
+
+Vous recevrez un autre courriel lorsque la décision finale sera prise.`,
+          undefined,
+          await getPurchaseRequestReplyToRecipients(),
+        )
+      }
 
       if (requesterEmail && (decision === "approved" || decision === "rejected")) {
         await sendPurchaseRequestEmailSafely(
