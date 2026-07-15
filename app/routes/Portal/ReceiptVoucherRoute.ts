@@ -141,20 +141,6 @@ const getReferenceBaseFromRequest = (requestReference: string) => {
   return `${shortYear}-${month}-${sequence}`
 }
 
-const getPurchaseOrderSubsequenceFromReference = (
-  purchaseOrderReference: string | null,
-) => {
-  if (!purchaseOrderReference) return null
-
-  const match = purchaseOrderReference.match(
-    /^bc-\d{2}-\d{1,2}-\d{2,}-(\d+)$/,
-  )
-
-  if (!match) return null
-
-  return Number(match[1])
-}
-
 const formatReceiptVoucherReference = ({
   requestReference,
   receiptVoucherSequence,
@@ -844,19 +830,48 @@ if (linkedPurchaseOrderIds.length > 1) {
 
 const linkedPurchaseOrderId = linkedPurchaseOrderIds[0] ?? null
 
-const firstPurchaseOrderReference =
-  firstPurchaseOrderItem?.purchase_order_reference ?? null
+let purchaseOrderSubsequence: number | null = null
 
-const purchaseOrderSubsequence = hasMultiplePurchaseOrders
-  ? getPurchaseOrderSubsequenceFromReference(firstPurchaseOrderReference)
-  : null
+if (hasMultiplePurchaseOrders) {
+  if (linkedPurchaseOrderId === null) {
+    await client.query("ROLLBACK")
 
-if (hasMultiplePurchaseOrders && !purchaseOrderSubsequence) {
-  await client.query("ROLLBACK")
+    return res.status(400).json({
+      message: "A purchase order item is required for this receipt voucher",
+    })
+  }
 
-  return res.status(500).json({
-    message: "Unable to identify purchase order sequence for receipt voucher",
-  })
+  const purchaseOrderOrdinalResult = await client.query(
+    `
+    SELECT purchase_order_ordinal
+    FROM (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            purchase_order_sequence ASC,
+            purchase_order_subsequence ASC NULLS FIRST,
+            id ASC
+        )::int AS purchase_order_ordinal
+      FROM portal.purchase_orders
+      WHERE purchase_request_id = $1
+    ) purchase_order_positions
+    WHERE id = $2
+    `,
+    [purchaseRequestId, linkedPurchaseOrderId],
+  )
+
+  purchaseOrderSubsequence = Number(
+    purchaseOrderOrdinalResult.rows[0]?.purchase_order_ordinal || 0,
+  )
+
+  if (!purchaseOrderSubsequence) {
+    await client.query("ROLLBACK")
+
+    return res.status(400).json({
+      message: "Unable to identify the purchase order for this receipt voucher",
+    })
+  }
 }
 
 await client.query(
