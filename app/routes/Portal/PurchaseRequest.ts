@@ -563,20 +563,36 @@ export async function getPurchaseRequestWithItems(
     ...order,
     items: purchaseOrderItemsByOrderId[order.id] ?? [],
   }))
-  const purchasedRequestItemIds = new Set(
-    purchaseOrders.flatMap((order) =>
-      order.items
-        .map((item: any) => Number(item.purchase_request_item_id))
-        .filter((id: number) => Number.isInteger(id) && id > 0),
-    ),
-  )
+  const orderedQuantityByRequestItemId = purchaseOrders
+    .flatMap((order) => order.items)
+    .reduce((quantities, item: any) => {
+      const requestItemId = Number(item.purchase_request_item_id)
+
+      if (Number.isInteger(requestItemId) && requestItemId > 0) {
+        quantities.set(
+          requestItemId,
+          (quantities.get(requestItemId) ?? 0) + Number(item.ordered_quantity ?? 0),
+        )
+      }
+
+      return quantities
+    }, new Map<number, number>())
 
   return {
     ...purchaseRequest,
-    items: (purchaseRequest.items ?? []).map((item: any) => ({
-      ...item,
-      has_purchase_order: purchasedRequestItemIds.has(Number(item.id)),
-    })),
+    items: (purchaseRequest.items ?? []).map((item: any) => {
+      const orderedQuantity = orderedQuantityByRequestItemId.get(Number(item.id)) ?? 0
+      const requestedQuantity = Number(item.quantity ?? 0)
+      const remainingQuantity = Math.max(requestedQuantity - orderedQuantity, 0)
+
+      return {
+        ...item,
+        ordered_quantity: orderedQuantity,
+        remaining_quantity: remainingQuantity,
+        has_purchase_order: orderedQuantity > 0,
+        is_fully_purchased: remainingQuantity <= 0,
+      }
+    }),
     purchase_orders: purchaseOrders,
     receipt_voucher_defaults: {
       suppliers: purchaseOrders.map((order) => ({

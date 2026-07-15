@@ -992,11 +992,20 @@ const voucherResult = await client.query(
     const receiptProgressResult = await client.query(
       `
       SELECT
+        COALESCE(requested.requested_total_quantity, 0)::numeric
+          AS requested_total_quantity,
         COALESCE(ordered.ordered_total_quantity, 0)::numeric
           AS ordered_total_quantity,
         COALESCE(received.received_total_quantity, 0)::numeric
           AS received_total_quantity
       FROM (
+        SELECT
+          COALESCE(SUM(pri.quantity), 0)::numeric
+            AS requested_total_quantity
+        FROM portal.purchase_request_items pri
+        WHERE pri.purchase_request_id = $1
+      ) requested
+      CROSS JOIN (
         SELECT
           COALESCE(SUM(poi.ordered_quantity), 0)::numeric
             AS ordered_total_quantity
@@ -1018,6 +1027,9 @@ const voucherResult = await client.query(
       [purchaseRequestId],
     )
 
+    const requestedTotalQuantity = Number(
+      receiptProgressResult.rows[0]?.requested_total_quantity || 0,
+    )
     const orderedTotalQuantity = Number(
       receiptProgressResult.rows[0]?.ordered_total_quantity || 0,
     )
@@ -1025,7 +1037,9 @@ const voucherResult = await client.query(
       receiptProgressResult.rows[0]?.received_total_quantity || 0,
     )
     const nextRequestStatus =
-      orderedTotalQuantity > 0 && receivedTotalQuantity >= orderedTotalQuantity
+      requestedTotalQuantity > 0 &&
+      orderedTotalQuantity >= requestedTotalQuantity &&
+      receivedTotalQuantity >= orderedTotalQuantity
         ? "received"
         : "partially_received"
 

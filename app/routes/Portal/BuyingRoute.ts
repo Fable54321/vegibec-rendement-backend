@@ -351,12 +351,12 @@ router.get(
       }
 
       const remainingItems = (purchaseRequest.items ?? []).filter(
-        (item: any) => !item.has_purchase_order,
+        (item: any) => Number(item.remaining_quantity ?? 0) > 0,
       )
 
       if (remainingItems.length === 0) {
         return res.status(400).json({
-          message: "All items in this request already have a purchase order",
+          message: "All requested quantities already have a purchase order",
         })
       }
 
@@ -534,25 +534,56 @@ if (!allowedPurchaseStatuses.includes(currentRequest.rows[0].status)) {
     ]
 
     if (requestedItemIds.length > 0) {
-      const alreadyPurchasedItemsResult = await client.query(
+      const requestedQuantitiesByItemId = orderItems.reduce((quantities, item) => {
+        const itemId = cleanPositiveInteger(item.purchase_request_item_id)
+        const quantity = cleanPositiveNumber(item.ordered_quantity)
+
+        if (itemId && quantity) {
+          quantities.set(itemId, (quantities.get(itemId) ?? 0) + quantity)
+        }
+
+        return quantities
+      }, new Map<number, number>())
+      const itemQuantitiesResult = await client.query(
         `
-        SELECT poi.purchase_request_item_id
-        FROM portal.purchase_order_items poi
-        INNER JOIN portal.purchase_orders po
+        SELECT
+          pri.id,
+          pri.quantity::numeric AS requested_quantity,
+          COALESCE(SUM(poi.ordered_quantity), 0)::numeric AS already_ordered_quantity
+        FROM portal.purchase_request_items pri
+        LEFT JOIN portal.purchase_order_items poi
+          ON poi.purchase_request_item_id = pri.id
+        LEFT JOIN portal.purchase_orders po
           ON po.id = poi.purchase_order_id
-        WHERE po.purchase_request_id = $1
-          AND poi.purchase_request_item_id = ANY($2::bigint[])
-        LIMIT 1
+          AND po.purchase_request_id = pri.purchase_request_id
+        WHERE pri.purchase_request_id = $1
+          AND pri.id = ANY($2::bigint[])
+        GROUP BY pri.id, pri.quantity
         `,
         [purchaseRequestId, requestedItemIds],
       )
 
-      if (alreadyPurchasedItemsResult.rows.length > 0) {
+      const quantitiesByItemId = new Map(
+        itemQuantitiesResult.rows.map((item) => [Number(item.id), item]),
+      )
+      const invalidItemId = requestedItemIds.find((itemId) => {
+        const item = quantitiesByItemId.get(itemId)
+
+        if (!item) return true
+
+        return (
+          Number(item.already_ordered_quantity) +
+            (requestedQuantitiesByItemId.get(itemId) ?? 0) >
+          Number(item.requested_quantity)
+        )
+      })
+
+      if (invalidItemId) {
         await client.query("ROLLBACK")
         transactionStarted = false
 
         return res.status(400).json({
-          message: "One of the selected items already has a purchase order",
+          message: "The ordered quantity exceeds the remaining requested quantity",
         })
       }
     }
@@ -869,7 +900,29 @@ const purchaseOrderPdfLinks = await Promise.all(purchaseOrderDocuments.map(async
   }),
 })))
 
-const nextRequestStatus = isPartialPurchase
+const remainingRequestedQuantityResult = await client.query(
+  `
+  SELECT EXISTS (
+    SELECT 1
+    FROM portal.purchase_request_items pri
+    LEFT JOIN (
+      SELECT
+        poi.purchase_request_item_id,
+        SUM(poi.ordered_quantity)::numeric AS ordered_quantity
+      FROM portal.purchase_order_items poi
+      INNER JOIN portal.purchase_orders po
+        ON po.id = poi.purchase_order_id
+      WHERE po.purchase_request_id = $1
+      GROUP BY poi.purchase_request_item_id
+    ) ordered
+      ON ordered.purchase_request_item_id = pri.id
+    WHERE pri.purchase_request_id = $1
+      AND COALESCE(ordered.ordered_quantity, 0) < pri.quantity
+  ) AS has_remaining_quantity
+  `,
+  [purchaseRequestId],
+)
+const nextRequestStatus = remainingRequestedQuantityResult.rows[0].has_remaining_quantity
   ? "partially_purchased"
   : "purchased"
 
