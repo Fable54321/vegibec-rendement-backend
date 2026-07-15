@@ -721,7 +721,7 @@ const requestedDeliveryMethod = cleanText(delivery_method)
         purchase_order_item_id: purchaseOrderItem
           ? Number(purchaseOrderItem.id)
           : item.purchase_order_item_id,
-        quantity: item.quantity ?? orderedQuantity,
+        quantity: orderedQuantity ?? item.quantity,
         received_quantity: item.received_quantity ?? remainingQuantity,
       })
     }
