@@ -879,9 +879,31 @@ const sequenceResult = await client.query(
 
 const receiptVoucherSequence = Number(sequenceResult.rows[0].next_sequence)
 
+let receiptVoucherReferenceSequence = receiptVoucherSequence
+
+if (hasMultiplePurchaseOrders && linkedPurchaseOrderId !== null) {
+  const referenceSequenceResult = await client.query(
+    `
+    SELECT COUNT(DISTINCT rv.id)::int + 1 AS next_sequence
+    FROM portal.receipt_vouchers rv
+    INNER JOIN portal.receipt_voucher_items rvi
+      ON rvi.receipt_voucher_id = rv.id
+    INNER JOIN portal.purchase_order_items poi
+      ON poi.id = rvi.purchase_order_item_id
+    WHERE rv.purchase_request_id = $1
+      AND poi.purchase_order_id = $2
+    `,
+    [purchaseRequestId, linkedPurchaseOrderId],
+  )
+
+  receiptVoucherReferenceSequence = Number(
+    referenceSequenceResult.rows[0].next_sequence,
+  )
+}
+
 const receiptVoucherReference = formatReceiptVoucherReference({
   requestReference,
-  receiptVoucherSequence,
+  receiptVoucherSequence: receiptVoucherReferenceSequence,
   purchaseOrderSubsequence,
   hasMultiplePurchaseOrders,
 })
