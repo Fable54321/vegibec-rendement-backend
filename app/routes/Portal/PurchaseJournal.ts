@@ -399,8 +399,8 @@ pr.updated_at,
         COALESCE(orders.ordered_total_quantity, 0)::numeric
           AS ordered_total_quantity,
 
-        COALESCE(orders.purchased_item_count, 0)::int
-          AS purchased_item_count,
+        COALESCE(orders.purchased_total_quantity, 0)::numeric
+          AS purchased_total_quantity,
 
         COALESCE(receipts.received_total_quantity, 0)::numeric
           AS received_total_quantity,
@@ -446,7 +446,7 @@ pr.updated_at,
             0
           )::numeric AS buyer_confirmed_total_price,
 
-          COUNT(*)::numeric AS requested_total_quantity
+          COALESCE(SUM(quantity), 0)::numeric AS requested_total_quantity
 
         FROM portal.purchase_request_items
         GROUP BY purchase_request_id
@@ -481,8 +481,8 @@ pr.updated_at,
           COALESCE(SUM(poi.ordered_quantity), 0)::numeric
             AS ordered_total_quantity,
 
-          COUNT(DISTINCT poi.purchase_request_item_id)::int
-            AS purchased_item_count,
+          COALESCE(SUM(poi.ordered_quantity), 0)::numeric
+            AS purchased_total_quantity,
 
           MAX(po.purchased_at) AS last_purchased_at,
           MAX(po.received_at) AS last_received_at
@@ -523,7 +523,7 @@ pr.updated_at,
       const requestedTotal = Number(row.requested_total_price || 0)
       const actualPurchasedTotal = Number(row.actual_purchased_total_price || 0)
       const requestedTotalQuantity = Number(row.requested_total_quantity || 0)
-      const purchasedItemCount = Number(row.purchased_item_count || 0)
+      const purchasedTotalQuantity = Number(row.purchased_total_quantity || 0)
       const orderedTotalQuantity = Number(row.ordered_total_quantity || 0)
       const receivedTotalQuantity = Number(row.received_total_quantity || 0)
 
@@ -555,7 +555,7 @@ pr.updated_at,
         purchase_order_count: purchaseOrderCount,
         receipt_voucher_count: Number(row.receipt_voucher_count || 0),
         requested_total_quantity: requestedTotalQuantity,
-        purchased_total_quantity: purchasedItemCount,
+        purchased_total_quantity: purchasedTotalQuantity,
         ordered_total_quantity: orderedTotalQuantity,
         received_total_quantity: receivedTotalQuantity,
         has_receivable_items:
@@ -1051,7 +1051,7 @@ router.get("/:id", async (req, res) => {
           purchase_request_id,
           COALESCE(SUM(requested_total_price), 0)::numeric AS requested_total_price,
           COALESCE(SUM(buyer_confirmed_total_price), 0)::numeric AS buyer_confirmed_total_price,
-          COUNT(*)::numeric AS requested_total_quantity
+          COALESCE(SUM(quantity), 0)::numeric AS requested_total_quantity
         FROM portal.purchase_request_items
         GROUP BY purchase_request_id
       ) item_totals
@@ -1060,7 +1060,7 @@ router.get("/:id", async (req, res) => {
       LEFT JOIN (
         SELECT
           po.purchase_request_id,
-          COUNT(DISTINCT poi.purchase_request_item_id)::numeric AS purchased_total_quantity
+          COALESCE(SUM(poi.ordered_quantity), 0)::numeric AS purchased_total_quantity
         FROM portal.purchase_orders po
         LEFT JOIN portal.purchase_order_items poi
           ON poi.purchase_order_id = po.id
