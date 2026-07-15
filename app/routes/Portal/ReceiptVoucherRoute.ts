@@ -774,7 +774,7 @@ const requestedDeliveryMethod = cleanText(delivery_method)
 
         return res.status(400).json({
           message:
-            "One or more received quantities exceed the ordered quantity",
+            "La quantité reçue dépasse la quantité restante pour un ou plusieurs articles.",
         })
       }
     }
