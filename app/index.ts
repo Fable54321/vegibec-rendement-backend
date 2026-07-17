@@ -57,6 +57,7 @@ import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
 import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
+import salesProductsRoute from "./routes/salesProducts";
 
 
 
@@ -187,6 +188,8 @@ app.use("/auth", authRoute);
 
 
 app.use(authMiddleware);
+
+app.use("/sales", salesProductsRoute);
 
 app.use("/alternative-auth", alternativeAuthRoute);
 
