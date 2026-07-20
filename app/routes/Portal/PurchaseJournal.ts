@@ -17,6 +17,28 @@ import { getSignedUrlForKey } from "../../services/s3.services"
 
 const router = Router()
 
+let recurringColumnsReady: Promise<void> | null = null
+function ensureRecurringColumns() {
+  recurringColumnsReady ??= pool.query(`
+    ALTER TABLE portal.purchase_requests
+      ADD COLUMN IF NOT EXISTS is_recurring boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS recurring_source_request_id bigint NULL
+        REFERENCES portal.purchase_requests(id) ON DELETE SET NULL
+  `).then(() => undefined)
+  return recurringColumnsReady
+}
+
+function cleanRecurringText(value: unknown) {
+  if (typeof value !== "string") return null
+  const cleaned = value.trim()
+  return cleaned || null
+}
+
+function cleanRecurringNumber(value: unknown) {
+  const number = Number(value)
+  return Number.isFinite(number) && number >= 0 ? number : null
+}
+
 type PurchaseRequestStatus =
   | "pending_buyer_validation"
   | "needs_requester_info"
@@ -345,6 +367,7 @@ function getDelegationSelectSql(whereClause: string) {
 
 router.get("/", async (req, res) => {
   try {
+    await ensureRecurringColumns()
     const { status } = req.query
 
     const params: unknown[] = []
@@ -362,6 +385,8 @@ router.get("/", async (req, res) => {
         pr.request_reference,
         pr.requested_by,
         pr.requester_email,
+        pr.is_recurring,
+        pr.recurring_source_request_id,
         pr.status,
         pr.urgency,
         pr.needed_by_date,
@@ -591,6 +616,64 @@ cancellation_reason: row.cancellation_reason,
       message: "Unable to load purchase journal",
     })
   }
+})
+
+router.patch("/:id/recurring", async (req, res) => {
+  try {
+    await ensureRecurringColumns()
+    const id = Number(req.params.id)
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid purchase request id" })
+    const result = await pool.query(`UPDATE portal.purchase_requests SET is_recurring = $2, updated_at = now() WHERE id = $1 RETURNING id, is_recurring`, [id, Boolean(req.body?.is_recurring)])
+    if (!result.rows[0]) return res.status(404).json({ message: "Purchase request not found" })
+    return res.json(result.rows[0])
+  } catch (error) {
+    console.error("Recurring purchase request update error:", error)
+    return res.status(500).json({ message: "Unable to update recurring purchase request" })
+  }
+})
+
+router.post("/:id/create-recurrence", async (req, res) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+  try {
+    await ensureRecurringColumns()
+    const sourceRequestId = Number(req.params.id)
+    const sourceOrderId = Number(req.body?.source_purchase_order_id)
+    const items = Array.isArray(req.body?.items) ? req.body.items : []
+    if (!Number.isInteger(sourceRequestId) || sourceRequestId <= 0 || !Number.isInteger(sourceOrderId) || sourceOrderId <= 0 || items.length === 0) {
+      return res.status(400).json({ message: "A source order and at least one item are required" })
+    }
+    await client.query("BEGIN"); transactionStarted = true
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('portal.purchase_requests.reference'))")
+    const source = await client.query(`SELECT * FROM portal.purchase_requests WHERE id = $1 AND is_recurring = true FOR UPDATE`, [sourceRequestId])
+    if (!source.rows[0]) { await client.query("ROLLBACK"); transactionStarted = false; return res.status(404).json({ message: "Recurring purchase request not found" }) }
+    const sourceOrder = await client.query(`SELECT * FROM portal.purchase_orders WHERE id = $1 AND purchase_request_id = $2`, [sourceOrderId, sourceRequestId])
+    if (!sourceOrder.rows[0]) { await client.query("ROLLBACK"); transactionStarted = false; return res.status(404).json({ message: "Source purchase order not found" }) }
+
+    const next = await client.query(`SELECT portal.next_purchase_request_reference() AS reference`)
+    const reference = String(next.rows[0].reference)
+    const referenceParts = reference.match(/^req-(\d{2})-(\d{1,2})-(\d{2,})$/)
+    if (!referenceParts) throw new Error("Invalid generated purchase request reference")
+    const year = 2000 + Number(referenceParts[1]); const month = Number(referenceParts[2]); const sequence = Number(referenceParts[3])
+    const requestResult = await client.query(`INSERT INTO portal.purchase_requests (request_reference, request_year, request_month, request_month_sequence, requested_by, requester_email, urgency, needed_by_date, expected_date, status, is_recurring, recurring_source_request_id, buyer_user_id, buyer_validated_at, buyer_note, buyer_email, admin_user_id, admin_decision, admin_decision_at, admin_note, admin_email, purchased_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'purchased',true,$10,$11,now(),$12,$13,$14,'approved',now(),$15,$16,now()) RETURNING *`, [reference, year, month, sequence, source.rows[0].requested_by, source.rows[0].requester_email, source.rows[0].urgency, req.body?.needed_by_date || source.rows[0].needed_by_date, req.body?.requested_delivery_date || source.rows[0].expected_date, sourceRequestId, req.user?.id ?? source.rows[0].buyer_user_id, source.rows[0].buyer_note, req.body?.buyer_email || source.rows[0].buyer_email, source.rows[0].admin_user_id, source.rows[0].admin_note, source.rows[0].admin_email])
+    const newRequest = requestResult.rows[0]
+    const requestItemIds: number[] = []
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index]; const quantity = cleanRecurringNumber(item.quantity)
+      if (!cleanRecurringText(item.item_description) || quantity === null || quantity <= 0) throw new Error("Invalid recurring item")
+      const inserted = await client.query(`INSERT INTO portal.purchase_request_items (purchase_request_id,item_index,description,quantity,quantity_format,requested_unit_price,requested_total_price,buyer_confirmed_unit_price,buyer_confirmed_total_price,buyer_confirmed_supplier,status) VALUES ($1,$2,$3,$4,$5,$6,$4*$6,$6,$4*$6,$7,'purchased') RETURNING id`, [newRequest.id,index,cleanRecurringText(item.item_description),quantity,cleanRecurringText(item.ordered_unit),cleanRecurringNumber(item.ordered_unit_price),cleanRecurringText(req.body?.supplier_name)])
+      requestItemIds.push(Number(inserted.rows[0].id))
+    }
+    const orderReference = `bc-${referenceParts[1]}-${referenceParts[2]}-${referenceParts[3]}`
+    const orderResult = await client.query(`INSERT INTO portal.purchase_orders (purchase_request_id,purchase_order_reference,purchase_order_sequence,supplier_id,supplier,supplier_name,supplier_address_snapshot,supplier_phone,purchased_by_user_id,purchased_at,supplier_reference,purchase_note,buyer_name,buyer_email,buyer_phone,requested_delivery_date,delivery_method,shipping_address_snapshot,currency_code,status) VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,COALESCE($9::timestamptz,now()),$10,$11,$12,$13,$14,$15,$16,$17,$18,'ordered') RETURNING *`, [newRequest.id,orderReference,sequence,req.body?.supplier_id || null,cleanRecurringText(req.body?.supplier_name),cleanRecurringText(req.body?.supplier_address_snapshot),cleanRecurringText(req.body?.supplier_phone),req.user?.id ?? null,req.body?.ordered_at,cleanRecurringText(req.body?.supplier_reference),cleanRecurringText(req.body?.purchase_note),cleanRecurringText(req.body?.buyer_name),cleanRecurringText(req.body?.buyer_email),cleanRecurringText(req.body?.buyer_phone),req.body?.requested_delivery_date || null,cleanRecurringText(req.body?.delivery_method),cleanRecurringText(req.body?.shipping_address_snapshot),cleanRecurringText(req.body?.currency_code) || "CAD"])
+    for (let index = 0; index < items.length; index++) { const item = items[index]; await client.query(`INSERT INTO portal.purchase_order_items (purchase_order_id,purchase_request_item_id,ordered_quantity,final_unit_price,item_code,item_description,ordered_unit,location) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [orderResult.rows[0].id,requestItemIds[index],cleanRecurringNumber(item.quantity),cleanRecurringNumber(item.ordered_unit_price),cleanRecurringText(item.item_code),cleanRecurringText(item.item_description),cleanRecurringText(item.ordered_unit),cleanRecurringText(item.location)]) }
+    await client.query("COMMIT"); transactionStarted = false
+    return res.status(201).json({ purchase_request: newRequest, purchase_order: orderResult.rows[0] })
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK")
+    console.error("Recurring purchase order creation error:", error)
+    return res.status(500).json({ message: "Unable to create recurring purchase order" })
+  } finally { client.release() }
 })
 
 router.get("/email-delegation", async (req, res) => {
