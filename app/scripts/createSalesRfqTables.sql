@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS sales.rfq_cells (
   product_id BIGINT NOT NULL REFERENCES sales.products(id) ON DELETE CASCADE,
   week_start DATE NOT NULL,
   location_code VARCHAR(1) NOT NULL,
+  status VARCHAR(10) NOT NULL DEFAULT 'email' CHECK (status IN ('final', 'email')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (client_id, product_id, week_start, location_code)
@@ -24,3 +25,8 @@ CREATE TABLE IF NOT EXISTS sales.rfq_attachments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS rfq_cells_client_week_idx ON sales.rfq_cells(client_id, week_start);
+ALTER TABLE sales.rfq_cells ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'email';
+DO $$ BEGIN
+  ALTER TABLE sales.rfq_cells ADD CONSTRAINT rfq_cells_status_check CHECK (status IN ('final', 'email'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

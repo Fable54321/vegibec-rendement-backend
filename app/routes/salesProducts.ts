@@ -39,7 +39,7 @@ router.get("/clients/:clientId/rfq-cells", async (req, res) => {
   if (!Number.isSafeInteger(clientId) || clientId <= 0) return res.status(400).json({ error: "Invalid client id" });
   try {
     const result = await pool.query(`
-      SELECT c.id, c.client_id, c.product_id, c.week_start::text, c.location_code,
+      SELECT c.id, c.client_id, c.product_id, c.week_start::text, c.location_code, c.status,
         COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', p.id, 'quantity', p.quantity, 'price', p.price))
           FILTER (WHERE p.id IS NOT NULL), '[]') AS prices,
         COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', a.id, 'file_name', a.file_name,
@@ -60,11 +60,11 @@ router.get("/clients/:clientId/rfq-cells", async (req, res) => {
 router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
   const clientId = Number(req.body.clientId);
   const productId = Number(req.body.productId);
-  const { weekStart, locationCode } = req.body;
+  const { weekStart, locationCode, status } = req.body;
   let prices: Array<{ quantity: number; price: number }>;
   try { prices = JSON.parse(req.body.prices || "[]"); } catch { return res.status(400).json({ error: "Invalid prices" }); }
   if (!Number.isSafeInteger(clientId) || !Number.isSafeInteger(productId) ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(weekStart || "") || !/^[A-Z]$/.test(locationCode || "") ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(weekStart || "") || !/^[A-Z]$/.test(locationCode || "") || !["final", "email"].includes(status) ||
       !Array.isArray(prices) || prices.some((p) => !Number.isFinite(Number(p.quantity)) || Number(p.quantity) <= 0 || !Number.isFinite(Number(p.price)) || Number(p.price) < 0)) {
     return res.status(400).json({ error: "Invalid RFQ cell data" });
   }
@@ -74,11 +74,11 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
     const product = await db.query("SELECT 1 FROM sales.products WHERE id = $1 AND client_id = $2", [productId, clientId]);
     if (!product.rowCount) { await db.query("ROLLBACK"); return res.status(400).json({ error: "Product does not belong to client" }); }
     const cellResult = await db.query(`
-      INSERT INTO sales.rfq_cells (client_id, product_id, week_start, location_code)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO sales.rfq_cells (client_id, product_id, week_start, location_code, status)
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (client_id, product_id, week_start, location_code)
-      DO UPDATE SET updated_at = NOW() RETURNING id
-    `, [clientId, productId, weekStart, locationCode]);
+      DO UPDATE SET status = EXCLUDED.status, updated_at = NOW() RETURNING id
+    `, [clientId, productId, weekStart, locationCode, status]);
     const cellId = cellResult.rows[0].id;
     await db.query("DELETE FROM sales.rfq_prices WHERE cell_id = $1", [cellId]);
     for (const item of prices) await db.query(
