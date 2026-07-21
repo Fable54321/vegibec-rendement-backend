@@ -661,7 +661,7 @@ router.post("/:id/create-recurrence", async (req, res) => {
     for (let index = 0; index < items.length; index++) {
       const item = items[index]; const quantity = cleanRecurringNumber(item.quantity)
       if (!cleanRecurringText(item.item_description) || quantity === null || quantity <= 0) throw new Error("Invalid recurring item")
-      const inserted = await client.query(`INSERT INTO portal.purchase_request_items (purchase_request_id,item_index,description,quantity,quantity_format,requested_unit_price,requested_total_price,buyer_confirmed_unit_price,buyer_confirmed_total_price,buyer_confirmed_supplier,status) VALUES ($1,$2,$3,$4,$5,$6,$4*$6,$6,$4*$6,$7,'purchased') RETURNING id`, [newRequest.id,index,cleanRecurringText(item.item_description),quantity,cleanRecurringText(item.ordered_unit),cleanRecurringNumber(item.ordered_unit_price),cleanRecurringText(req.body?.supplier_name)])
+      const inserted = await client.query(`INSERT INTO portal.purchase_request_items (purchase_request_id,item_index,description,quantity,quantity_format,requested_unit_price,buyer_confirmed_unit_price,buyer_confirmed_supplier,status) VALUES ($1,$2,$3,$4::numeric,$5,$6::numeric,$6::numeric,$7,'purchased') RETURNING id`, [newRequest.id,index,cleanRecurringText(item.item_description),quantity,cleanRecurringText(item.ordered_unit),cleanRecurringNumber(item.ordered_unit_price),cleanRecurringText(req.body?.supplier_name)])
       requestItemIds.push(Number(inserted.rows[0].id))
     }
     const orderReference = `bc-${referenceParts[1]}-${referenceParts[2]}-${referenceParts[3]}`
