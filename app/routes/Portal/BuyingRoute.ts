@@ -164,7 +164,7 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
 
     await client.query("BEGIN")
     const orderResult = await client.query(
-      "SELECT id FROM portal.purchase_orders WHERE id = $1 FOR UPDATE",
+      "SELECT id, purchase_request_id FROM portal.purchase_orders WHERE id = $1 FOR UPDATE",
       [purchaseOrderId],
     )
     if (!orderResult.rowCount) {
@@ -172,6 +172,7 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
       return res.status(404).json({ message: "Purchase order not found" })
     }
 
+    const submittedItemIds: number[] = []
     for (const item of items) {
       const itemId = cleanPositiveInteger(item.id)
       const quantity = cleanPositiveNumber(item.quantity)
@@ -180,6 +181,7 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
         await client.query("ROLLBACK")
         return res.status(400).json({ message: "Invalid purchase order item" })
       }
+      submittedItemIds.push(itemId)
 
       const updatedItem = await client.query(
         `UPDATE portal.purchase_order_items poi
@@ -204,6 +206,31 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
       }
     }
 
+    await client.query(
+      `DELETE FROM portal.purchase_order_items poi
+       WHERE poi.purchase_order_id = $1
+         AND NOT (poi.id = ANY($2::int[]))
+         AND NOT EXISTS (
+           SELECT 1 FROM portal.receipt_voucher_items rvi
+           WHERE rvi.purchase_order_item_id = poi.id
+         )`,
+      [purchaseOrderId, submittedItemIds],
+    )
+
+    const protectedRemovedItems = await client.query(
+      `SELECT poi.id
+       FROM portal.purchase_order_items poi
+       WHERE poi.purchase_order_id = $1
+         AND NOT (poi.id = ANY($2::int[]))`,
+      [purchaseOrderId, submittedItemIds],
+    )
+    if (protectedRemovedItems.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({
+        message: "An item that has already been received cannot be removed",
+      })
+    }
+
     const updatedOrder = await client.query(
       `UPDATE portal.purchase_orders SET
          supplier_name = $2, supplier_address_snapshot = $3, supplier_phone = $4,
@@ -219,6 +246,33 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
         cleanText(req.body.buyer_phone), cleanDate(req.body.ordered_at),
         cleanText(req.body.delivery_method), cleanText(req.body.shipping_address_snapshot),
         cleanText(req.body.currency_code), cleanText(req.body.purchase_note)],
+    )
+
+    const purchaseRequestId = Number(orderResult.rows[0].purchase_request_id)
+    await client.query(
+      `UPDATE portal.purchase_requests pr
+       SET status = CASE
+         WHEN EXISTS (
+           SELECT 1
+           FROM portal.purchase_request_items pri
+           LEFT JOIN (
+             SELECT poi.purchase_request_item_id, SUM(poi.ordered_quantity)::numeric AS ordered_quantity
+             FROM portal.purchase_order_items poi
+             INNER JOIN portal.purchase_orders po ON po.id = poi.purchase_order_id
+             WHERE po.purchase_request_id = pr.id
+             GROUP BY poi.purchase_request_item_id
+           ) ordered ON ordered.purchase_request_item_id = pri.id
+           WHERE pri.purchase_request_id = pr.id
+             AND COALESCE(ordered.ordered_quantity, 0) < pri.quantity
+         ) THEN CASE
+           WHEN EXISTS (SELECT 1 FROM portal.receipt_vouchers rv WHERE rv.purchase_request_id = pr.id)
+             THEN 'partially_received'
+           ELSE 'partially_purchased'
+         END
+         ELSE pr.status
+       END
+       WHERE pr.id = $1`,
+      [purchaseRequestId],
     )
     await client.query("COMMIT")
     return res.json({ purchase_order: updatedOrder.rows[0] })
