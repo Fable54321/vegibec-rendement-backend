@@ -632,6 +632,110 @@ router.patch("/:id/recurring", async (req, res) => {
   }
 })
 
+router.post("/direct-purchase-order", async (req, res) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : []
+    const supplierName = cleanRecurringText(req.body?.supplier_name)
+
+    if (!supplierName || items.length === 0) {
+      return res.status(400).json({ message: "A supplier and at least one item are required" })
+    }
+
+    const hasInvalidItem = items.some((item: any) => {
+      const quantity = cleanRecurringNumber(item.quantity)
+      return !cleanRecurringText(item.item_description) || quantity === null || quantity <= 0 || cleanRecurringNumber(item.ordered_unit_price) === null
+    })
+    if (hasInvalidItem) {
+      return res.status(400).json({ message: "Invalid purchase order item" })
+    }
+
+    await client.query("BEGIN")
+    transactionStarted = true
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('portal.purchase_requests.reference'))")
+
+    const next = await client.query(`SELECT portal.next_purchase_request_reference() AS reference`)
+    const reference = String(next.rows[0].reference)
+    const referenceParts = reference.match(/^req-(\d{2})-(\d{1,2})-(\d{2,})$/)
+    if (!referenceParts) throw new Error("Invalid generated purchase request reference")
+
+    const year = 2000 + Number(referenceParts[1])
+    const month = Number(referenceParts[2])
+    const sequence = Number(referenceParts[3])
+    const buyerName = cleanRecurringText(req.body?.buyer_name) || "Acheteur Vegibec"
+    const buyerEmail = cleanRecurringText(req.body?.buyer_email)
+
+    const requestResult = await client.query(
+      `INSERT INTO portal.purchase_requests
+        (request_reference, request_year, request_month, request_month_sequence,
+         requested_by, requester_email, urgency, status, buyer_user_id,
+         buyer_validated_at, buyer_email, admin_decision, admin_decision_at, purchased_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'normal','purchased',$7,now(),$6,'approved',now(),now())
+       RETURNING *`,
+      [reference, year, month, sequence, buyerName, buyerEmail, req.user?.id ?? null],
+    )
+    const purchaseRequest = requestResult.rows[0]
+    const requestItemIds: number[] = []
+
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index]
+      const description = cleanRecurringText(item.item_description)
+      const quantity = cleanRecurringNumber(item.quantity)
+      const unitPrice = cleanRecurringNumber(item.ordered_unit_price)
+      if (!description || quantity === null || quantity <= 0 || unitPrice === null) throw new Error("Invalid purchase order item")
+      const inserted = await client.query(
+        `INSERT INTO portal.purchase_request_items
+          (purchase_request_id,item_index,description,quantity,quantity_format,
+           requested_unit_price,buyer_confirmed_unit_price,buyer_confirmed_supplier,status)
+         VALUES ($1,$2,$3,$4::numeric,$5,$6::numeric,$6::numeric,$7,'purchased') RETURNING id`,
+        [purchaseRequest.id, index, description, quantity, cleanRecurringText(item.ordered_unit), unitPrice, supplierName],
+      )
+      requestItemIds.push(Number(inserted.rows[0].id))
+    }
+
+    const orderReference = `bc-${referenceParts[1]}-${referenceParts[2]}-${referenceParts[3]}`
+    const orderResult = await client.query(
+      `INSERT INTO portal.purchase_orders
+        (purchase_request_id,purchase_order_reference,purchase_order_sequence,supplier_id,
+         supplier,supplier_name,supplier_address_snapshot,supplier_phone,purchased_by_user_id,
+         purchased_at,supplier_reference,purchase_note,buyer_name,buyer_email,buyer_phone,
+         requested_delivery_date,delivery_method,shipping_address_snapshot,currency_code,status)
+       VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,COALESCE($9::timestamptz,now()),$10,$11,$12,$13,$14,$15,$16,$17,$18,'ordered') RETURNING *`,
+      [purchaseRequest.id, orderReference, sequence, req.body?.supplier_id || null, supplierName,
+       cleanRecurringText(req.body?.supplier_address_snapshot), cleanRecurringText(req.body?.supplier_phone),
+       req.user?.id ?? null, req.body?.ordered_at, cleanRecurringText(req.body?.supplier_reference),
+       cleanRecurringText(req.body?.purchase_note), buyerName, buyerEmail, cleanRecurringText(req.body?.buyer_phone),
+       req.body?.requested_delivery_date || null, cleanRecurringText(req.body?.delivery_method),
+       cleanRecurringText(req.body?.shipping_address_snapshot), cleanRecurringText(req.body?.currency_code) || "CAD"],
+    )
+
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index]
+      await client.query(
+        `INSERT INTO portal.purchase_order_items
+          (purchase_order_id,purchase_request_item_id,ordered_quantity,final_unit_price,
+           item_code,item_description,ordered_unit,location)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [orderResult.rows[0].id, requestItemIds[index], cleanRecurringNumber(item.quantity),
+         cleanRecurringNumber(item.ordered_unit_price), cleanRecurringText(item.item_code),
+         cleanRecurringText(item.item_description), cleanRecurringText(item.ordered_unit), cleanRecurringText(item.location)],
+      )
+    }
+
+    await client.query("COMMIT")
+    transactionStarted = false
+    return res.status(201).json({ purchase_request: purchaseRequest, purchase_order: orderResult.rows[0] })
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK")
+    console.error("Direct purchase order creation error:", error)
+    return res.status(500).json({ message: "Unable to create direct purchase order" })
+  } finally {
+    client.release()
+  }
+})
+
 router.post("/:id/create-recurrence", async (req, res) => {
   const client = await pool.connect()
   let transactionStarted = false
