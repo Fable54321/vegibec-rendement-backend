@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { Router } from "express";
 import multer from "multer";
 import { pool } from "../db";
-import { getSignedUrlForKey, uploadBufferToS3 } from "../services/s3.services";
+import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../services/s3.services";
 
 const router = Router();
 const allowedTypes = new Set([
@@ -99,6 +99,50 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
     console.error("Error saving RFQ cell:", error);
     return res.status(500).json({ error: "Failed to save RFQ cell" });
   } finally { db.release(); }
+});
+
+router.delete("/rfq-cells/:cellId", async (req, res) => {
+  const cellId = Number(req.params.cellId);
+  if (!Number.isSafeInteger(cellId) || cellId <= 0) {
+    return res.status(400).json({ error: "Invalid RFQ cell id" });
+  }
+
+  const db = await pool.connect();
+  let attachmentKeys: string[] = [];
+  try {
+    await db.query("BEGIN");
+    const attachments = await db.query(
+      "SELECT s3_key FROM sales.rfq_attachments WHERE cell_id = $1",
+      [cellId],
+    );
+    attachmentKeys = attachments.rows.map((row) => String(row.s3_key));
+    const deleted = await db.query(
+      "DELETE FROM sales.rfq_cells WHERE id = $1 RETURNING id",
+      [cellId],
+    );
+    if (!deleted.rowCount) {
+      await db.query("ROLLBACK");
+      return res.status(404).json({ error: "RFQ cell not found" });
+    }
+    await db.query("COMMIT");
+  } catch (error) {
+    await db.query("ROLLBACK");
+    console.error("Error deleting RFQ cell:", error);
+    return res.status(500).json({ error: "Failed to delete RFQ cell" });
+  } finally {
+    db.release();
+  }
+
+  const cleanupResults = await Promise.allSettled(
+    attachmentKeys.map((key) => deleteObjectFromS3(key)),
+  );
+  cleanupResults.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(`Failed to delete RFQ attachment ${attachmentKeys[index]} from S3:`, result.reason);
+    }
+  });
+
+  return res.status(204).send();
 });
 
 router.get("/rfq-attachments/:attachmentId", async (req, res) => {

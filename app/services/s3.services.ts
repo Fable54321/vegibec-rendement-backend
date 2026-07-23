@@ -1,4 +1,4 @@
-import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
 
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -29,6 +29,16 @@ export const uploadBufferToS3 = async ({
   );
 
   return key;
+};
+
+export const deleteObjectFromS3 = async (key: string) => {
+  const bucket = process.env.AWS_BUCKET_NAME;
+
+  if (!bucket) {
+    throw new Error("Missing AWS_BUCKET_NAME");
+  }
+
+  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 };
 
 
