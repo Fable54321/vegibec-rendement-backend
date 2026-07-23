@@ -70,6 +70,31 @@ router.post("/clients/:clientId/products", async (req, res) => {
   }
 });
 
+router.patch("/clients/:clientId/products/:productId/deactivate", async (req, res) => {
+  const clientId = Number(req.params.clientId);
+  const productId = Number(req.params.productId);
+  if (!Number.isSafeInteger(clientId) || clientId <= 0 ||
+      !Number.isSafeInteger(productId) || productId <= 0) {
+    return res.status(400).json({ error: "Invalid client or product id" });
+  }
+
+  try {
+    const result = await pool.query(`
+      UPDATE sales.products
+      SET is_active = FALSE
+      WHERE id = $1 AND client_id = $2
+      RETURNING id
+    `, [productId, clientId]);
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Product not found for this client" });
+    }
+    return res.status(200).json({ id: result.rows[0].id, is_active: false });
+  } catch (error) {
+    console.error("Error deactivating client product:", error);
+    return res.status(500).json({ error: "Failed to deactivate client product" });
+  }
+});
+
 router.get("/clients/:clientId/rfq-cells", async (req, res) => {
   const clientId = Number(req.params.clientId);
   if (!Number.isSafeInteger(clientId) || clientId <= 0) return res.status(400).json({ error: "Invalid client id" });
