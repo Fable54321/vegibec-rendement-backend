@@ -54,6 +54,7 @@ import purchaseRequest from "./routes/Portal/PurchaseRequest";
 import buyingRoute from "./routes/Portal/BuyingRoute";
 import receiptVoucherRoute from "./routes/Portal/ReceiptVoucherRoute";
 import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
+import purchaseDraftsRoute from "./routes/Portal/PurchaseDrafts";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
 import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
@@ -1026,6 +1027,7 @@ app.use("/facebook", facebookRoute);
 app.use("/get-url", getURlRoute);
 
 app.use("/purchase-journal", purchaseJournalRoute);
+app.use("/purchase-drafts", purchaseDraftsRoute);
 
 
 

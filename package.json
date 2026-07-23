@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "nodemon --watch app --ext ts --exec ts-node app/index.ts",
+    "dev": "nodemon --watch app --watch .env --ext ts,env --exec ts-node app/index.ts",
     "temperatures": "ts-node app/routes/Temperature/Temperature.ts",
     "create-admin": "ts-node app/scripts/createAdmin.ts",
     "repair:impaut-signatures": "tsx app/scripts/repairImpAutSignatures.ts",
