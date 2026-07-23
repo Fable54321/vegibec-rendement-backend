@@ -34,6 +34,42 @@ router.get("/clients/:clientId/products", async (req, res) => {
   }
 });
 
+router.post("/clients/:clientId/products", async (req, res) => {
+  const clientId = Number(req.params.clientId);
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  if (!Number.isSafeInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "Invalid client id" });
+  }
+  if (!name || name.length > 150) {
+    return res.status(400).json({ error: "Product name must contain between 1 and 150 characters" });
+  }
+
+  try {
+    const clientResult = await pool.query("SELECT 1 FROM sales.clients WHERE id = $1", [clientId]);
+    if (!clientResult.rowCount) return res.status(404).json({ error: "Client not found" });
+
+    const duplicate = await pool.query(
+      "SELECT 1 FROM sales.products WHERE client_id = $1 AND LOWER(name) = LOWER($2)",
+      [clientId, name],
+    );
+    if (duplicate.rowCount) {
+      return res.status(409).json({ error: "A product with this name already exists for this client" });
+    }
+
+    const result = await pool.query(`
+      INSERT INTO sales.products (client_id, name, display_order, is_active)
+      SELECT $1, $2, COALESCE(MAX(display_order), 0) + 1, TRUE
+      FROM sales.products
+      WHERE client_id = $1
+      RETURNING id, client_id, name, display_order
+    `, [clientId, name]);
+    return res.status(201).json({ product: result.rows[0] });
+  } catch (error) {
+    console.error("Error creating product for client:", error);
+    return res.status(500).json({ error: "Failed to create client product" });
+  }
+});
+
 router.get("/clients/:clientId/rfq-cells", async (req, res) => {
   const clientId = Number(req.params.clientId);
   if (!Number.isSafeInteger(clientId) || clientId <= 0) return res.status(400).json({ error: "Invalid client id" });
