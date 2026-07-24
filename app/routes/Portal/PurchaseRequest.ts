@@ -1610,6 +1610,29 @@ router.post(
     try {
       const body = req.body ?? {}
       const pictures = (req.files as Express.Multer.File[]) ?? []
+      const draftId = typeof body.draft_id === "string" && body.draft_id.trim() !== ""
+        ? Number(body.draft_id)
+        : null
+      let draftPictures: Array<{ s3_key: string; file_name: string }> = []
+
+      if (draftId !== null) {
+        if (!Number.isInteger(draftId) || draftId <= 0 || !req.user?.id) {
+          return res.status(400).json({ message: "Invalid draft" })
+        }
+        const draftResult = await pool.query(
+          `SELECT picture.s3_key, picture.file_name
+           FROM portal.purchase_request_draft_pictures picture
+           JOIN portal.purchase_request_drafts draft ON draft.id = picture.draft_id
+           WHERE draft.id = $1 AND draft.owner_user_id = $2 AND draft.draft_type = 'regular_request'
+           ORDER BY picture.created_at`,
+          [draftId, Number(req.user.id)],
+        )
+        draftPictures = draftResult.rows
+      }
+
+      if (draftPictures.length + pictures.length > 5) {
+        return res.status(400).json({ message: "Un maximum de 5 photos est permis" })
+      }
 
       const {
         requested_by,
@@ -1802,7 +1825,7 @@ const requestResult = await client.query(
         [createdRequest.id, JSON.stringify(cleanedItems)]
       )
 
-      const pictureKeys = await Promise.all(
+      const uploadedPictureKeys = await Promise.all(
         pictures.map((picture, index) => {
           const key = createPurchaseRequestPictureKey(
             createdRequest.id,
@@ -1817,6 +1840,10 @@ const requestResult = await client.query(
           })
         })
       )
+      const pictureKeys = [
+        ...draftPictures.map((picture) => picture.s3_key),
+        ...uploadedPictureKeys,
+      ]
 
       if (pictureKeys.length > 0) {
         const updatedRequestResult = await client.query(
@@ -1851,7 +1878,10 @@ const requestResult = await client.query(
         items: insertedItemsResult.rows,
       }
 
-      const pictureLinks = await buildPictureEmailLinks(pictureKeys, pictures)
+      const pictureLinks = await buildPictureEmailLinks(pictureKeys, [
+        ...draftPictures.map((picture) => ({ originalname: picture.file_name })),
+        ...pictures,
+      ])
       const displayRequestNumber =
         getPurchaseRequestDisplayNumber(createdRequestWithItems)
       const emailRecipients = await getPurchaseRequestRecipients(createdRequestWithItems)

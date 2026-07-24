@@ -2375,7 +2375,7 @@ export const sendPurchaseRequestEmailSafely = async (
 
 export const buildPictureEmailLinks = async (
   pictureKeys: string[],
-  pictures: Express.Multer.File[]
+  pictures: Array<{ originalname: string }>
 ): Promise<PictureEmailLink[]> => {
   return Promise.all(
     pictureKeys.map(async (pictureKey, index) => ({
