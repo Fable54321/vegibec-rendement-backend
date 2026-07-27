@@ -59,6 +59,7 @@ import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
 import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
 import salesProductsRoute from "./routes/salesProducts";
+import roomsRoute from "./routes/Portal/RoomsRoute";
 
 
 
@@ -1025,6 +1026,8 @@ app.use("/weather", weatherRoute);
 app.use("/facebook", facebookRoute);
 
 app.use("/get-url", getURlRoute);
+
+app.use("/rooms", roomsRoute);
 
 app.use("/purchase-journal", purchaseJournalRoute);
 app.use("/purchase-drafts", purchaseDraftsRoute);
