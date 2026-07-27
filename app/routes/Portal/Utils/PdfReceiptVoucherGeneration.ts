@@ -568,10 +568,10 @@ export const generateReceiptVoucherPdf = async (
 
   output.getPages().forEach((page, index) => {
     page.drawRectangle({
-      x: 410,
-      y: 18,
-      width: 153,
-      height: 25,
+      x: 390,
+      y: 15,
+      width: 175,
+      height: 65,
       color: rgb(1, 1, 1),
     })
 
@@ -590,7 +590,7 @@ export const generateReceiptVoucherPdf = async (
       const continuationWidth = boldFont.widthOfTextAtSize(continuation, 8)
       page.drawText(continuation, {
         x: 560 - continuationWidth,
-        y: 36,
+        y: 48,
         size: 8,
         font: boldFont,
         color: rgb(0.12, 0.31, 0.1),

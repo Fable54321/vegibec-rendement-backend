@@ -616,10 +616,10 @@ export const generatePurchaseOrderPdf = async (
 
   output.getPages().forEach((page, index) => {
     page.drawRectangle({
-      x: 449,
-      y: 18,
-      width: 133,
-      height: 22,
+      x: 400,
+      y: 15,
+      width: 185,
+      height: 65,
       color: rgb(1, 1, 1),
     })
 
@@ -642,7 +642,7 @@ export const generatePurchaseOrderPdf = async (
       const continuationWidth = boldFont.widthOfTextAtSize(continuation, 8)
       page.drawText(continuation, {
         x: 575 - continuationWidth,
-        y: 36,
+        y: 48,
         size: 8,
         font: boldFont,
         color: rgb(0.12, 0.31, 0.1),
