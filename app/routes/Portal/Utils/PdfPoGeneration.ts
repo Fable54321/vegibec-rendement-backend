@@ -120,9 +120,15 @@ const translateDeliveryMethod = (
   return value
 }
 
-export const generatePurchaseOrderPdf = async (
+const ITEMS_PER_PAGE = 8
+
+const generatePurchaseOrderPdfPage = async (
   purchaseOrder: PurchaseOrderPdfData,
   language: "fr" | "en" = "fr",
+  options?: {
+    showSummary?: boolean
+    summaryItems?: PurchaseOrderPdfItem[]
+  },
 ) => {
   const templatePath = path.resolve(
     process.cwd(),
@@ -526,15 +532,17 @@ purchaseOrder.items.forEach((item) => {
   }
 })
 
-  const total = purchaseOrder.items.reduce(
+  const summaryItems = options?.summaryItems ?? purchaseOrder.items
+  const total = summaryItems.reduce(
     (sum, item) => sum + Number(item.final_total_price ?? 0),
     0,
   )
-  const totalQuantity = purchaseOrder.items.reduce(
+  const totalQuantity = summaryItems.reduce(
     (sum, item) => sum + Number(item.ordered_quantity ?? 0),
     0,
   )
 
+if (options?.showSummary !== false) {
 page.drawLine({
   start: { x: TABLE_COLUMNS.leftX, y: 116 },
   end: { x: TABLE_COLUMNS.rightX, y: 116 },
@@ -566,12 +574,83 @@ drawRightAlignedText(
     size: 8,
   },
 )
+}
 
 drawRightAlignedText(formatDateTime(new Date()), FOOTER_COLUMNS.generatedAtRightX, FOOTER_COLUMNS.generatedAtY, {
   size: 8,
 })
 
   return await pdfDoc.save()
+}
+
+export const generatePurchaseOrderPdf = async (
+  purchaseOrder: PurchaseOrderPdfData,
+  language: "fr" | "en" = "fr",
+) => {
+  if (purchaseOrder.items.length <= ITEMS_PER_PAGE) {
+    return generatePurchaseOrderPdfPage(purchaseOrder, language)
+  }
+
+  const chunks: PurchaseOrderPdfItem[][] = []
+  for (let index = 0; index < purchaseOrder.items.length; index += ITEMS_PER_PAGE) {
+    chunks.push(purchaseOrder.items.slice(index, index + ITEMS_PER_PAGE))
+  }
+
+  const output = await PDFDocument.create()
+  const font = await output.embedFont(StandardFonts.Helvetica)
+  const boldFont = await output.embedFont(StandardFonts.HelveticaBold)
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const pageBytes = await generatePurchaseOrderPdfPage(
+      { ...purchaseOrder, items: chunks[index] },
+      language,
+      {
+        showSummary: index === chunks.length - 1,
+        summaryItems: purchaseOrder.items,
+      },
+    )
+    const source = await PDFDocument.load(pageBytes)
+    const [page] = await output.copyPages(source, [0])
+    output.addPage(page)
+  }
+
+  output.getPages().forEach((page, index) => {
+    page.drawRectangle({
+      x: 449,
+      y: 18,
+      width: 133,
+      height: 22,
+      color: rgb(1, 1, 1),
+    })
+
+    const pageLabel =
+      language === "en"
+        ? `Page ${index + 1} of ${chunks.length}`
+        : `Page ${index + 1} de ${chunks.length}`
+    const pageLabelWidth = font.widthOfTextAtSize(pageLabel, 8)
+    page.drawText(pageLabel, {
+      x: 575 - pageLabelWidth,
+      y: 24,
+      size: 8,
+      font,
+      color: rgb(0, 0, 0),
+    })
+
+    if (index < chunks.length - 1) {
+      const continuation =
+        language === "en" ? "Continued on next page" : "Suite à la page suivante"
+      const continuationWidth = boldFont.widthOfTextAtSize(continuation, 8)
+      page.drawText(continuation, {
+        x: 575 - continuationWidth,
+        y: 36,
+        size: 8,
+        font: boldFont,
+        color: rgb(0.12, 0.31, 0.1),
+      })
+    }
+  })
+
+  return output.save()
 }
 
 

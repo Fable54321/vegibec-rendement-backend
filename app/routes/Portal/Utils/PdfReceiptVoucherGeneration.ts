@@ -114,8 +114,15 @@ const formatDateTime = (value: Date) => {
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
-export const generateReceiptVoucherPdf = async (
+// Leave enough room above the totals for rows with three wrapped description lines.
+const ITEMS_PER_PAGE = 7
+
+const generateReceiptVoucherPdfPage = async (
   receiptVoucher: ReceiptVoucherPdfData,
+  options?: {
+    showSummary?: boolean
+    summaryItems?: ReceiptVoucherPdfItem[]
+  },
 ) => {
   const templatePath = path.resolve(
     process.cwd(),
@@ -352,12 +359,13 @@ export const generateReceiptVoucherPdf = async (
 
  
 
-  const orderedTotal = receiptVoucher.items.reduce(
+  const summaryItems = options?.summaryItems ?? receiptVoucher.items
+  const orderedTotal = summaryItems.reduce(
     (sum, item) => sum + Number(item.quantity ?? 0),
     0,
   )
 
-  const receivedTotal = receiptVoucher.items.reduce(
+  const receivedTotal = summaryItems.reduce(
     (sum, item) => sum + Number(item.received_quantity ?? 0),
     0,
   )
@@ -500,6 +508,7 @@ drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
     }
   })
 
+  if (options?.showSummary !== false) {
   drawRightAlignedText(
     formatQuantity(orderedTotal),
     TABLE_COLUMNS.quantityRightX,
@@ -519,10 +528,75 @@ drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
       bold: true,
     },
   )
+  }
 
   drawRightAlignedText(formatDateTime(new Date()), 560, 35, {
     size: 8,
   })
 
   return await pdfDoc.save()
+}
+
+export const generateReceiptVoucherPdf = async (
+  receiptVoucher: ReceiptVoucherPdfData,
+) => {
+  if (receiptVoucher.items.length <= ITEMS_PER_PAGE) {
+    return generateReceiptVoucherPdfPage(receiptVoucher)
+  }
+
+  const chunks: ReceiptVoucherPdfItem[][] = []
+  for (let index = 0; index < receiptVoucher.items.length; index += ITEMS_PER_PAGE) {
+    chunks.push(receiptVoucher.items.slice(index, index + ITEMS_PER_PAGE))
+  }
+
+  const output = await PDFDocument.create()
+  const font = await output.embedFont(StandardFonts.Helvetica)
+  const boldFont = await output.embedFont(StandardFonts.HelveticaBold)
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const pageBytes = await generateReceiptVoucherPdfPage(
+      { ...receiptVoucher, items: chunks[index] },
+      {
+        showSummary: index === chunks.length - 1,
+        summaryItems: receiptVoucher.items,
+      },
+    )
+    const source = await PDFDocument.load(pageBytes)
+    const [page] = await output.copyPages(source, [0])
+    output.addPage(page)
+  }
+
+  output.getPages().forEach((page, index) => {
+    page.drawRectangle({
+      x: 410,
+      y: 18,
+      width: 153,
+      height: 25,
+      color: rgb(1, 1, 1),
+    })
+
+    const pageLabel = `Page ${index + 1} de ${chunks.length}`
+    const pageLabelWidth = font.widthOfTextAtSize(pageLabel, 8)
+    page.drawText(pageLabel, {
+      x: 560 - pageLabelWidth,
+      y: 24,
+      size: 8,
+      font,
+      color: rgb(0, 0, 0),
+    })
+
+    if (index < chunks.length - 1) {
+      const continuation = "Suite à la page suivante"
+      const continuationWidth = boldFont.widthOfTextAtSize(continuation, 8)
+      page.drawText(continuation, {
+        x: 560 - continuationWidth,
+        y: 36,
+        size: 8,
+        font: boldFont,
+        color: rgb(0.12, 0.31, 0.1),
+      })
+    }
+  })
+
+  return output.save()
 }
