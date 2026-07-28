@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { pool } from "../../db";
-import { addOvertimeTotals } from "./overtime";
 
 const router = Router();
 
@@ -79,7 +78,7 @@ router.get("/daily-duration", async (req, res) => {
   values,
 );
 
-    res.json(addOvertimeTotals(result.rows));
+    res.json(result.rows);
   } catch (err) {
     console.error("Error fetching daily duration:", err);
     res.status(500).json({ error: "Erreur serveur" });

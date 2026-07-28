@@ -31,6 +31,7 @@ import timesheetsSessionRoute from "./routes/Timesheets/session";
 import timesheetsTasksRoute from "./routes/Timesheets/tasks";
 import timeSheetsCalculationsRoute from "./routes/Timesheets/calculations";
 import userDailyDurationRoute from "./routes/Timesheets/userDailyDuration";
+import overtimeRoute from "./routes/Timesheets/overtimeRoute";
 import adminRoute from "./routes/Timesheets/admin"
 import signatureRoute from "./routes/DigitalSignature/digitalSignature";
 import foreignWorkersRoute from "./routes/Portal/ForeignWorkers";
@@ -1006,6 +1007,8 @@ app.use("/timesheets/tasks", timesheetsTasksRoute);
 app.use("/timesheets/calculations", timeSheetsCalculationsRoute);
 
 app.use("/timesheets/user", userDailyDurationRoute);
+
+app.use("/timesheets/overtime", overtimeRoute);
 
 app.use("/timesheets/admin", adminRoute);
 
