@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
+import { addOvertimeTotals } from "./overtime";
 
 const router = Router();
 
@@ -79,7 +80,7 @@ const result = await pool.query(
   values,
 );
 
-    res.json(result.rows);
+    res.json(addOvertimeTotals(result.rows));
   } catch (err) {
     console.error("Error fetching daily duration for user:", err);
     res.status(500).json({ error: "Erreur serveur" });
