@@ -222,6 +222,58 @@ router.post("/clients/:clientId/products", async (req, res) => {
   }
 });
 
+router.patch("/clients/:clientId/products/reorder", async (req, res) => {
+  const clientId = Number(req.params.clientId);
+  const productIds = Array.isArray(req.body?.productIds)
+    ? req.body.productIds.map(Number)
+    : [];
+
+  if (
+    !Number.isSafeInteger(clientId) || clientId <= 0 ||
+    !productIds.length ||
+    productIds.some((id: number) => !Number.isSafeInteger(id) || id <= 0) ||
+    new Set(productIds).size !== productIds.length
+  ) {
+    return res.status(400).json({ error: "Invalid product order" });
+  }
+
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const activeProducts = await db.query(
+      `SELECT id FROM sales.products
+       WHERE client_id = $1 AND is_active = TRUE
+       FOR UPDATE`,
+      [clientId],
+    );
+    const activeIds = activeProducts.rows.map((row) => Number(row.id));
+    if (
+      activeIds.length !== productIds.length ||
+      activeIds.some((id) => !productIds.includes(id))
+    ) {
+      await db.query("ROLLBACK");
+      return res.status(409).json({ error: "Product list changed; reload it before reordering" });
+    }
+
+    for (const [index, productId] of productIds.entries()) {
+      await db.query(
+        `UPDATE sales.products
+         SET display_order = $1
+         WHERE id = $2 AND client_id = $3 AND is_active = TRUE`,
+        [index + 1, productId, clientId],
+      );
+    }
+    await db.query("COMMIT");
+    return res.json({ productIds });
+  } catch (error) {
+    await db.query("ROLLBACK");
+    console.error("Error reordering products:", error);
+    return res.status(500).json({ error: "Failed to reorder products" });
+  } finally {
+    db.release();
+  }
+});
+
 router.patch("/clients/:clientId/products/:productId/deactivate", async (req, res) => {
   const clientId = Number(req.params.clientId);
   const productId = Number(req.params.productId);
