@@ -386,6 +386,113 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
   } finally { db.release(); }
 });
 
+router.patch("/rfq-cells/move-batch", async (req, res) => {
+  const clientId = Number(req.body?.clientId);
+  const moves: unknown[] = Array.isArray(req.body?.moves) ? req.body.moves : [];
+
+  if (
+    !Number.isSafeInteger(clientId) || clientId <= 0 ||
+    moves.length < 2 || moves.length > 50 ||
+    moves.some((move: unknown) => {
+      const item = move as Record<string, unknown>;
+      return (
+        !Number.isSafeInteger(Number(item.cellId)) || Number(item.cellId) <= 0 ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(String(item.weekStart || "")) ||
+        !/^[A-Z]$/.test(String(item.locationCode || ""))
+      );
+    })
+  ) {
+    return res.status(400).json({ error: "Invalid RFQ cell moves" });
+  }
+
+  const normalizedMoves: Array<{ cellId: number; weekStart: string; locationCode: string }> =
+    moves.map((move) => {
+      const item = move as Record<string, unknown>;
+      return {
+        cellId: Number(item.cellId),
+        weekStart: String(item.weekStart),
+        locationCode: String(item.locationCode),
+      };
+    });
+  const cellIds = normalizedMoves.map((move) => move.cellId);
+  const targetKeys = normalizedMoves.map((move) => `${move.weekStart}:${move.locationCode}`);
+
+  if (new Set(cellIds).size !== cellIds.length || new Set(targetKeys).size !== targetKeys.length) {
+    return res.status(400).json({ error: "Duplicate RFQ source or destination" });
+  }
+
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const sourceResult = await db.query(
+      `SELECT id, product_id FROM sales.rfq_cells
+       WHERE client_id = $1 AND id = ANY($2::bigint[])
+       FOR UPDATE`,
+      [clientId, cellIds],
+    );
+    if (sourceResult.rowCount !== normalizedMoves.length) {
+      await db.query("ROLLBACK");
+      return res.status(404).json({ error: "One or more RFQ cells were not found" });
+    }
+
+    const productIds = new Set(sourceResult.rows.map((row) => String(row.product_id)));
+    if (productIds.size !== 1) {
+      await db.query("ROLLBACK");
+      return res.status(400).json({ error: "Selected RFQ cells must belong to the same product" });
+    }
+    const productId = sourceResult.rows[0].product_id;
+
+    const existingResult = await db.query(
+      `SELECT id, week_start::text, location_code
+       FROM sales.rfq_cells
+       WHERE client_id = $1 AND product_id = $2
+       FOR UPDATE`,
+      [clientId, productId],
+    );
+    const selectedIds = new Set(cellIds);
+    const occupiedByOtherCell = new Set(
+      existingResult.rows
+        .filter((row) => !selectedIds.has(Number(row.id)))
+        .map((row) => `${row.week_start}:${row.location_code}`),
+    );
+    if (targetKeys.some((key) => occupiedByOtherCell.has(key))) {
+      await db.query("ROLLBACK");
+      return res.status(409).json({ error: "One or more destination RFQ cells are occupied" });
+    }
+
+    // Temporarily move each row out of the visible calendar to avoid transient
+    // unique-key collisions when a group shifts into another selected cell's position.
+    for (const [index, move] of normalizedMoves.entries()) {
+      await db.query(
+        `UPDATE sales.rfq_cells
+         SET week_start = DATE '1000-01-01' + $1::integer, location_code = '#'
+         WHERE id = $2`,
+        [index, move.cellId],
+      );
+    }
+    for (const move of normalizedMoves) {
+      await db.query(
+        `UPDATE sales.rfq_cells
+         SET week_start = $1, location_code = $2, updated_at = NOW()
+         WHERE id = $3`,
+        [move.weekStart, move.locationCode, move.cellId],
+      );
+    }
+
+    await db.query("COMMIT");
+    return res.json({ moved: normalizedMoves.length });
+  } catch (error) {
+    await db.query("ROLLBACK");
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "One or more destination RFQ cells are occupied" });
+    }
+    console.error("Error moving RFQ cells:", error);
+    return res.status(500).json({ error: "Failed to move RFQ cells" });
+  } finally {
+    db.release();
+  }
+});
+
 router.patch("/rfq-cells/:cellId/move", async (req, res) => {
   const cellId = Number(req.params.cellId);
   const clientId = Number(req.body?.clientId);
