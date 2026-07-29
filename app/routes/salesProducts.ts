@@ -9,11 +9,38 @@ const allowedTypes = new Set([
   "image/jpeg", "image/png", "image/webp", "application/pdf",
   "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "message/rfc822", "application/vnd.ms-outlook",
 ]);
+const emailContentTypesByExtension = {
+  ".eml": "message/rfc822",
+  ".msg": "application/vnd.ms-outlook",
+} as const;
+type EmailExtension = keyof typeof emailContentTypesByExtension;
+
+const getEmailExtension = (fileName: string): EmailExtension | undefined => {
+  const normalizedName = fileName.toLowerCase();
+  return (Object.keys(emailContentTypesByExtension) as EmailExtension[])
+    .find((extension) => normalizedName.endsWith(extension));
+};
+
+const getStoredContentType = (file: Express.Multer.File) => {
+  const emailExtension = getEmailExtension(file.originalname);
+  return emailExtension
+    ? emailContentTypesByExtension[emailExtension]
+    : file.mimetype || "application/octet-stream";
+};
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024, files: 5 },
-  fileFilter: (_req, file, callback) => callback(null, allowedTypes.has(file.mimetype)),
+  fileFilter: (_req, file, callback) => {
+    const emailExtension = getEmailExtension(file.originalname);
+    const isEmail = emailExtension && (
+      file.mimetype === emailContentTypesByExtension[emailExtension] ||
+      file.mimetype === "application/octet-stream"
+    );
+    callback(null, allowedTypes.has(file.mimetype) || Boolean(isEmail));
+  },
 });
 
 router.get("/clients/:clientId/products", async (req, res) => {
@@ -176,9 +203,10 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
     for (const file of (req.files as Express.Multer.File[] | undefined) ?? []) {
       const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
       const key = `sales/rfq/${cellId}/${randomUUID()}-${safeName}`;
-      await uploadBufferToS3({ key, buffer: file.buffer, contentType: file.mimetype });
+      const contentType = getStoredContentType(file);
+      await uploadBufferToS3({ key, buffer: file.buffer, contentType });
       await db.query(`INSERT INTO sales.rfq_attachments (cell_id, file_name, content_type, s3_key, size_bytes)
-        VALUES ($1, $2, $3, $4, $5)`, [cellId, file.originalname, file.mimetype, key, file.size]);
+        VALUES ($1, $2, $3, $4, $5)`, [cellId, file.originalname, contentType, key, file.size]);
     }
     await db.query("COMMIT");
     return res.json({ id: cellId });
@@ -240,8 +268,9 @@ router.get("/rfq-attachments/:attachmentId", async (req, res) => {
     const result = await pool.query("SELECT file_name, content_type, s3_key FROM sales.rfq_attachments WHERE id = $1", [attachmentId]);
     if (!result.rowCount) return res.status(404).json({ error: "Attachment not found" });
     const file = result.rows[0];
+    const disposition = getEmailExtension(String(file.file_name)) ? "attachment" : "inline";
     const url = await getSignedUrlForKey(file.s3_key, {
-      responseContentDisposition: `inline; filename="${String(file.file_name).replace(/["\\]/g, "_")}"`,
+      responseContentDisposition: `${disposition}; filename="${String(file.file_name).replace(/["\\]/g, "_")}"`,
       responseContentType: file.content_type,
     });
     return res.json({ url });
