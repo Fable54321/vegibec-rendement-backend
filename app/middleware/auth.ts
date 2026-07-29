@@ -19,7 +19,12 @@ export const authMiddleware = async (
   res: Response,
   next: NextFunction,
 ) => {
-  const publicPaths = ["/api/vegReports", "/auth", "/visitors/plan-access"];
+  const publicPaths = [
+    "/api/vegReports",
+    "/auth",
+    "/visitors/plan-access",
+    "/sales/outlook/callback",
+  ];
 
   if (publicPaths.some((path) => req.originalUrl.startsWith(path))) {
     return next();
