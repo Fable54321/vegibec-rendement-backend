@@ -386,6 +386,52 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
   } finally { db.release(); }
 });
 
+router.patch("/rfq-cells/:cellId/move", async (req, res) => {
+  const cellId = Number(req.params.cellId);
+  const clientId = Number(req.body?.clientId);
+  const productId = Number(req.body?.productId);
+  const weekStart = typeof req.body?.weekStart === "string" ? req.body.weekStart : "";
+  const locationCode = typeof req.body?.locationCode === "string" ? req.body.locationCode : "";
+
+  if (
+    !Number.isSafeInteger(cellId) || cellId <= 0 ||
+    !Number.isSafeInteger(clientId) || clientId <= 0 ||
+    !Number.isSafeInteger(productId) || productId <= 0 ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(weekStart) ||
+    !/^[A-Z]$/.test(locationCode)
+  ) {
+    return res.status(400).json({ error: "Invalid RFQ cell destination" });
+  }
+
+  try {
+    const product = await pool.query(
+      "SELECT 1 FROM sales.products WHERE id = $1 AND client_id = $2 AND is_active = TRUE",
+      [productId, clientId],
+    );
+    if (!product.rowCount) {
+      return res.status(400).json({ error: "Destination product does not belong to client" });
+    }
+
+    const moved = await pool.query(
+      `UPDATE sales.rfq_cells
+       SET product_id = $1, week_start = $2, location_code = $3, updated_at = NOW()
+       WHERE id = $4 AND client_id = $5
+       RETURNING id, client_id, product_id, week_start::text, location_code`,
+      [productId, weekStart, locationCode, cellId, clientId],
+    );
+    if (!moved.rowCount) {
+      return res.status(404).json({ error: "RFQ cell not found" });
+    }
+    return res.json({ cell: moved.rows[0] });
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "Destination RFQ cell is already occupied" });
+    }
+    console.error("Error moving RFQ cell:", error);
+    return res.status(500).json({ error: "Failed to move RFQ cell" });
+  }
+});
+
 router.delete("/rfq-cells/:cellId", async (req, res) => {
   const cellId = Number(req.params.cellId);
   if (!Number.isSafeInteger(cellId) || cellId <= 0) {
