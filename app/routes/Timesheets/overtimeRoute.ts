@@ -22,19 +22,19 @@ const getDateFilter = (query: OvertimeQuery, userId: number) => {
   }
 
   const values: Array<number | string> = [userId];
-  const whereClauses = ["ws.user_id = $1", "ws.end_time IS NOT NULL"];
+  const whereClauses = ["ow.user_id = $1"];
 
   if (start) {
     values.push(start);
     whereClauses.push(
-      `(ws.start_time AT TIME ZONE 'America/Toronto')::date >= $${values.length}::date`,
+      `ow.week_start >= date_trunc('week', $${values.length}::date)::date`,
     );
   }
 
   if (end) {
     values.push(end);
     whereClauses.push(
-      `(ws.start_time AT TIME ZONE 'America/Toronto')::date <= $${values.length}::date`,
+      `ow.week_start <= date_trunc('week', $${values.length}::date)::date`,
     );
   }
 
@@ -50,34 +50,16 @@ const getOvertime = async (userId: number, query: OvertimeQuery) => {
 
   const result = await pool.query(
     `
-      WITH weekly_sessions AS (
-        SELECT
-          date_trunc(
-            'week',
-            ws.start_time AT TIME ZONE 'America/Toronto'
-          )::date AS week_start,
-          GREATEST(
-            0,
-            SUM(
-              COALESCE(
-                ws.duration_minutes,
-                ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
-              )
-            ) - SUM(COALESCE(ws.lunch_duration, 0))
-          )::bigint AS total_minutes
-        FROM timesheets.work_sessions ws
-        WHERE ${filter.whereClauses.join(" AND ")}
-        GROUP BY week_start
-      )
       SELECT
-        week_start,
-        week_start + 6 AS week_end,
-        total_minutes,
-        total_minutes / 60.0 AS total_hours,
-        GREATEST(0, total_minutes - 2400)::bigint AS banked_minutes,
-        GREATEST(0, total_minutes - 2400) / 60.0 AS banked_hours
-      FROM weekly_sessions
-      ORDER BY week_start DESC
+        ow.week_start,
+        ow.week_start + 6 AS week_end,
+        ow.total_minutes,
+        ow.total_minutes / 60.0 AS total_hours,
+        ow.banked_minutes,
+        ow.banked_minutes / 60.0 AS banked_hours
+      FROM timesheets.user_overtime_weeks ow
+      WHERE ${filter.whereClauses.join(" AND ")}
+      ORDER BY ow.week_start DESC
     `,
     filter.values,
   );

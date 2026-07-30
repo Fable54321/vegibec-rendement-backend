@@ -11,9 +11,8 @@ dotenv.config();
 //   },
 // });
 
-export const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL })
-  : new Pool({
+export const pool = process.env.DB_HOST
+  ? new Pool({
       host: process.env.DB_HOST,
       port: Number(process.env.DB_PORT),
       user: process.env.DB_USER,
@@ -25,4 +24,5 @@ export const pool = process.env.DATABASE_URL
               rejectUnauthorized: false,
             }
           : false,
-    });
+    })
+  : new Pool({ connectionString: process.env.DATABASE_URL });

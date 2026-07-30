@@ -9,6 +9,7 @@
     "dev": "nodemon --watch app --watch .env --ext ts,env --exec ts-node app/index.ts",
     "temperatures": "ts-node app/routes/Temperature/Temperature.ts",
     "create-admin": "ts-node app/scripts/createAdmin.ts",
+    "migrate:timesheet-overtime": "ts-node app/scripts/createTimesheetOvertimeSummaries.ts",
     "repair:impaut-signatures": "tsx app/scripts/repairImpAutSignatures.ts",
     "scrape:website": "ts-node app/Utils/WebsiteScraper.ts",
     "scrape:weather": "ts-node app/Utils/Weather/runWeatherScrape.ts",
