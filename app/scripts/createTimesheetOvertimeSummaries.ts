@@ -63,6 +63,27 @@ const run = async () => {
     throw new Error("The overtime backfill did not match existing sessions.");
   }
 
+  const totalVerification = await pool.query<{ mismatch_count: string }>(`
+    WITH calculated AS (
+      SELECT
+        ow.user_id,
+        SUM(ow.banked_minutes)::bigint AS total_banked_minutes
+      FROM timesheets.user_overtime_weeks ow
+      GROUP BY ow.user_id
+    )
+    SELECT COUNT(*)::text AS mismatch_count
+    FROM calculated c
+    FULL JOIN timesheets.user_overtime_totals ot USING (user_id)
+    WHERE c.user_id IS NULL
+      OR ot.user_id IS NULL
+      OR c.total_banked_minutes
+        IS DISTINCT FROM ot.total_banked_minutes
+  `);
+
+  if (totalVerification.rows[0].mismatch_count !== "0") {
+    throw new Error("The per-user overtime totals did not match weekly data.");
+  }
+
   console.log("Timesheet overtime summaries are ready and verified.");
 };
 

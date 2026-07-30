@@ -12,6 +12,39 @@ CREATE TABLE IF NOT EXISTS timesheets.user_overtime_weeks (
 CREATE INDEX IF NOT EXISTS user_overtime_weeks_week_start_idx
   ON timesheets.user_overtime_weeks (week_start);
 
+CREATE TABLE IF NOT EXISTS timesheets.user_overtime_totals (
+  user_id integer PRIMARY KEY,
+  total_banked_minutes bigint NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION timesheets.refresh_user_overtime_total(
+  target_user_id integer
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  calculated_total bigint;
+BEGIN
+  SELECT COALESCE(SUM(ow.banked_minutes), 0)::bigint
+  INTO calculated_total
+  FROM timesheets.user_overtime_weeks ow
+  WHERE ow.user_id = target_user_id;
+
+  INSERT INTO timesheets.user_overtime_totals (
+    user_id,
+    total_banked_minutes,
+    updated_at
+  )
+  VALUES (target_user_id, calculated_total, NOW())
+  ON CONFLICT (user_id)
+  DO UPDATE SET
+    total_banked_minutes = EXCLUDED.total_banked_minutes,
+    updated_at = NOW();
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION timesheets.refresh_user_overtime_week(
   target_user_id integer,
   target_week_start date
@@ -45,6 +78,7 @@ BEGIN
     DELETE FROM timesheets.user_overtime_weeks
     WHERE user_id = target_user_id
       AND week_start = target_week_start;
+    PERFORM timesheets.refresh_user_overtime_total(target_user_id);
     RETURN;
   END IF;
 
@@ -67,6 +101,8 @@ BEGIN
     total_minutes = EXCLUDED.total_minutes,
     banked_minutes = EXCLUDED.banked_minutes,
     updated_at = NOW();
+
+  PERFORM timesheets.refresh_user_overtime_total(target_user_id);
 END;
 $$;
 
@@ -160,6 +196,22 @@ ON CONFLICT (user_id, week_start)
 DO UPDATE SET
   total_minutes = EXCLUDED.total_minutes,
   banked_minutes = EXCLUDED.banked_minutes,
+  updated_at = NOW();
+
+INSERT INTO timesheets.user_overtime_totals (
+  user_id,
+  total_banked_minutes,
+  updated_at
+)
+SELECT
+  ow.user_id,
+  SUM(ow.banked_minutes)::bigint,
+  NOW()
+FROM timesheets.user_overtime_weeks ow
+GROUP BY ow.user_id
+ON CONFLICT (user_id)
+DO UPDATE SET
+  total_banked_minutes = EXCLUDED.total_banked_minutes,
   updated_at = NOW();
 
 COMMIT;

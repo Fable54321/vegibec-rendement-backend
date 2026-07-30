@@ -64,10 +64,28 @@ const getOvertime = async (userId: number, query: OvertimeQuery) => {
     filter.values,
   );
 
-  const totalBankedMinutes = result.rows.reduce(
-    (total, week) => total + Number(week.banked_minutes),
-    0,
-  );
+  const hasDateFilter =
+    typeof query.start === "string" || typeof query.end === "string";
+  let totalBankedMinutes: number;
+
+  if (hasDateFilter) {
+    totalBankedMinutes = result.rows.reduce(
+      (total, week) => total + Number(week.banked_minutes),
+      0,
+    );
+  } else {
+    const totalResult = await pool.query(
+      `
+        SELECT total_banked_minutes
+        FROM timesheets.user_overtime_totals
+        WHERE user_id = $1
+      `,
+      [userId],
+    );
+    totalBankedMinutes = Number(
+      totalResult.rows[0]?.total_banked_minutes ?? 0,
+    );
+  }
 
   return {
     weeks: result.rows,
