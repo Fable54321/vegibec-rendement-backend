@@ -2,8 +2,8 @@ import { randomUUID } from "crypto";
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import multer from "multer";
-import { pool } from "../db";
-import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../services/s3.services";
+import { pool } from "../../db";
+import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services";
 import {
   disconnectMicrosoftAccount,
   exchangeMicrosoftCode,
@@ -12,7 +12,7 @@ import {
   getOutlookMessage,
   listOutlookMessages,
   saveMicrosoftConnection,
-} from "../services/microsoftGraph.services";
+} from "../../services/microsoftGraph.services";
 
 const router = Router();
 const allowedTypes = new Set([

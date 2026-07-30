@@ -59,7 +59,7 @@ import purchaseDraftsRoute from "./routes/Portal/PurchaseDrafts";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
 import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
-import salesProductsRoute from "./routes/salesProducts";
+import salesProductsRoute from "./routes/sales/salesProducts";
 import roomsRoute from "./routes/Portal/RoomsRoute";
 
 
