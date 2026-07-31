@@ -157,6 +157,9 @@ router.patch("/clients/:clientId/products/reorder", async (req, res) => {
 router.patch("/clients/:clientId/products/:productId", async (req, res) => {
   const clientId = Number(req.params.clientId);
   const productId = Number(req.params.productId);
+  const hasName = Object.prototype.hasOwnProperty.call(req.body ?? {}, "name");
+  const hasItemCode = Object.prototype.hasOwnProperty.call(req.body ?? {}, "item_code");
+  const rawName = req.body?.name;
   const rawItemCode = req.body?.item_code;
 
   if (
@@ -165,32 +168,53 @@ router.patch("/clients/:clientId/products/:productId", async (req, res) => {
   ) {
     return res.status(400).json({ error: "Invalid client or product id" });
   }
-  if (rawItemCode !== null && typeof rawItemCode !== "string") {
+  if (!hasName && !hasItemCode) {
+    return res.status(400).json({ error: "Provide a product name or item code to update" });
+  }
+  if (hasName && typeof rawName !== "string") {
+    return res.status(400).json({ error: "Product name must be a string" });
+  }
+  if (hasItemCode && rawItemCode !== null && typeof rawItemCode !== "string") {
     return res.status(400).json({ error: "Item code must be a string or null" });
   }
 
+  const name = typeof rawName === "string" ? rawName.trim() : "";
   const itemCode = typeof rawItemCode === "string" ? rawItemCode.trim() : null;
+  if (hasName && (!name || name.length > 150)) {
+    return res.status(400).json({ error: "Product name must contain between 1 and 150 characters" });
+  }
   if (itemCode && itemCode.length > 100) {
     return res.status(400).json({ error: "Item code must contain at most 100 characters" });
   }
 
   try {
+    if (hasName) {
+      const duplicate = await pool.query(
+        "SELECT 1 FROM sales.products WHERE client_id = $1 AND id <> $2 AND LOWER(name) = LOWER($3)",
+        [clientId, productId, name],
+      );
+      if (duplicate.rowCount) {
+        return res.status(409).json({ error: "A product with this name already exists for this client" });
+      }
+    }
+
     const result = await pool.query(`
       UPDATE sales.products
-      SET item_code = $1
-      WHERE id = $2 AND client_id = $3
+      SET name = CASE WHEN $1::boolean THEN $2 ELSE name END,
+          item_code = CASE WHEN $3::boolean THEN $4 ELSE item_code END
+      WHERE id = $5 AND client_id = $6
       RETURNING id, client_id, name, item_code, display_order, is_active
-    `, [itemCode || null, productId, clientId]);
+    `, [hasName, name, hasItemCode, itemCode || null, productId, clientId]);
     if (!result.rowCount) {
       return res.status(404).json({ error: "Product not found for this client" });
     }
     return res.status(200).json({ product: result.rows[0] });
   } catch (error) {
     if ((error as { code?: string }).code === "23505") {
-      return res.status(409).json({ error: "This item code is already in use" });
+      return res.status(409).json({ error: "This product name or item code is already in use" });
     }
-    console.error("Error updating product item code:", error);
-    return res.status(500).json({ error: "Failed to update product item code" });
+    console.error("Error updating product:", error);
+    return res.status(500).json({ error: "Failed to update product" });
   }
 });
 
