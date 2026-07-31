@@ -55,7 +55,7 @@ router.get("/clients/:clientId/products", async (req, res) => {
     const clientResult = await pool.query("SELECT id, name FROM sales.clients WHERE id = $1", [clientId]);
     if (clientResult.rowCount === 0) return res.status(404).json({ error: "Client not found" });
     const productsResult = await pool.query(`
-      SELECT id, client_id, name, display_order, is_active FROM sales.products
+      SELECT id, client_id, name, item_code, display_order, is_active FROM sales.products
       WHERE client_id = $1 AND ($2::boolean OR is_active = TRUE)
       ORDER BY is_active DESC, display_order, name, id
     `, [clientId, includeInactive]);
@@ -151,6 +151,46 @@ router.patch("/clients/:clientId/products/reorder", async (req, res) => {
     return res.status(500).json({ error: "Failed to reorder products" });
   } finally {
     db.release();
+  }
+});
+
+router.patch("/clients/:clientId/products/:productId", async (req, res) => {
+  const clientId = Number(req.params.clientId);
+  const productId = Number(req.params.productId);
+  const rawItemCode = req.body?.item_code;
+
+  if (
+    !Number.isSafeInteger(clientId) || clientId <= 0 ||
+    !Number.isSafeInteger(productId) || productId <= 0
+  ) {
+    return res.status(400).json({ error: "Invalid client or product id" });
+  }
+  if (rawItemCode !== null && typeof rawItemCode !== "string") {
+    return res.status(400).json({ error: "Item code must be a string or null" });
+  }
+
+  const itemCode = typeof rawItemCode === "string" ? rawItemCode.trim() : null;
+  if (itemCode && itemCode.length > 100) {
+    return res.status(400).json({ error: "Item code must contain at most 100 characters" });
+  }
+
+  try {
+    const result = await pool.query(`
+      UPDATE sales.products
+      SET item_code = $1
+      WHERE id = $2 AND client_id = $3
+      RETURNING id, client_id, name, item_code, display_order, is_active
+    `, [itemCode || null, productId, clientId]);
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Product not found for this client" });
+    }
+    return res.status(200).json({ product: result.rows[0] });
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "This item code is already in use" });
+    }
+    console.error("Error updating product item code:", error);
+    return res.status(500).json({ error: "Failed to update product item code" });
   }
 });
 
