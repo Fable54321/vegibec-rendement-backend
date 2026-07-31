@@ -1,18 +1,9 @@
 import { randomUUID } from "crypto";
 import { Router } from "express";
-import jwt from "jsonwebtoken";
 import multer from "multer";
 import { pool } from "../../db";
 import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services";
-import {
-  disconnectMicrosoftAccount,
-  exchangeMicrosoftCode,
-  getMicrosoftAuthorizationUrl,
-  getMicrosoftConnectionStatus,
-  getOutlookMessage,
-  listOutlookMessages,
-  saveMicrosoftConnection,
-} from "../../services/microsoftGraph.services";
+import outlookRoutes, { getOutlookMessage } from "./outlook";
 
 const router = Router();
 const allowedTypes = new Set([
@@ -53,118 +44,7 @@ const upload = multer({
   },
 });
 
-const outlookStateSecret = process.env.JWT_SECRET || "super_secret";
-const outlookFrontendUrl = () =>
-  (process.env.OUTLOOK_FRONTEND_URL || "https://devis.vegibec-portail.com").replace(/\/+$/, "");
-
-router.get("/outlook/status", async (req, res) => {
-  try {
-    return res.json(await getMicrosoftConnectionStatus(req.user!.id));
-  } catch (error) {
-    console.error("Error reading Microsoft connection status:", error);
-    return res.status(500).json({ error: "Failed to read Microsoft connection status" });
-  }
-});
-
-router.get("/outlook/connect", (req, res) => {
-  try {
-    const state = jwt.sign(
-      { userId: req.user!.id, nonce: randomUUID(), purpose: "outlook-connect" },
-      outlookStateSecret,
-      { expiresIn: "10m" },
-    );
-    return res.json({ url: getMicrosoftAuthorizationUrl(state) });
-  } catch (error) {
-    console.error("Error starting Microsoft connection:", error);
-    return res.status(500).json({ error: "Microsoft Graph integration is not configured" });
-  }
-});
-
-router.get("/outlook/callback", async (req, res) => {
-  const frontendUrl = outlookFrontendUrl();
-  try {
-    if (typeof req.query.error === "string") {
-      return res.redirect(`${frontendUrl}/rfq?outlook=error`);
-    }
-    if (typeof req.query.code !== "string" || typeof req.query.state !== "string") {
-      return res.redirect(`${frontendUrl}/rfq?outlook=error`);
-    }
-    const state = jwt.verify(req.query.state, outlookStateSecret) as {
-      userId: number;
-      purpose: string;
-    };
-    if (state.purpose !== "outlook-connect" || !Number.isSafeInteger(state.userId)) {
-      return res.redirect(`${frontendUrl}/rfq?outlook=error`);
-    }
-    const connection = await exchangeMicrosoftCode(req.query.code);
-    await saveMicrosoftConnection(state.userId, connection);
-    return res.redirect(`${frontendUrl}/rfq?outlook=connected`);
-  } catch (error) {
-    console.error("Microsoft OAuth callback failed:", error);
-    return res.redirect(`${frontendUrl}/rfq?outlook=error`);
-  }
-});
-
-router.delete("/outlook/connection", async (req, res) => {
-  try {
-    await disconnectMicrosoftAccount(req.user!.id);
-    return res.status(204).send();
-  } catch (error) {
-    console.error("Error disconnecting Microsoft account:", error);
-    return res.status(500).json({ error: "Failed to disconnect Microsoft account" });
-  }
-});
-
-router.get("/outlook/messages", async (req, res) => {
-  try {
-    const search = typeof req.query.search === "string" ? req.query.search.slice(0, 200) : "";
-    return res.json({ messages: await listOutlookMessages(req.user!.id, search) });
-  } catch (error) {
-    const status = Number((error as Error & { status?: number }).status) || 500;
-    console.error("Error loading Outlook messages:", error);
-    return res.status(status).json({
-      error: status === 409 ? "Microsoft account is not connected" : "Failed to load Outlook messages",
-    });
-  }
-});
-
-router.get("/outlook-links/:linkId/open", async (req, res) => {
-  const linkId = Number(req.params.linkId);
-  if (!Number.isSafeInteger(linkId) || linkId <= 0) {
-    return res.status(400).json({ error: "Invalid Outlook link id" });
-  }
-  try {
-    const result = await pool.query(
-      `SELECT microsoft_message_id FROM sales.rfq_email_links
-       WHERE id = $1 AND user_id = $2`,
-      [linkId, req.user!.id],
-    );
-    if (!result.rowCount) {
-      return res.status(404).json({ error: "Outlook link not found for this user" });
-    }
-    const message = await getOutlookMessage(req.user!.id, result.rows[0].microsoft_message_id);
-    await pool.query(
-      "UPDATE sales.rfq_email_links SET web_link = $1 WHERE id = $2",
-      [message.webLink, linkId],
-    );
-    return res.json({ url: message.webLink });
-  } catch (error) {
-    console.error("Error opening Outlook message:", error);
-    return res.status(500).json({ error: "Failed to open Outlook message" });
-  }
-});
-
-router.delete("/outlook-links/:linkId", async (req, res) => {
-  const linkId = Number(req.params.linkId);
-  if (!Number.isSafeInteger(linkId) || linkId <= 0) {
-    return res.status(400).json({ error: "Invalid Outlook link id" });
-  }
-  const result = await pool.query(
-    "DELETE FROM sales.rfq_email_links WHERE id = $1 AND user_id = $2 RETURNING id",
-    [linkId, req.user!.id],
-  );
-  return result.rowCount ? res.status(204).send() : res.status(404).json({ error: "Outlook link not found" });
-});
+router.use(outlookRoutes);
 
 router.get("/clients/:clientId/products", async (req, res) => {
   const clientId = Number(req.params.clientId);
