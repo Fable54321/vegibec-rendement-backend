@@ -20,12 +20,18 @@ router.get("/:id/workers", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query(
-      `SELECT *
-       FROM foreign_workers_schedule.foreign_workers_details
-       WHERE casa_id = $1`,
-      [id],
-    );
+   const result = await pool.query(
+  `SELECT
+     fwd.*,
+     u.name,
+     u.surname
+   FROM foreign_workers_schedule.foreign_workers_details fwd
+   LEFT JOIN public.users u
+     ON u.id = fwd.user_id
+   WHERE fwd.casa_id = $1
+   ORDER BY u.surname, u.name`,
+  [id],
+);
 
     return res.json(result.rows);
   } catch (error) {
