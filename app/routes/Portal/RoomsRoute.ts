@@ -15,6 +15,23 @@ router.get("/", (req, res) => {
     })
 })
 
+router.get("/total-occupation", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS total_occupation
+       FROM foreign_workers_schedule.foreign_workers_details
+       WHERE casa_id IS NOT NULL`,
+    );
+
+    return res.status(200).json({
+      totalOccupation: result.rows[0].total_occupation,
+    });
+  } catch (error) {
+    console.error("Error fetching total room occupation:", error);
+    return res.status(500).json({ error: "Database error" });
+  }
+});
+
 
 router.get("/:id/workers", async (req, res) => {
   const { id } = req.params;
