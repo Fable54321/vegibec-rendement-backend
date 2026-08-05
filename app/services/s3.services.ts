@@ -31,6 +31,30 @@ export const uploadBufferToS3 = async ({
   return key;
 };
 
+export const getSignedUploadUrl = async ({
+  key,
+  contentType,
+  expiresIn = 60 * 15,
+}: {
+  key: string;
+  contentType: string;
+  expiresIn?: number;
+}) => {
+  const bucket = process.env.AWS_BUCKET_NAME;
+
+  if (!bucket) {
+    throw new Error("Missing AWS_BUCKET_NAME");
+  }
+
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    ContentType: contentType,
+  });
+
+  return getSignedUrl(s3, command, { expiresIn });
+};
+
 export const deleteObjectFromS3 = async (key: string) => {
   const bucket = process.env.AWS_BUCKET_NAME;
 

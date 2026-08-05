@@ -61,6 +61,7 @@ import suppliersRoute from "./routes/Portal/SuppliersRoute";
 import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
 import salesProductsRoute from "./routes/sales/salesProducts";
 import roomsRoute from "./routes/Portal/RoomsRoute";
+import fileTransferRoute from "./routes/Portal/FileTransfer";
 
 
 
@@ -187,6 +188,8 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 app.use("/auth", authRoute);
+
+app.use("/file-transfer", fileTransferRoute);
 
 
 
