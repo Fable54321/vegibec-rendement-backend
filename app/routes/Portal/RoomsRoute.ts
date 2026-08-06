@@ -4,7 +4,7 @@ import { pool } from "../../db";
 
 const router = Router();
 
-router.get("/", (req, res) => {
+router.get("/", (_req, res) => {
     pool.query("SELECT * FROM foreign_workers_schedule.casas", (err, result) => {
         if (err) {
             console.error("Error fetching rooms:", err);
