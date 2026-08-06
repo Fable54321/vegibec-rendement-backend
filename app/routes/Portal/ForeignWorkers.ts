@@ -268,13 +268,17 @@ fwd.day_off,
 fwd.job_id_1,
 fwd.job_id_2,
 fwd.job_notes,
-fwd.casa_id
+fwd.casa_id,
+fwd.cuartos_id,
+cuarto.name AS cuarto_name
 
       FROM users u
       INNER JOIN foreign_workers_info fwi
         ON fwi.user_id = u.id
         LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
   ON fwd.user_id = u.id
+        LEFT JOIN foreign_workers_schedule.cuartos cuarto
+  ON cuarto.id = fwd.cuartos_id
       WHERE u.id = $1
       `,
       [userId]
