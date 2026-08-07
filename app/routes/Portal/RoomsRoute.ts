@@ -33,7 +33,15 @@ router.get("/total-occupation", async (_req, res) => {
   }
 });
 
-router.get("/cuartos", async (_req, res) => {
+router.get("/cuartos", async (req, res) => {
+  const casaId = req.query.casa_id === undefined
+    ? null
+    : Number(req.query.casa_id);
+
+  if (casaId !== null && (!Number.isInteger(casaId) || casaId <= 0)) {
+    return res.status(400).json({ error: "casa_id must be a positive integer" });
+  }
+
   try {
     const result = await pool.query(
       `SELECT
@@ -47,8 +55,10 @@ router.get("/cuartos", async (_req, res) => {
          ON casa.id = cuarto.casa_id
        LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
          ON fwd.cuartos_id = cuarto.id
+       WHERE ($1::bigint IS NULL OR cuarto.casa_id = $1)
        GROUP BY cuarto.id, cuarto.name, cuarto.casa_id, casa.name
        ORDER BY casa.name, cuarto.name`,
+      [casaId],
     );
 
     return res.status(200).json(result.rows);
