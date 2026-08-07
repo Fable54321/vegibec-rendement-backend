@@ -269,6 +269,7 @@ fwd.job_id_1,
 fwd.job_id_2,
 fwd.job_notes,
 fwd.casa_id,
+casa.name AS casa_name,
 fwd.cuartos_id,
 cuarto.name AS cuarto_name
 
@@ -279,6 +280,8 @@ cuarto.name AS cuarto_name
   ON fwd.user_id = u.id
         LEFT JOIN foreign_workers_schedule.cuartos cuarto
   ON cuarto.id = fwd.cuartos_id
+        LEFT JOIN foreign_workers_schedule.casas casa
+  ON casa.id = fwd.casa_id
       WHERE u.id = $1
       `,
       [userId]
