@@ -384,6 +384,7 @@ router.post("/blocks", async (req, res) => {
     const userId = req.user.id;
     const startTime = parseDateInput(req.body.start_time);
     const endTime = parseDateInput(req.body.end_time);
+    const lunchDuration = Number(req.body.lunch_duration ?? 0);
 
     if (!startTime) {
       return res.status(400).json({ error: "L'heure de debut est requise" });
@@ -397,6 +398,18 @@ router.post("/blocks", async (req, res) => {
       return res
         .status(400)
         .json({ error: "L'heure de fin doit etre apres l'heure de debut" });
+    }
+
+    const grossMinutes = Math.round(
+      (endTime.getTime() - startTime.getTime()) / 1000 / 60,
+    );
+
+    if (
+      !Number.isInteger(lunchDuration) ||
+      lunchDuration < 0 ||
+      lunchDuration > grossMinutes
+    ) {
+      return res.status(400).json({ error: "Duree du diner invalide" });
     }
 
     const sameLocalDay =
@@ -413,22 +426,17 @@ if (!sameLocalDay) {
 
     const insertResult = await client.query(
       `
-      INSERT INTO timesheets.work_sessions (user_id, start_time, end_time)
-      VALUES ($1, $2, $3)
+      INSERT INTO timesheets.work_sessions (user_id, start_time, end_time, lunch_duration)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
       `,
-      [userId, startTime, endTime],
+      [userId, startTime, endTime, lunchDuration],
     );
 
     await client.query("COMMIT");
 
     const session = insertResult.rows[0];
-    const totalMinutes = Math.round(
-      (new Date(session.end_time).getTime() -
-        new Date(session.start_time).getTime()) /
-        1000 /
-        60,
-    );
+    const totalMinutes = grossMinutes;
 
     res.status(201).json({
       session,

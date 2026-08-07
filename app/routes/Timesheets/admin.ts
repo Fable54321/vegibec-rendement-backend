@@ -87,6 +87,7 @@ router.get(
           ws.user_id,
           ws.start_time,
           ws.end_time,
+          ws.lunch_duration,
           ws.created_at,
           ws.updated_at,
           ws.is_modified,
@@ -189,6 +190,93 @@ router.get(
     } catch (err) {
       console.error("Error fetching work blocks by user:", err);
       res.status(500).json({ error: "Erreur serveur" });
+    }
+  },
+);
+
+router.post(
+  "/blocks/users/:userId",
+  requireAppRole("time", ["admin", "dev"]),
+  async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Non autorise" });
+      }
+
+      const userId = Number(req.params.userId);
+      const startTime = parseDateInput(req.body.start_time);
+      const endTime = parseDateInput(req.body.end_time);
+      const lunchDuration = Number(req.body.lunch_duration ?? 0);
+
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ error: "ID utilisateur invalide" });
+      }
+
+      if (!startTime || !endTime) {
+        return res.status(400).json({ error: "Les heures de debut et de fin sont requises" });
+      }
+
+      if (startTime >= endTime) {
+        return res.status(400).json({ error: "L'heure de fin doit etre apres l'heure de debut" });
+      }
+
+      const sameLocalDay =
+        startTime.toLocaleDateString("en-CA", { timeZone: "America/Toronto" }) ===
+        endTime.toLocaleDateString("en-CA", { timeZone: "America/Toronto" });
+
+      if (!sameLocalDay) {
+        return res.status(400).json({
+          error: "L'heure de debut et l'heure de fin doivent etre dans la meme journee",
+        });
+      }
+
+      const grossMinutes = Math.round(
+        (endTime.getTime() - startTime.getTime()) / 1000 / 60,
+      );
+
+      if (
+        !Number.isInteger(lunchDuration) ||
+        lunchDuration < 0 ||
+        lunchDuration > grossMinutes
+      ) {
+        return res.status(400).json({ error: "Duree du diner invalide" });
+      }
+
+      await client.query("BEGIN");
+
+      const userResult = await client.query(
+        `SELECT id FROM users WHERE id = $1 AND uses_worksheet = TRUE`,
+        [userId],
+      );
+
+      if (userResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Utilisateur introuvable" });
+      }
+
+      const insertResult = await client.query(
+        `
+        INSERT INTO timesheets.work_sessions (user_id, start_time, end_time, lunch_duration)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+        `,
+        [userId, startTime, endTime, lunchDuration],
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        session: insertResult.rows[0],
+        totalMinutes: grossMinutes,
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("Error creating admin work block:", err);
+      return res.status(500).json({ error: "Erreur serveur" });
+    } finally {
+      client.release();
     }
   },
 );
