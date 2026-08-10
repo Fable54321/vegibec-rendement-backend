@@ -49,6 +49,7 @@ router.get("/cuartos", async (req, res) => {
          cuarto.name,
          cuarto.casa_id,
          casa.name AS casa_name,
+         COALESCE(cuarto.number_of_spaces, 0)::int AS number_of_spaces,
          COUNT(fwd.id)::int AS worker_count
        FROM foreign_workers_schedule.cuartos cuarto
        INNER JOIN foreign_workers_schedule.casas casa
@@ -64,6 +65,61 @@ router.get("/cuartos", async (req, res) => {
     return res.status(200).json(result.rows);
   } catch (error) {
     console.error("Error fetching cuartos:", error);
+    return res.status(500).json({ error: "Database error" });
+  }
+});
+
+router.get("/cuartos/capacity", async (req, res) => {
+  const casaId = req.query.casa_id === undefined
+    ? null
+    : Number(req.query.casa_id);
+
+  if (casaId !== null && (!Number.isInteger(casaId) || casaId <= 0)) {
+    return res.status(400).json({ error: "casa_id must be a positive integer" });
+  }
+
+  try {
+    const result = await pool.query(
+      `WITH room_capacity AS (
+         SELECT
+           cuarto.id,
+           cuarto.name,
+           cuarto.casa_id,
+           casa.name AS casa_name,
+           COALESCE(cuarto.number_of_spaces, 0)::int AS number_of_spaces,
+           COUNT(fwd.id)::int AS worker_count
+         FROM foreign_workers_schedule.cuartos cuarto
+         INNER JOIN foreign_workers_schedule.casas casa
+           ON casa.id = cuarto.casa_id
+         LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
+           ON fwd.cuartos_id = cuarto.id
+         WHERE ($1::bigint IS NULL OR cuarto.casa_id = $1)
+         GROUP BY cuarto.id, cuarto.name, cuarto.casa_id, casa.name
+       )
+       SELECT
+         *,
+         GREATEST(number_of_spaces - worker_count, 0)::int AS available_spaces
+       FROM room_capacity
+       ORDER BY casa_name, name`,
+      [casaId],
+    );
+
+    const totals = result.rows.reduce(
+      (current, room) => {
+        current.totalSpaces += Number(room.number_of_spaces);
+        current.totalOccupied += Number(room.worker_count);
+        current.totalAvailable += Number(room.available_spaces);
+        return current;
+      },
+      { totalSpaces: 0, totalOccupied: 0, totalAvailable: 0 },
+    );
+
+    return res.status(200).json({
+      cuartos: result.rows,
+      ...totals,
+    });
+  } catch (error) {
+    console.error("Error fetching cuarto capacity:", error);
     return res.status(500).json({ error: "Database error" });
   }
 });
