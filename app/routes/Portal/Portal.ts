@@ -125,16 +125,16 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
     const { username, password, apps, email, name, surname } = req.body as {
       username?: string;
       password?: string;
-      email?: string;
+      email?: string | null;
       name?: string;
       surname?: string;
       apps?: AppAccessInput[];
     };
 
-    if (!username || !password || !email || !name || !surname) {
+    if (!username || !password || !name || !surname) {
       return res.status(400).json({
         success: false,
-        message: "Username, password, email, name and surname are required",
+        message: "Username, password, name and surname are required",
       });
     }
 
@@ -146,7 +146,9 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
     }
 
     const normalizedUsername = username.trim();
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = email?.trim()
+      ? email.trim().toLowerCase()
+      : null;
     const normalizedName = name.trim();
     const normalizedSurname = surname.trim();
     const normalizedApps = apps.map((app) => ({
@@ -178,7 +180,7 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
       });
     }
 
-    if (!isValidEmail(normalizedEmail)) {
+    if (normalizedEmail !== null && !isValidEmail(normalizedEmail)) {
       return res.status(400).json({
         success: false,
         message: "Invalid email",
@@ -238,17 +240,19 @@ router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
       });
     }
 
-    const existingEmail = await client.query(
-      `SELECT id FROM users WHERE LOWER(email) = $1`,
-      [normalizedEmail],
-    );
+    if (normalizedEmail !== null) {
+      const existingEmail = await client.query(
+        `SELECT id FROM users WHERE LOWER(email) = $1`,
+        [normalizedEmail],
+      );
 
-    if (existingEmail.rows.length > 0) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: "Email already exists",
-      });
+      if (existingEmail.rows.length > 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          success: false,
+          message: "Email already exists",
+        });
+      }
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
