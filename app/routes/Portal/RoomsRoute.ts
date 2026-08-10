@@ -124,6 +124,149 @@ router.get("/cuartos/capacity", async (req, res) => {
   }
 });
 
+router.get("/occupancy-state", async (_req, res) => {
+  try {
+    const [casasResult, cuartosResult, workersResult] = await Promise.all([
+      pool.query(
+        `SELECT id, name
+         FROM foreign_workers_schedule.casas
+         ORDER BY name`,
+      ),
+      pool.query(
+        `SELECT
+           id,
+           name,
+           casa_id,
+           COALESCE(number_of_spaces, 0)::int AS number_of_spaces
+         FROM foreign_workers_schedule.cuartos
+         ORDER BY name`,
+      ),
+      pool.query(
+        `SELECT
+           fwd.id,
+           fwd.user_id,
+           fwd.casa_id,
+           fwd.cuartos_id,
+           u.name,
+           u.surname
+         FROM foreign_workers_schedule.foreign_workers_details fwd
+         LEFT JOIN public.users u
+           ON u.id = fwd.user_id
+         ORDER BY u.surname NULLS LAST, u.name NULLS LAST, fwd.user_id`,
+      ),
+    ]);
+
+    const casas = casasResult.rows.map((casa) => ({
+      id: casa.id,
+      name: casa.name,
+      workerCount: 0,
+      numberOfSpaces: 0,
+      availableSpaces: 0,
+      cuartos: [] as Array<{
+        id: unknown;
+        name: string;
+        numberOfSpaces: number;
+        workerCount: number;
+        availableSpaces: number;
+        workers: typeof workersResult.rows;
+      }>,
+      workersWithoutCuarto: [] as typeof workersResult.rows,
+    }));
+
+    const casasById = new Map(casas.map((casa) => [String(casa.id), casa]));
+    const cuartosById = new Map<string, (typeof casas)[number]["cuartos"][number]>();
+
+    for (const cuarto of cuartosResult.rows) {
+      const casa = casasById.get(String(cuarto.casa_id));
+      if (!casa) continue;
+
+      const cleanCuarto = {
+        id: cuarto.id,
+        name: cuarto.name,
+        numberOfSpaces: Number(cuarto.number_of_spaces),
+        workerCount: 0,
+        availableSpaces: 0,
+        workers: [] as typeof workersResult.rows,
+      };
+
+      casa.cuartos.push(cleanCuarto);
+      casa.numberOfSpaces += cleanCuarto.numberOfSpaces;
+      cuartosById.set(String(cuarto.id), cleanCuarto);
+    }
+
+    const workersWithoutCasa: typeof workersResult.rows = [];
+
+    for (const worker of workersResult.rows) {
+      const cleanWorker = {
+        id: worker.id,
+        userId: worker.user_id,
+        name: worker.name,
+        surname: worker.surname,
+      };
+      const cuarto = worker.cuartos_id === null
+        ? undefined
+        : cuartosById.get(String(worker.cuartos_id));
+
+      if (cuarto) {
+        cuarto.workers.push(cleanWorker);
+        cuarto.workerCount += 1;
+        continue;
+      }
+
+      const casa = worker.casa_id === null
+        ? undefined
+        : casasById.get(String(worker.casa_id));
+
+      if (casa) {
+        casa.workersWithoutCuarto.push(cleanWorker);
+      } else {
+        workersWithoutCasa.push(cleanWorker);
+      }
+    }
+
+    for (const casa of casas) {
+      for (const cuarto of casa.cuartos) {
+        cuarto.availableSpaces = Math.max(
+          cuarto.numberOfSpaces - cuarto.workerCount,
+          0,
+        );
+      }
+
+      casa.workerCount = casa.cuartos.reduce(
+        (total, cuarto) => total + cuarto.workerCount,
+        casa.workersWithoutCuarto.length,
+      );
+      casa.availableSpaces = casa.cuartos.reduce(
+        (total, cuarto) => total + cuarto.availableSpaces,
+        0,
+      );
+    }
+
+    return res.status(200).json({
+      casas,
+      workersWithoutCasa,
+      totals: {
+        casas: casas.length,
+        cuartos: cuartosResult.rows.length,
+        spaces: casas.reduce((total, casa) => total + casa.numberOfSpaces, 0),
+        workers: workersResult.rows.length,
+        availableSpaces: casas.reduce(
+          (total, casa) => total + casa.availableSpaces,
+          0,
+        ),
+        workersWithoutCuarto: casas.reduce(
+          (total, casa) => total + casa.workersWithoutCuarto.length,
+          0,
+        ),
+        workersWithoutCasa: workersWithoutCasa.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching room occupancy state:", error);
+    return res.status(500).json({ error: "Database error" });
+  }
+});
+
 router.patch(
   "/workers/:userId/cuarto",
   requireAppRole("main", ["admin"]),
