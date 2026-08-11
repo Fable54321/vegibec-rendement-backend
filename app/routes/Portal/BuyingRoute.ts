@@ -177,9 +177,36 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
       const itemId = cleanPositiveInteger(item.id)
       const quantity = cleanPositiveNumber(item.quantity)
       const unitPrice = cleanNumber(item.ordered_unit_price)
-      if (!itemId || !quantity || unitPrice === null || unitPrice < 0) {
+      const description = cleanText(item.item_description)
+      if (!quantity || unitPrice === null || unitPrice < 0 || !description) {
         await client.query("ROLLBACK")
         return res.status(400).json({ message: "Invalid purchase order item" })
+      }
+
+      if (!itemId) {
+        const requestItemResult = await client.query(
+          `INSERT INTO portal.purchase_request_items
+            (purchase_request_id, item_index, description, quantity, quantity_format,
+             requested_unit_price, buyer_confirmed_unit_price, buyer_confirmed_supplier, status)
+           SELECT $1, COALESCE(MAX(item_index), -1) + 1, $2, $3, $4, $5, $5, $6, 'purchased'
+           FROM portal.purchase_request_items
+           WHERE purchase_request_id = $1
+           RETURNING id`,
+          [Number(orderResult.rows[0].purchase_request_id), description, quantity,
+            cleanText(item.ordered_unit), unitPrice, cleanText(req.body.supplier_name)],
+        )
+        const insertedItem = await client.query(
+          `INSERT INTO portal.purchase_order_items
+            (purchase_order_id, purchase_request_item_id, ordered_quantity, final_unit_price,
+             item_code, item_description, ordered_unit, location)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id`,
+          [purchaseOrderId, Number(requestItemResult.rows[0].id), quantity, unitPrice,
+            cleanText(item.item_code), description, cleanText(item.ordered_unit),
+            cleanText(item.location)],
+        )
+        submittedItemIds.push(Number(insertedItem.rows[0].id))
+        continue
       }
       submittedItemIds.push(itemId)
 
@@ -195,7 +222,7 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
              WHERE rvi.purchase_order_item_id = poi.id
            ), 0)
          RETURNING id`,
-        [itemId, purchaseOrderId, cleanText(item.item_description), quantity,
+        [itemId, purchaseOrderId, description, quantity,
           cleanText(item.ordered_unit), unitPrice, cleanText(item.item_code)],
       )
       if (!updatedItem.rowCount) {
