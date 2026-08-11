@@ -62,6 +62,7 @@ import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agen
 import salesProductsRoute from "./routes/sales/salesProducts";
 import roomsRoute from "./routes/Portal/RoomsRoute";
 import fileTransferRoute from "./routes/Portal/FileTransfer";
+import inventoryRoute from "./routes/Inventory/inventory";
 
 
 
@@ -1002,6 +1003,8 @@ app.use("/portal/foreign-workers", foreignWorkersRoute);
 app.use("/agenda", agendaRoute)
 
 app.use("/warehouse", warehouseProductsRoute);
+
+app.use("/inventory", inventoryRoute);
 
 app.use("/timesheets/session", timesheetsSessionRoute);
 
