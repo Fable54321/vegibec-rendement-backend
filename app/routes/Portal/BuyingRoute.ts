@@ -364,6 +364,7 @@ router.get(["/purchase-orders/:purchaseOrderId/pdf", "/:purchaseOrderId/pdf"], a
       req.query.download === "1" || req.query.download === "true"
 
     res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Cache-Control", "no-store, max-age=0")
     res.setHeader(
       "Content-Disposition",
       shouldDownload

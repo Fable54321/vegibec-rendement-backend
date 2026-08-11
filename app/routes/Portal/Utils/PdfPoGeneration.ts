@@ -280,6 +280,8 @@ const TABLE_COLUMNS = {
   rightX: 580,
 
   codeX: 26,
+  codeMaxWidth: 44,
+  codeMaxCharacters: 12,
   descriptionX: 76,
   descriptionMaxWidth: 215,
   descriptionMaxCharacters: 52,
@@ -490,7 +492,20 @@ purchaseOrder.items.forEach((item) => {
     TABLE_COLUMNS.descriptionMaxCharacters,
   )
 
-  drawText(item.item_code, TABLE_COLUMNS.codeX, y)
+  const codeLines = splitDescriptionText(
+    item.item_code,
+    TABLE_COLUMNS.codeMaxWidth,
+    TABLE_COLUMNS.codeMaxCharacters,
+    2,
+  )
+
+  codeLines.forEach((line, lineIndex) => {
+    drawText(
+      line,
+      TABLE_COLUMNS.codeX,
+      y - lineIndex * ITEM_DESCRIPTION_LINE_HEIGHT,
+    )
+  })
 
   descriptionLines.forEach((line, lineIndex) => {
     drawText(
