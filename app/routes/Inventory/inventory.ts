@@ -26,8 +26,7 @@ const inventoryColumns = `
   last_cost,
   amount,
   product_group,
-  produce_id,
-  in_hand_qty
+  produce_id
 `;
 
 function parseVegetableId(value: string): number | null {
