@@ -16,7 +16,18 @@ const inventoryColumns = `
   in_transit_qty,
   accounting_equivalence,
   product_type,
-  format
+  format,
+  cup,
+  site_name,
+  on_hand_qty,
+  estimated_pallet_qty,
+  balance_qty,
+  preferred_producer,
+  last_cost,
+  amount,
+  product_group,
+  produce_id,
+  in_hand_qty
 `;
 
 function parseVegetableId(value: string): number | null {
