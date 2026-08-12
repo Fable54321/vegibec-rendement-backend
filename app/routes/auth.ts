@@ -340,9 +340,16 @@ router.get("/me", async (req, res) => {
     return res.status(401).json({ error: "Missing token" });
   }
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: number };
+  let decoded: { id: number };
 
+  try {
+    decoded = jwt.verify(token, JWT_SECRET) as { id: number };
+  } catch (err) {
+    console.warn("Invalid access token on /auth/me:", err);
+    return res.status(401).json({ error: "Invalid token" });
+  }
+
+  try {
     const userResult = await pool.query(
       `
       SELECT id, username, email, name, surname
@@ -367,17 +374,26 @@ router.get("/me", async (req, res) => {
       [decoded.id],
     );
 
-    const agrivisionPrefsResult = await pool.query(
-      `
-      SELECT organic_filter_mode, trend_preference
-      FROM user_agrivision_preferences
-      WHERE user_id = $1
-      `,
-      [decoded.id],
-    );
-
     const user = userResult.rows[0];
-    const prefs = agrivisionPrefsResult.rows[0];
+    let organicFilterMode = "all";
+    let trendPreference = "monthly";
+
+    try {
+      const agrivisionPrefsResult = await pool.query(
+        `
+        SELECT organic_filter_mode, trend_preference
+        FROM user_agrivision_preferences
+        WHERE user_id = $1
+        `,
+        [decoded.id],
+      );
+      const prefs = agrivisionPrefsResult.rows[0];
+      organicFilterMode = prefs?.organic_filter_mode ?? organicFilterMode;
+      trendPreference = prefs?.trend_preference ?? trendPreference;
+    } catch (err) {
+      // Preferences are optional and must never invalidate an authenticated session.
+      console.error("Unable to load Agrivision preferences on /auth/me:", err);
+    }
 
     return res.json({
       user: {
@@ -387,14 +403,14 @@ router.get("/me", async (req, res) => {
         name: user.name,
         surname: user.surname,
         full_name: `${user.name ?? ""} ${user.surname ?? ""}`.trim(),
-        organic_filter_mode: prefs?.organic_filter_mode ?? "all",
-        trend_preference: prefs?.trend_preference ?? "monthly",
+        organic_filter_mode: organicFilterMode,
+        trend_preference: trendPreference,
         appAccess: appAccessResult.rows,
       },
     });
   } catch (err) {
-    console.error("Error in /auth/me:", err);
-    return res.status(401).json({ error: "Invalid token" });
+    console.error("Unable to load user profile on /auth/me:", err);
+    return res.status(500).json({ error: "Unable to load user profile" });
   }
 });
 
