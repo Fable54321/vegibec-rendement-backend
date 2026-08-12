@@ -91,7 +91,13 @@ function validatePlantingField(field: PlantingEditableField, value: unknown): st
       : "reference_number must be a non-empty string";
   }
 
-  if (["seedling_tracking_id", "field_id", "field_parcel_id"].includes(field)) {
+  if (field === "field_id") {
+    return typeof value === "string" && value.trim().length > 0
+      ? null
+      : "field_id must be a non-empty field name";
+  }
+
+  if (["seedling_tracking_id", "field_parcel_id"].includes(field)) {
     return value === null || parsePositiveInteger(value) !== null
       ? null
       : `${field} must be a positive integer or null`;
@@ -116,7 +122,8 @@ function validatePlantingField(field: PlantingEditableField, value: unknown): st
 
 function normalizePlantingValue(field: PlantingEditableField, value: unknown) {
   if (field === "quantity_planted" && value !== null) return parseQuantity(value);
-  if (["seedling_tracking_id", "field_id", "field_parcel_id"].includes(field) && value !== null) {
+  if (field === "field_id" && typeof value === "string") return value.trim();
+  if (["seedling_tracking_id", "field_parcel_id"].includes(field) && value !== null) {
     return parsePositiveInteger(value);
   }
   if (field === "reference_number" && typeof value === "string") return value.trim();

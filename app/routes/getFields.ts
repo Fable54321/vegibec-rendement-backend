@@ -14,7 +14,7 @@ router.get(
   async (req, res) => {
     try {
       const result = await pool.query(
-        `SELECT id, field FROM public.fields ORDER BY field`,
+        `SELECT field AS id, field FROM public.fields ORDER BY field`,
       );
 
       res.status(200).json(result.rows);
