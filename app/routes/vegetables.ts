@@ -4,13 +4,24 @@ import { requireAppRole } from "../middleware/auth";
 
 const router = express.Router();
 
+const readRoles = requireAppRole("rendement", ["admin", "user", "guest"]);
+
+function parseCultivarId(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 && id <= 2_147_483_647
+    ? id
+    : null;
+}
+
 /**
  * GET /vegetables
  * Returns all available vegetable values
  */
 router.get(
   "/",
-  requireAppRole("rendement", ["admin", "user", "guest"]),
+  readRoles,
   async (req, res) => {
     try {
       const result = await pool.query(`
@@ -29,6 +40,64 @@ router.get(
     }
   },
 );
+
+/**
+ * GET /vegetables/cultivars
+ * Returns all cultivars with their vegetable.
+ */
+router.get("/cultivars", async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        c.id,
+        c.vegetable_id,
+        v.vegetable,
+        c.cultivar
+      FROM public.cultivars c
+      INNER JOIN public.vegetables v ON v.id = c.vegetable_id
+      ORDER BY v.vegetable, c.cultivar, c.id
+    `);
+
+    return res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error fetching cultivars:", error);
+    return res.status(500).json({ error: "Failed to fetch cultivars" });
+  }
+});
+
+/**
+ * GET /vegetables/cultivars/:cultivarId
+ * Returns one cultivar with its vegetable.
+ */
+router.get("/cultivars/:cultivarId", async (req, res) => {
+  const cultivarId = parseCultivarId(req.params.cultivarId);
+  if (cultivarId === null) {
+    return res.status(400).json({ error: "Invalid cultivarId" });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         c.id,
+         c.vegetable_id,
+         v.vegetable,
+         c.cultivar
+       FROM public.cultivars c
+       INNER JOIN public.vegetables v ON v.id = c.vegetable_id
+       WHERE c.id = $1`,
+      [cultivarId],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Cultivar not found" });
+    }
+
+    return res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching cultivar:", error);
+    return res.status(500).json({ error: "Failed to fetch cultivar" });
+  }
+});
 
 router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   try {
