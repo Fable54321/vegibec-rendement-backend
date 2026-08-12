@@ -21,7 +21,6 @@ function parseCultivarId(value: string): number | null {
  */
 router.get(
   "/",
-  readRoles,
   async (req, res) => {
     try {
       const result = await pool.query(`
@@ -65,10 +64,7 @@ router.get("/cultivars", async (_req, res) => {
   }
 });
 
-/**
- * GET /vegetables/cultivars/:cultivarId
- * Returns one cultivar with its vegetable.
- */
+
 router.get("/cultivars/:cultivarId", async (req, res) => {
   const cultivarId = parseCultivarId(req.params.cultivarId);
   if (cultivarId === null) {
@@ -150,10 +146,7 @@ router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   }
 });
 
-/**
- * DELETE /vegetables/:vegetable
- * Removes a vegetable from the list
- */
+
 router.delete(
   "/:vegetable",
   requireAppRole("rendement", ["admin"]),
