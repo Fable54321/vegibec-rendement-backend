@@ -92,7 +92,7 @@ router.get("/", readRoles, async (_req, res) => {
   try {
     const result = await pool.query(`
       SELECT ${columns}
-      FROM trackabillity.seedling_tracking
+      FROM trackability.seedling_tracking
       ORDER BY seedling_out_date DESC, id DESC
     `);
 
@@ -109,7 +109,7 @@ router.get("/:id", readRoles, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT ${columns}
-       FROM trackabillity.seedling_tracking
+       FROM trackability.seedling_tracking
        WHERE id = $1`,
       [id],
     );
@@ -156,7 +156,7 @@ router.post("/", writeRoles, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO trackabillity.seedling_tracking (${providedFields.join(", ")})
+      `INSERT INTO trackability.seedling_tracking (${providedFields.join(", ")})
        VALUES (${placeholders})
        RETURNING ${columns}`,
       values,
@@ -201,7 +201,7 @@ router.patch("/:id", writeRoles, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `UPDATE trackabillity.seedling_tracking
+      `UPDATE trackability.seedling_tracking
        SET ${assignments.join(", ")}
        WHERE id = $${values.length}
        RETURNING ${columns}`,
