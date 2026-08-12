@@ -214,6 +214,16 @@ router.get("/planting/:id", readRoles, async (req, res) => {
 });
 
 router.post("/planting", writeRoles, async (req, res) => {
+  req.body = {
+    ...req.body,
+    planting_date: req.body?.planting_date ?? new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Toronto",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date()),
+  };
+
   const requiredFields: PlantingEditableField[] = [
     "reference_number",
     "seedling_tracking_id",
