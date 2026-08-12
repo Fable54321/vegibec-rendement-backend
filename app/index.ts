@@ -63,6 +63,7 @@ import salesProductsRoute from "./routes/sales/salesProducts";
 import roomsRoute from "./routes/Portal/RoomsRoute";
 import fileTransferRoute from "./routes/Portal/FileTransfer";
 import inventoryRoute from "./routes/Inventory/inventory";
+import trackabilityRoute from "./routes/Trackability/trackability";
 
 
 
@@ -1005,6 +1006,7 @@ app.use("/agenda", agendaRoute)
 app.use("/warehouse", warehouseProductsRoute);
 
 app.use("/inventory", inventoryRoute);
+app.use("/trackability", trackabilityRoute);
 
 app.use("/timesheets/session", timesheetsSessionRoute);
 
