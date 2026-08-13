@@ -25,6 +25,7 @@ router.get(
     try {
       const result = await pool.query(`
       SELECT 
+        id,
         vegetable,
         is_generic,
         generic_group
@@ -63,6 +64,49 @@ router.get("/cultivars", async (_req, res) => {
     return res.status(500).json({ error: "Failed to fetch cultivars" });
   }
 });
+
+router.post(
+  "/cultivars",
+  requireAppRole("rendement", ["admin"]),
+  async (req, res) => {
+    const vegetableId = Number(req.body?.vegetable_id);
+    const cultivar = typeof req.body?.cultivar === "string"
+      ? req.body.cultivar.trim()
+      : "";
+
+    if (!Number.isSafeInteger(vegetableId) || vegetableId <= 0) {
+      return res.status(400).json({ error: "Invalid vegetable_id" });
+    }
+
+    if (!cultivar) {
+      return res.status(400).json({ error: "Cultivar is required" });
+    }
+
+    try {
+      const result = await pool.query(
+        `INSERT INTO public.cultivars (vegetable_id, cultivar)
+         SELECT v.id, $2
+         FROM public.vegetables v
+         WHERE v.id = $1
+         RETURNING id, vegetable_id, cultivar`,
+        [vegetableId, cultivar],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Vegetable not found" });
+      }
+
+      return res.status(201).json(result.rows[0]);
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(409).json({ error: "This cultivar already exists" });
+      }
+
+      console.error("Error adding cultivar:", error);
+      return res.status(500).json({ error: "Failed to add cultivar" });
+    }
+  },
+);
 
 
 router.get("/cultivars/:cultivarId", async (req, res) => {
