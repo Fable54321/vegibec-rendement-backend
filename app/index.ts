@@ -64,6 +64,7 @@ import roomsRoute from "./routes/Portal/RoomsRoute";
 import fileTransferRoute from "./routes/Portal/FileTransfer";
 import inventoryRoute from "./routes/Inventory/inventory";
 import trackabilityRoute from "./routes/Trackability/trackability";
+import finishedProductsRoute from "./routes/Trackability/finishedProducts";
 
 
 
@@ -1007,6 +1008,7 @@ app.use("/warehouse", warehouseProductsRoute);
 
 app.use("/inventory", inventoryRoute);
 app.use("/trackability", trackabilityRoute);
+app.use("/finished-products", finishedProductsRoute);
 
 app.use("/timesheets/session", timesheetsSessionRoute);
 
