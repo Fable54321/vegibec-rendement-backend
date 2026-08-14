@@ -58,6 +58,7 @@ import purchaseJournalRoute from "./routes/Portal/PurchaseJournal";
 import purchaseDraftsRoute from "./routes/Portal/PurchaseDrafts";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
+import salesClientsRoute from "./routes/Portal/SalesClientsRoute";
 import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
 import salesProductsRoute from "./routes/sales/salesProducts";
 import roomsRoute from "./routes/Portal/RoomsRoute";
@@ -181,6 +182,7 @@ app.use("/purchase-request", purchaseRequest);
 app.use("/buying", buyingRoute);
 app.use("/receipt-vouchers", receiptVoucherRoute);
 app.use("/suppliers", suppliersRoute);
+app.use("/sales", salesClientsRoute);
 
 app.use("/portal-unprotected", portalUnprotectedRoute);
 
