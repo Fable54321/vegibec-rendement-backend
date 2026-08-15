@@ -10,18 +10,20 @@ router.get("/", readRoles, async (_req, res) => {
   try {
     const result = await pool.query(`
       SELECT
-        id,
-        vegetable_id,
-        full_name,
-        product_code,
-        cup,
-        is_active,
-        quantity_format,
-        product_type,
-        qty_per_pallet,
-        weight
-      FROM public.finished_product
-      ORDER BY full_name, id
+        fp.id,
+        fp.vegetable_id,
+        fp.full_name,
+        fp.product_code,
+        fp.cup,
+        fp.is_active,
+        fp.quantity_format,
+        fp.product_type,
+        fp.qty_per_pallet,
+        fp.weight,
+        ip.on_hand_qty, ip.sold_qty, ip.balance_qty, ip.estimated_pallet_qty
+      FROM public.finished_product fp
+      LEFT JOIN inventory.produce ip ON ip.produce_id = fp.id
+      ORDER BY fp.full_name, fp.id
     `);
 
     return res.status(200).json(result.rows);

@@ -61,6 +61,7 @@ import suppliersRoute from "./routes/Portal/SuppliersRoute";
 import salesClientsRoute from "./routes/Portal/SalesClientsRoute";
 import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
 import salesProductsRoute from "./routes/sales/salesProducts";
+import salesOrdersRoute from "./routes/sales/salesOrders";
 import roomsRoute from "./routes/Portal/RoomsRoute";
 import fileTransferRoute from "./routes/Portal/FileTransfer";
 import inventoryRoute from "./routes/Inventory/inventory";
@@ -201,6 +202,7 @@ app.use("/file-transfer", fileTransferRoute);
 app.use(authMiddleware);
 
 app.use("/sales", salesProductsRoute);
+app.use("/sales", salesOrdersRoute);
 
 app.use("/alternative-auth", alternativeAuthRoute);
 
