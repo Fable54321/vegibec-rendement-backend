@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { pool } from "../../db";
+import { geocodeAddress } from "./geocoding.service";
 
 import {
   getRouteMatrix,
@@ -129,6 +130,20 @@ export async function getTransportOrders(
       GROUP BY o.id, a.id
       ORDER BY o.loaded_date, o.trip_number, o.id
     `);
+    let geocodedAddress = false;
+    for (const order of result.rows) {
+      if (order.latitude != null && order.longitude != null) continue;
+      if (geocodedAddress) await new Promise((resolve) => setTimeout(resolve, 1_100));
+      const coordinates = await geocodeAddress(order);
+      if (!coordinates) continue;
+      geocodedAddress = true;
+      order.latitude = coordinates.latitude;
+      order.longitude = coordinates.longitude;
+      await pool.query(
+        `UPDATE sales.clients_addresses SET latitude = $2, longitude = $3 WHERE id = $1`,
+        [order.address_id, coordinates.latitude, coordinates.longitude],
+      );
+    }
     res.json(result.rows);
   } catch (error) {
     console.error("Transport orders error:", error);
