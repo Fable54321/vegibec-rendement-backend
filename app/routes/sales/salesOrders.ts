@@ -3,8 +3,8 @@ import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 
 const router = Router();
-const readRoles = requireAppRole("rendement", ["admin", "user", "guest"]);
-const writeRoles = requireAppRole("rendement", ["admin", "user"]);
+const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
+const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
 const statuses = new Set(["a-faire", "en-cours", "expedie", "facture"]);
 const sellingCompanies = new Set(["Vegibec", "Vegisol"]);
 const cleanText = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;

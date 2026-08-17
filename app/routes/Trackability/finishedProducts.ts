@@ -4,7 +4,7 @@ import { requireAppRole } from "../../middleware/auth";
 
 const router = Router();
 
-const readRoles = requireAppRole("rendement", ["admin", "user", "guest"]);
+const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
 
 router.get("/", readRoles, async (_req, res) => {
   try {
