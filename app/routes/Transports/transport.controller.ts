@@ -97,6 +97,80 @@ export async function optimizeRoute(
   }
 }
 
+export async function getClientStops(_req: Request, res: Response): Promise<void> {
+  try {
+    const result = await pool.query(`
+      SELECT a.id, a.client_id, c.name AS client_name, a.site_number, a.site_name,
+        a.address, a.city, a.postal_code, a.province, a.country,
+        a.latitude, a.longitude
+      FROM sales.clients_addresses a
+      JOIN sales.clients c ON c.id = a.client_id
+      WHERE a.address IS NOT NULL OR a.city IS NOT NULL OR a.postal_code IS NOT NULL
+      ORDER BY lower(c.name), a.site_number NULLS LAST, a.id
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Transport client stops error:", error);
+    res.status(500).json({ error: "Failed to load client stops" });
+  }
+}
+
+export async function resolveClientLocations(req: Request, res: Response): Promise<void> {
+  try {
+    const addressIds = Array.isArray(req.body?.addressIds)
+      ? [...new Set(req.body.addressIds.map(Number).filter((id: number) => Number.isSafeInteger(id) && id > 0))]
+      : [];
+    if (!addressIds.length || addressIds.length > 8) {
+      res.status(400).json({ error: "Select between 1 and 8 client addresses" });
+      return;
+    }
+    const result = await pool.query(`
+      SELECT a.id, c.name AS client_name, a.site_number, a.site_name,
+        a.address, a.city, a.postal_code, a.province, a.country,
+        a.latitude, a.longitude
+      FROM sales.clients_addresses a
+      JOIN sales.clients c ON c.id = a.client_id
+      WHERE a.id = ANY($1::int[])
+    `, [addressIds]);
+    if (result.rows.length !== addressIds.length) {
+      res.status(404).json({ error: "One or more client addresses were not found" });
+      return;
+    }
+    const locations = [];
+    let geocodedAddress = false;
+    for (const addressId of addressIds) {
+      const address = result.rows.find((row) => Number(row.id) === addressId);
+      if (address.latitude == null || address.longitude == null) {
+        if (geocodedAddress) await new Promise((resolve) => setTimeout(resolve, 1_100));
+        const coordinates = await geocodeAddress(address);
+        if (!coordinates) {
+          res.status(422).json({ error: `Unable to geolocate ${address.client_name}` });
+          return;
+        }
+        address.latitude = coordinates.latitude;
+        address.longitude = coordinates.longitude;
+        geocodedAddress = true;
+        await pool.query(
+          `UPDATE sales.clients_addresses SET latitude = $2, longitude = $3 WHERE id = $1`,
+          [address.id, coordinates.latitude, coordinates.longitude],
+        );
+      }
+      const site = [address.site_name, address.site_number != null ? `site ${address.site_number}` : null]
+        .filter(Boolean).join(" — ");
+      locations.push({
+        id: address.id,
+        name: [address.client_name, site || address.city].filter(Boolean).join(" — "),
+        lat: Number(address.latitude),
+        lng: Number(address.longitude),
+      });
+    }
+    res.json(locations);
+  } catch (error) {
+    console.error("Resolve client locations error:", error);
+    res.status(500).json({ error: "Failed to resolve client locations" });
+  }
+}
+
 export async function getTransportOrders(
   _req: Request,
   res: Response
