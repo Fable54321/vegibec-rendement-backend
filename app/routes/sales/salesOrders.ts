@@ -74,8 +74,8 @@ router.post("/orders", writeRoles, async (req, res) => {
       quantityPerPallet: item.quantityPerPallet === "" || item.quantityPerPallet == null ? null : numberInRange(item.quantityPerPallet, 0),
       palletType: cleanText(item.palletType), origin: cleanText(item.origin), packed: Boolean(item.packed),
     }));
-    if (parsedItems.some((item) => !item.productId || item.quantity === null || item.unitPrice === null || item.discount === null)) {
-      return res.status(400).json({ message: "Un produit contient une quantité, un prix ou un escompte invalide." });
+    if (parsedItems.some((item) => !item.productId || item.quantity === null || item.unitPrice === null || item.discount === null || item.actualPallets === null || !item.palletType)) {
+      return res.status(400).json({ message: "Un produit contient une quantité, un prix, un nombre de palettes réel ou un type de palette invalide." });
     }
 
     await db.query("BEGIN");
