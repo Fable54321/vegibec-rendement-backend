@@ -14,7 +14,7 @@ const numberInRange = (value: unknown, min: number, max = Number.MAX_SAFE_INTEGE
 };
 type ParsedItem = {
   productId: number | null; quantity: number | null; unitPrice: number | null; discount: number | null;
-  glNumber: string | null; actualPallets: number | null; plannedPallets: number | null;
+  glNumber: string | null; actualPallets: number | null; plannedPallets: number | null; quantityPerPallet: number | null;
   palletType: string | null; origin: string | null; packed: boolean;
 };
 
@@ -26,12 +26,15 @@ router.get("/orders", readRoles, async (_req, res) => {
           'id', i.id, 'finished_product_id', i.finished_product_id,
           'product_name', i.product_name, 'product_code', i.product_code,
           'quantity_ordered', i.quantity_ordered, 'unit_price', i.unit_price,
+          'product_weight', fp.weight,
           'discount_percent', i.discount_percent, 'line_total', i.line_total,
+          'quantity_per_pallet', i.quantity_per_pallet,
           'actual_pallets', i.actual_pallets, 'planned_pallets', i.planned_pallets,
           'pallet_type', i.pallet_type, 'origin', i.origin, 'packed', i.packed
         ) ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), '[]'::json) AS items
       FROM sales.orders o
       LEFT JOIN sales.order_items i ON i.order_id = o.id
+      LEFT JOIN public.finished_product fp ON fp.id = i.finished_product_id
       GROUP BY o.id
       ORDER BY o.created_at DESC
       LIMIT 250
@@ -66,6 +69,7 @@ router.post("/orders", writeRoles, async (req, res) => {
       glNumber: cleanText(item.glNumber),
       actualPallets: item.actualPallets === "" || item.actualPallets == null ? null : numberInRange(item.actualPallets, 0),
       plannedPallets: item.plannedPallets === "" || item.plannedPallets == null ? null : numberInRange(item.plannedPallets, 0),
+      quantityPerPallet: item.quantityPerPallet === "" || item.quantityPerPallet == null ? null : numberInRange(item.quantityPerPallet, 0),
       palletType: cleanText(item.palletType), origin: cleanText(item.origin), packed: Boolean(item.packed),
     }));
     if (parsedItems.some((item) => !item.productId || item.quantity === null || item.unitPrice === null || item.discount === null)) {
@@ -82,7 +86,7 @@ router.post("/orders", writeRoles, async (req, res) => {
 
     const productIds = parsedItems.map((item) => item.productId);
     const products = await db.query(`
-      SELECT fp.id, fp.full_name, fp.product_code, ip.sold_qty, ip.balance_qty
+      SELECT fp.id, fp.full_name, fp.product_code, fp.weight, ip.sold_qty, ip.balance_qty
       FROM public.finished_product fp
       JOIN inventory.produce ip ON ip.produce_id=fp.id
       WHERE fp.id = ANY($1::int[]) AND fp.is_active=true
@@ -109,8 +113,8 @@ router.post("/orders", writeRoles, async (req, res) => {
       const product = productMap.get(item.productId!);
       const lineSubtotal = item.quantity! * item.unitPrice!;
       const lineTotal = lineSubtotal * (1 - item.discount! / 100);
-      const saved = await db.query(`INSERT INTO sales.order_items (order_id,finished_product_id,product_name,product_code,quantity_ordered,unit_price,discount_percent,line_subtotal,line_total,gl_number,actual_pallets,planned_pallets,pallet_type,origin,packed) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`, [order.rows[0].id,item.productId,product.full_name,product.product_code,item.quantity,item.unitPrice,item.discount,lineSubtotal,lineTotal,item.glNumber,item.actualPallets,item.plannedPallets,item.palletType,item.origin,item.packed]);
-      savedItems.push(saved.rows[0]);
+      const saved = await db.query(`INSERT INTO sales.order_items (order_id,finished_product_id,product_name,product_code,quantity_ordered,unit_price,discount_percent,line_subtotal,line_total,gl_number,actual_pallets,planned_pallets,quantity_per_pallet,pallet_type,origin,packed) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [order.rows[0].id,item.productId,product.full_name,product.product_code,item.quantity,item.unitPrice,item.discount,lineSubtotal,lineTotal,item.glNumber,item.actualPallets,item.plannedPallets,item.quantityPerPallet,item.palletType,item.origin,item.packed]);
+      savedItems.push({ ...saved.rows[0], product_weight: product.weight });
       const updated = await db.query(`UPDATE inventory.produce SET sold_qty=sold_qty+$2, balance_qty=balance_qty-$2 WHERE produce_id=$1 RETURNING sold_qty,balance_qty`, [item.productId,item.quantity]);
       await db.query(`INSERT INTO sales.inventory_movements (order_id,order_item_id,finished_product_id,quantity,sold_qty_before,sold_qty_after,balance_qty_before,balance_qty_after,created_by_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [order.rows[0].id,saved.rows[0].id,item.productId,item.quantity,product.sold_qty,updated.rows[0].sold_qty,product.balance_qty,updated.rows[0].balance_qty,req.user?.id ?? null]);
       product.sold_qty = updated.rows[0].sold_qty; product.balance_qty = updated.rows[0].balance_qty;
