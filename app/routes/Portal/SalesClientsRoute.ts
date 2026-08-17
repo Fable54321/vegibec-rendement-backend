@@ -8,6 +8,8 @@ const text = (value: unknown) => typeof value === "string" && value.trim() ? val
 const validId = (value: unknown) => Number.isInteger(Number(value)) && Number(value) > 0
 
 type AddressPayload = {
+  site_number?: unknown
+  site_name?: unknown
   address?: unknown
   city?: unknown
   postal_code?: unknown
@@ -18,7 +20,8 @@ type AddressPayload = {
 const selectClients = `
   SELECT c.id, c.name, c.client_number, c.country, c.representative, c.client_type,
     COALESCE(json_agg(json_build_object(
-      'id', a.id, 'client_id', a.client_id, 'address', a.address, 'city', a.city,
+      'id', a.id, 'client_id', a.client_id, 'site_number', a.site_number, 'site_name', a.site_name,
+      'address', a.address, 'city', a.city,
       'postal_code', a.postal_code, 'province', a.province, 'country', a.country
     ) ORDER BY a.id) FILTER (WHERE a.id IS NOT NULL), '[]'::json) AS addresses
   FROM sales.clients c
@@ -37,11 +40,15 @@ router.get("/clients", actionPurchaseRequestLimiter, async (_req, res) => {
 
 const saveAddresses = async (db: PoolClient, clientId: number, addresses: AddressPayload[]) => {
   for (const item of addresses) {
-    const values = [text(item.address), text(item.city), text(item.postal_code), text(item.province), text(item.country)]
+    const siteNumber = text(item.site_number)
+    if (siteNumber !== null && !/^\d+$/.test(siteNumber)) {
+      throw new Error("Site number must be a non-negative integer")
+    }
+    const values = [siteNumber, text(item.site_name), text(item.address), text(item.city), text(item.postal_code), text(item.province), text(item.country)]
     if (values.every((value) => value === null)) continue
     await db.query(
-      `INSERT INTO sales.clients_addresses (client_id, address, city, postal_code, province, country)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO sales.clients_addresses (client_id, site_number, site_name, address, city, postal_code, province, country)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [clientId, ...values],
     )
   }
