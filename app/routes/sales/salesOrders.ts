@@ -51,6 +51,7 @@ router.post("/orders", writeRoles, async (req, res) => {
   try {
     const clientId = positiveId(req.body?.clientId);
     const addressId = req.body?.clientAddressId ? positiveId(req.body.clientAddressId) : null;
+    const manualShippingAddress = addressId ? null : cleanText(req.body?.shippingAddress);
     const status = cleanText(req.body?.status) ?? "a-faire";
     const soldBy = cleanText(req.body?.soldBy);
     const soldTo = cleanText(req.body?.soldTo) ?? "CAN";
@@ -79,9 +80,13 @@ router.post("/orders", writeRoles, async (req, res) => {
     await db.query("BEGIN");
     const client = await db.query(`
       SELECT c.id, c.name, c.client_number, c.representative,
-        CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id',a.id,'address',a.address,'city',a.city,'postal_code',a.postal_code,'province',a.province,'country',a.country) END shipping_address
+        CASE
+          WHEN $3::text IS NOT NULL THEN jsonb_build_object('manual_address', $3::text)
+          WHEN a.id IS NULL THEN NULL
+          ELSE jsonb_build_object('id',a.id,'site_number',a.site_number,'site_name',a.site_name,'address',a.address,'city',a.city,'postal_code',a.postal_code,'province',a.province,'country',a.country)
+        END shipping_address
       FROM sales.clients c LEFT JOIN sales.clients_addresses a ON a.id=$2 AND a.client_id=c.id WHERE c.id=$1
-    `, [clientId, addressId]);
+    `, [clientId, addressId, manualShippingAddress]);
     if (!client.rowCount) { await db.query("ROLLBACK"); return res.status(404).json({ message: "Client introuvable." }); }
 
     const productIds = parsedItems.map((item) => item.productId);
