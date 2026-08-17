@@ -6,6 +6,7 @@ const router = Router();
 const readRoles = requireAppRole("rendement", ["admin", "user", "guest"]);
 const writeRoles = requireAppRole("rendement", ["admin", "user"]);
 const statuses = new Set(["a-faire", "en-cours", "expedie", "facture"]);
+const sellingCompanies = new Set(["Vegibec", "Vegisol"]);
 const cleanText = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
 const positiveId = (value: unknown) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const numberInRange = (value: unknown, min: number, max = Number.MAX_SAFE_INTEGER) => {
@@ -58,7 +59,7 @@ router.post("/orders", writeRoles, async (req, res) => {
     const orderedDate = cleanText(req.body?.orderedDate);
     const loadedDate = cleanText(req.body?.loadedDate);
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    if (!clientId || !soldBy || !["CAN", "É-U"].includes(soldTo) || !orderedDate || !loadedDate || !statuses.has(status) || items.length === 0) {
+    if (!clientId || !soldBy || !sellingCompanies.has(soldBy) || !["CAN", "É-U"].includes(soldTo) || !orderedDate || !loadedDate || !statuses.has(status) || items.length === 0) {
       return res.status(400).json({ message: "Vendu au, client, date de commande, date chargée, vendu par, statut et produits sont requis." });
     }
 
@@ -91,7 +92,7 @@ router.post("/orders", writeRoles, async (req, res) => {
 
     const productIds = parsedItems.map((item) => item.productId);
     const products = await db.query(`
-      SELECT fp.id, fp.full_name, fp.product_code, fp.weight, ip.sold_qty, ip.balance_qty
+      SELECT fp.id, fp.full_name, fp.product_code, fp.product_type, fp.weight, ip.sold_qty, ip.balance_qty
       FROM public.finished_product fp
       JOIN inventory.produce ip ON ip.produce_id=fp.id
       WHERE fp.id = ANY($1::int[]) AND fp.is_active=true
@@ -101,6 +102,19 @@ router.post("/orders", writeRoles, async (req, res) => {
     if (productMap.size !== new Set(productIds).size) {
       await db.query("ROLLBACK");
       return res.status(409).json({ message: "Un produit n'est pas actif ou n'est pas relié à l'inventaire." });
+    }
+    const incompatibleProducts = products.rows.filter((product) => {
+      const productType = String(product.product_type ?? "").trim().toUpperCase();
+      const isCabbage = productType.startsWith("CHOU");
+      const isVegibecException = productType === "CHOU DE BRUXELLES" || productType === "CHOU-FLEUR";
+      const belongsToVegisol = isCabbage && !isVegibecException;
+      return (soldBy === "Vegisol") !== belongsToVegisol;
+    });
+    if (incompatibleProducts.length) {
+      await db.query("ROLLBACK");
+      return res.status(409).json({
+        message: `Vendeur incompatible avec: ${incompatibleProducts.map((product) => product.full_name).join(", ")}.`,
+      });
     }
     const subtotal = parsedItems.reduce((sum: number, item: ParsedItem) => sum + item.quantity! * item.unitPrice!, 0);
     const total = parsedItems.reduce((sum: number, item: ParsedItem) => sum + item.quantity! * item.unitPrice! * (1 - item.discount! / 100), 0);
