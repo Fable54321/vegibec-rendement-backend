@@ -50,11 +50,12 @@ router.post("/orders", writeRoles, async (req, res) => {
     const addressId = req.body?.clientAddressId ? positiveId(req.body.clientAddressId) : null;
     const status = cleanText(req.body?.status) ?? "a-faire";
     const soldBy = cleanText(req.body?.soldBy);
+    const soldTo = cleanText(req.body?.soldTo) ?? "CAN";
     const orderedDate = cleanText(req.body?.orderedDate);
     const loadedDate = cleanText(req.body?.loadedDate);
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    if (!clientId || !soldBy || !orderedDate || !loadedDate || !statuses.has(status) || items.length === 0) {
-      return res.status(400).json({ message: "Client, date de commande, date chargée, vendeur, statut et produits sont requis." });
+    if (!clientId || !soldBy || !["CAN", "É-U"].includes(soldTo) || !orderedDate || !loadedDate || !statuses.has(status) || items.length === 0) {
+      return res.status(400).json({ message: "Vendu au, client, date de commande, date chargée, vendu par, statut et produits sont requis." });
     }
 
     const parsedItems: ParsedItem[] = items.map((item: any) => ({
@@ -94,13 +95,14 @@ router.post("/orders", writeRoles, async (req, res) => {
     }
     const subtotal = parsedItems.reduce((sum: number, item: ParsedItem) => sum + item.quantity! * item.unitPrice!, 0);
     const total = parsedItems.reduce((sum: number, item: ParsedItem) => sum + item.quantity! * item.unitPrice! * (1 - item.discount! / 100), 0);
-    const refResult = await db.query("SELECT nextval('sales.order_reference_seq') AS seq");
+    const refResult = await db.query("SELECT nextval('sales.order_reference_seq') AS seq, nextval('sales.trip_number_seq') AS trip_number");
     const reference = `V-${new Date().getFullYear()}-${String(refResult.rows[0].seq).padStart(6, "0")}`;
+    const tripNumber = String(refResult.rows[0].trip_number);
     const c = client.rows[0];
     const order = await db.query(`
-      INSERT INTO sales.orders (order_reference,client_id,client_address_id,client_name,client_number,contact,shipping_address,status,sold_by,trip_number,customer_po,ordered_date,loaded_date,loaded_time,delivered_date,delivered_time,shipped_date,carrier,seller,transport_temperature,drop_number,subtotal,discount_total,total,created_by_user_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING *
-    `, [reference,clientId,addressId,c.name,c.client_number,c.representative,c.shipping_address,status,soldBy,cleanText(req.body.tripNumber),cleanText(req.body.reference),orderedDate,loadedDate,cleanText(req.body.loadedTime),cleanText(req.body.deliveredDate),cleanText(req.body.deliveredTime),cleanText(req.body.shippedDate),cleanText(req.body.carrier),cleanText(req.body.seller),req.body.transportTemperature === "" ? null : numberInRange(req.body.transportTemperature,-200,200),req.body.dropNumber === "" ? null : numberInRange(req.body.dropNumber,0),subtotal,subtotal-total,total,req.user?.id ?? null]);
+      INSERT INTO sales.orders (order_reference,client_id,client_address_id,client_name,client_number,contact,shipping_address,status,sold_by,sold_to,trip_number,customer_po,ordered_date,loaded_date,loaded_time,delivered_date,delivered_time,shipped_date,carrier,seller,transport_temperature,drop_number,subtotal,discount_total,total,created_by_user_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING *
+    `, [reference,clientId,addressId,c.name,c.client_number,c.representative,c.shipping_address,status,soldBy,soldTo,tripNumber,cleanText(req.body.reference),orderedDate,loadedDate,cleanText(req.body.loadedTime),cleanText(req.body.deliveredDate),cleanText(req.body.deliveredTime),cleanText(req.body.shippedDate),cleanText(req.body.carrier),cleanText(req.body.seller),req.body.transportTemperature === "" ? null : numberInRange(req.body.transportTemperature,-200,200),req.body.dropNumber === "" ? null : numberInRange(req.body.dropNumber,0),subtotal,subtotal-total,total,req.user?.id ?? null]);
 
     const savedItems = [];
     for (const item of parsedItems) {
