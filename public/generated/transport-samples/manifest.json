@@ -1,0 +1,273 @@
+[
+  {
+    "filename": "chargement-test-01-11812.pdf",
+    "tripNumber": "11812",
+    "client": "RGR Guinois inc",
+    "address": "522 4e Rang, Sainte-Clotilde-de-Châteauguay J0L1W0",
+    "totalPallets": 10,
+    "totalQuantity": 416,
+    "totalWeight": 14760,
+    "rows": [
+      {
+        "code": "642",
+        "product": "Poivrons Verts Cello (4x10) - Pimiento Verde En Bolsa ",
+        "quantityToLoad": "1x80",
+        "quantity": 80,
+        "pallets": 1,
+        "palletType": "Ordinaire",
+        "unitWeight": 25
+      },
+      {
+        "code": "259",
+        "product": "Choux-Fleurs Cello (9) Caja DPro - Coliflor Bolsa",
+        "quantityToLoad": "4x44",
+        "quantity": 176,
+        "pallets": 4,
+        "palletType": "CPC",
+        "unitWeight": 35
+      },
+      {
+        "code": "333",
+        "product": "Choux Plat #2 Caja DPro - Repollo Plano #2 ",
+        "quantityToLoad": "1x40",
+        "quantity": 40,
+        "pallets": 1,
+        "palletType": "Peco",
+        "unitWeight": 60
+      },
+      {
+        "code": "502",
+        "product": "Choux-Fleurs # 2 - Coliflor # 2",
+        "quantityToLoad": "4x30",
+        "quantity": 120,
+        "pallets": 4,
+        "palletType": "Peco",
+        "unitWeight": 35
+      }
+    ]
+  },
+  {
+    "filename": "chargement-test-02-11610.pdf",
+    "tripNumber": "11610",
+    "client": "Jardins d'Oka Inc.",
+    "address": "89 rang Ste-Sophie, Oka J0N 1E0",
+    "totalPallets": 16,
+    "totalQuantity": 900,
+    "totalWeight": 30760,
+    "rows": [
+      {
+        "code": "740",
+        "product": "Zucchini Jaune # 2 20lbs- Amarillo Zucchini # 2",
+        "quantityToLoad": "2x40",
+        "quantity": 80,
+        "pallets": 2,
+        "palletType": "Ordinaire",
+        "unitWeight": 20
+      },
+      {
+        "code": "400",
+        "product": "Laitue feuilles vertes (24) - Lechuga Verde (24)",
+        "quantityToLoad": "5x80",
+        "quantity": 400,
+        "pallets": 5,
+        "palletType": "Ordinaire",
+        "unitWeight": 40
+      },
+      {
+        "code": "660",
+        "product": "Poivrons Mixtes Cello (4x9) - Mixte Pimiento",
+        "quantityToLoad": "2x60",
+        "quantity": 120,
+        "pallets": 2,
+        "palletType": "CPC",
+        "unitWeight": 25
+      },
+      {
+        "code": "471",
+        "product": "Laitue feuilles vertes (24) FMS - Lechuga hoja verde (24) FMS",
+        "quantityToLoad": "5x44",
+        "quantity": 220,
+        "pallets": 5,
+        "palletType": "CPC",
+        "unitWeight": 40
+      },
+      {
+        "code": "745",
+        "product": "Zucchini Vert *Panier 8x1,5L* - Canasta Zucchini verde",
+        "quantityToLoad": "2x40",
+        "quantity": 80,
+        "pallets": 2,
+        "palletType": "Ordinaire",
+        "unitWeight": 17
+      }
+    ]
+  },
+  {
+    "filename": "chargement-test-03-11510.pdf",
+    "tripNumber": "11510",
+    "client": "Gaétan Bono fruits et légumes",
+    "address": "9232 Boulevard Pie-IX, Montréal H1Z 4H7",
+    "totalPallets": 27,
+    "totalQuantity": 1326,
+    "totalWeight": 40020,
+    "rows": [
+      {
+        "code": "745",
+        "product": "Zucchini Vert *Panier 8x1,5L* - Canasta Zucchini verde",
+        "quantityToLoad": "3x80",
+        "quantity": 240,
+        "pallets": 3,
+        "palletType": "Ordinaire",
+        "unitWeight": 17
+      },
+      {
+        "code": "644",
+        "product": "Poivrons Verts Cello (4) - Pimiento Verde En Bolsa",
+        "quantityToLoad": "6x40",
+        "quantity": 240,
+        "pallets": 6,
+        "palletType": "CPC",
+        "unitWeight": 25
+      },
+      {
+        "code": "673",
+        "product": "Poivrons Verts Cello (10x4) Jardin Maraicher - Pimiento Verde En Bolsa ",
+        "quantityToLoad": "3x44",
+        "quantity": 132,
+        "pallets": 3,
+        "palletType": "CPC",
+        "unitWeight": 25
+      },
+      {
+        "code": "381",
+        "product": "Choux Vert # 2 *Small* SAC - Repollo Verde Bolsa ",
+        "quantityToLoad": "6x30",
+        "quantity": 180,
+        "pallets": 6,
+        "palletType": "Ordinaire",
+        "unitWeight": 50
+      },
+      {
+        "code": "462",
+        "product": "Choux Vert Caja W.H - Repollo Verde ",
+        "quantityToLoad": "3x80",
+        "quantity": 240,
+        "pallets": 3,
+        "palletType": "Peco",
+        "unitWeight": 0
+      },
+      {
+        "code": "321",
+        "product": "Choux Rouge # 2 - Repollo Rojo # 2",
+        "quantityToLoad": "6x49",
+        "quantity": 294,
+        "pallets": 6,
+        "palletType": "Peco",
+        "unitWeight": 60
+      }
+    ]
+  },
+  {
+    "filename": "chargement-test-04-11825.pdf",
+    "tripNumber": "11825",
+    "client": "Multitemp Trans",
+    "address": "2860 boul Daniel Johnson, Laval H7P5Z7",
+    "totalPallets": 10,
+    "totalQuantity": 418,
+    "totalWeight": 12165,
+    "rows": [
+      {
+        "code": "462",
+        "product": "Choux Vert Caja W.H - Repollo Verde ",
+        "quantityToLoad": "4x40",
+        "quantity": 160,
+        "pallets": 4,
+        "palletType": "CPC",
+        "unitWeight": 0
+      },
+      {
+        "code": "321",
+        "product": "Choux Rouge # 2 - Repollo Rojo # 2",
+        "quantityToLoad": "1x49",
+        "quantity": 49,
+        "pallets": 1,
+        "palletType": "CPC",
+        "unitWeight": 60
+      },
+      {
+        "code": "380",
+        "product": "Choux Vert *SAC* 8/10 - Repollo Verde Bolsa ",
+        "quantityToLoad": "4x40",
+        "quantity": 160,
+        "pallets": 4,
+        "palletType": "Ordinaire",
+        "unitWeight": 50
+      },
+      {
+        "code": "440",
+        "product": "Laitue coeur de Romaine (12x3) - Corazon De Romana",
+        "quantityToLoad": "1x49",
+        "quantity": 49,
+        "pallets": 1,
+        "palletType": "Peco",
+        "unitWeight": 25
+      }
+    ]
+  },
+  {
+    "filename": "chargement-test-05-11714.pdf",
+    "tripNumber": "11714",
+    "client": "Municipalité d'Oka",
+    "address": "183 rue des Anges, Oka J0N1E0",
+    "totalPallets": 19,
+    "totalQuantity": 1016,
+    "totalWeight": 35360,
+    "rows": [
+      {
+        "code": "530",
+        "product": "Choux-Fleurs (12) *Bikini* - Coliflor ",
+        "quantityToLoad": "5x80",
+        "quantity": 400,
+        "pallets": 5,
+        "palletType": "Ordinaire",
+        "unitWeight": 35
+      },
+      {
+        "code": "258",
+        "product": "Choux-Fleurs Cello (12) Caja Dpro - Coliflor En Bolsa ",
+        "quantityToLoad": "2x49",
+        "quantity": 98,
+        "pallets": 2,
+        "palletType": "Peco",
+        "unitWeight": 35
+      },
+      {
+        "code": "230",
+        "product": "Céleri Cello (30) - Apio En Bolsa ",
+        "quantityToLoad": "5x40",
+        "quantity": 200,
+        "pallets": 5,
+        "palletType": "Peco",
+        "unitWeight": 45
+      },
+      {
+        "code": "510",
+        "product": "Choux-Fleurs - Coliflor",
+        "quantityToLoad": "2x49",
+        "quantity": 98,
+        "pallets": 2,
+        "palletType": "Ordinaire",
+        "unitWeight": 35
+      },
+      {
+        "code": "675",
+        "product": "Poivrons Jaunes *CHOIX* - Amarillo Pimiento",
+        "quantityToLoad": "5x44",
+        "quantity": 220,
+        "pallets": 5,
+        "palletType": "Ordinaire",
+        "unitWeight": 25
+      }
+    ]
+  }
+]
