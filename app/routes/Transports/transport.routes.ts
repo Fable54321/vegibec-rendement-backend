@@ -5,6 +5,9 @@ import {
   getClientStops,
   optimizeRoute,
   resolveClientLocations,
+  createScanSession,
+  getScanSession,
+  addScanSessionItem,
 } from "../Transports/transport.controller";
 import { requireAppRole } from "../../middleware/auth";
 
@@ -15,5 +18,8 @@ router.get("/orders", portalAccess, getTransportOrders);
 router.get("/client-stops", portalAccess, getClientStops);
 router.post("/client-locations", portalAccess, resolveClientLocations);
 router.post("/optimize-route", portalAccess, optimizeRoute);
+router.post("/scan-sessions", portalAccess, createScanSession);
+router.get("/scan-sessions/:token", portalAccess, getScanSession);
+router.post("/scan-sessions/:token/items", portalAccess, addScanSessionItem);
 
 export default router;
