@@ -131,6 +131,7 @@ async function ensureTransportScanTables(): Promise<void> {
       recognized_postal_code TEXT,
       product_matches JSONB NOT NULL DEFAULT '[]'::jsonb,
       estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0,
+      confirmed BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     ALTER TABLE public.transport_scan_items ALTER COLUMN address_id DROP NOT NULL;
@@ -141,6 +142,7 @@ async function ensureTransportScanTables(): Promise<void> {
     ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_postal_code TEXT;
     ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT false;
     CREATE INDEX IF NOT EXISTS transport_scan_items_session_idx
       ON public.transport_scan_items(session_token, id);
   `).then(() => undefined).catch((error) => { transportScanTablesPromise = null; throw error; });
@@ -175,7 +177,7 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
     const items = await pool.query(
       `SELECT i.id, i.address_id, i.pallets, i.created_at, i.recognized_text,
               i.recognized_client_name, i.recognized_address, i.recognized_city,
-              i.recognized_postal_code, i.product_matches, i.estimated_weight,
+              i.recognized_postal_code, i.product_matches, i.estimated_weight, i.confirmed,
               c.name AS client_name, a.site_name, a.site_number, a.city
        FROM public.transport_scan_items i
        LEFT JOIN sales.clients_addresses a ON a.id = i.address_id
@@ -244,11 +246,11 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
       res.status(400).json({ error: "A valid address and 1 to 30 pallets are required" }); return;
     }
     const result = await pool.query(
-      `UPDATE public.transport_scan_items i SET address_id = $4, pallets = $5
+      `UPDATE public.transport_scan_items i SET address_id = $4, pallets = $5, confirmed = true
        FROM public.transport_scan_sessions s, sales.clients_addresses a
        WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
          AND s.owner_user_id = $3 AND s.expires_at > NOW() AND a.id = $4
-       RETURNING i.id, i.address_id, i.pallets`,
+       RETURNING i.id, i.address_id, i.pallets, i.confirmed`,
       [Number(req.params.itemId), req.params.token, req.user!.id, addressId, pallets],
     );
     if (!result.rows.length) { res.status(404).json({ error: "Scan item or address not found" }); return; }
