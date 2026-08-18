@@ -12,6 +12,14 @@ export interface Coordinates {
 }
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const NOMINATIM_REQUEST_INTERVAL_MS = 1_100;
+let nextNominatimRequestAt = 0;
+
+async function waitForNominatimRateLimit(): Promise<void> {
+  const delay = Math.max(0, nextNominatimRequestAt - Date.now());
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+  nextNominatimRequestAt = Date.now() + NOMINATIM_REQUEST_INTERVAL_MS;
+}
 
 export async function geocodeAddress(address: GeocodableAddress): Promise<Coordinates | null> {
   const fullAddress = [address.address, address.city, address.postal_code, address.province, address.country]
@@ -34,6 +42,7 @@ export async function geocodeAddress(address: GeocodableAddress): Promise<Coordi
 
   for (const query of [fullAddress, streetAndCity, fallbackAddress]) {
     if (!query) continue;
+    await waitForNominatimRateLimit();
     const params = new URLSearchParams({ format: "jsonv2", limit: "1", countrycodes: "ca", q: query });
     const response = await fetch(`${NOMINATIM_URL}?${params}`, {
       headers: { "User-Agent": "VegibecTransportPrototype/1.0 (internal logistics planning)" },
