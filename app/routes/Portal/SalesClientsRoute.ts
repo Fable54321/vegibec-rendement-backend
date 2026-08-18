@@ -8,6 +8,7 @@ const text = (value: unknown) => typeof value === "string" && value.trim() ? val
 const validId = (value: unknown) => Number.isInteger(Number(value)) && Number(value) > 0
 
 type AddressPayload = {
+  delivery_region_id?: unknown
   site_number?: unknown
   site_name?: unknown
   address?: unknown
@@ -22,11 +23,28 @@ const selectClients = `
     COALESCE(json_agg(json_build_object(
       'id', a.id, 'client_id', a.client_id, 'site_number', a.site_number, 'site_name', a.site_name,
       'address', a.address, 'city', a.city,
-      'postal_code', a.postal_code, 'province', a.province, 'country', a.country
-    ) ORDER BY a.id) FILTER (WHERE a.id IS NOT NULL), '[]'::json) AS addresses
+      'postal_code', a.postal_code, 'province', a.province, 'country', a.country,
+      'delivery_region_id', a.delivery_region_id, 'delivery_region_name', dr.name,
+      'delivery_region_position_order', dr.position_order
+    ) ORDER BY dr.position_order NULLS LAST, lower(dr.name) NULLS LAST, a.id) FILTER (WHERE a.id IS NOT NULL), '[]'::json) AS addresses
   FROM sales.clients c
   LEFT JOIN sales.clients_addresses a ON a.client_id = c.id
+  LEFT JOIN sales.delivery_regions dr ON dr.id = a.delivery_region_id
 `
+
+router.get("/delivery-regions", actionPurchaseRequestLimiter, async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, name, position_order
+      FROM sales.delivery_regions
+      ORDER BY position_order, lower(name), id
+    `)
+    return res.json(result.rows)
+  } catch (error) {
+    console.error("Error fetching delivery regions:", error)
+    return res.status(500).json({ message: "Error fetching delivery regions" })
+  }
+})
 
 router.get("/clients", actionPurchaseRequestLimiter, async (_req, res) => {
   try {
@@ -40,6 +58,10 @@ router.get("/clients", actionPurchaseRequestLimiter, async (_req, res) => {
 
 const saveAddresses = async (db: PoolClient, clientId: number, addresses: AddressPayload[]) => {
   for (const item of addresses) {
+    const deliveryRegionId = item.delivery_region_id == null || item.delivery_region_id === ""
+      ? null
+      : validId(item.delivery_region_id) ? Number(item.delivery_region_id) : NaN
+    if (Number.isNaN(deliveryRegionId)) throw new Error("Invalid delivery region")
     const siteNumber = text(item.site_number)
     if (siteNumber !== null && !/^\d+$/.test(siteNumber)) {
       throw new Error("Site number must be a non-negative integer")
@@ -47,9 +69,9 @@ const saveAddresses = async (db: PoolClient, clientId: number, addresses: Addres
     const values = [siteNumber, text(item.site_name), text(item.address), text(item.city), text(item.postal_code), text(item.province), text(item.country)]
     if (values.every((value) => value === null)) continue
     await db.query(
-      `INSERT INTO sales.clients_addresses (client_id, site_number, site_name, address, city, postal_code, province, country)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [clientId, ...values],
+      `INSERT INTO sales.clients_addresses (client_id, site_number, site_name, address, city, postal_code, province, country, delivery_region_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [clientId, ...values, deliveryRegionId],
     )
   }
 }

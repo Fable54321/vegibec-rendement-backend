@@ -102,11 +102,13 @@ export async function getClientStops(_req: Request, res: Response): Promise<void
     const result = await pool.query(`
       SELECT a.id, a.client_id, c.name AS client_name, a.site_number, a.site_name,
         a.address, a.city, a.postal_code, a.province, a.country,
-        a.latitude, a.longitude
+        a.latitude, a.longitude, a.delivery_region_id,
+        dr.name AS delivery_region_name, dr.position_order AS delivery_region_position_order
       FROM sales.clients_addresses a
       JOIN sales.clients c ON c.id = a.client_id
+      LEFT JOIN sales.delivery_regions dr ON dr.id = a.delivery_region_id
       WHERE a.address IS NOT NULL OR a.city IS NOT NULL OR a.postal_code IS NOT NULL
-      ORDER BY lower(c.name), a.site_number NULLS LAST, a.id
+      ORDER BY dr.position_order NULLS LAST, lower(dr.name) NULLS LAST, lower(c.name), a.site_number NULLS LAST, a.id
     `);
     res.json(result.rows);
   } catch (error) {
@@ -194,15 +196,19 @@ export async function getTransportOrders(
         a.country,
         a.latitude,
         a.longitude,
+        a.delivery_region_id,
+        dr.name AS delivery_region_name,
+        dr.position_order AS delivery_region_position_order,
         COALESCE(SUM(i.quantity_ordered * fp.weight), 0) AS estimated_weight,
         COALESCE(SUM(i.actual_pallets), 0) AS actual_pallets
       FROM sales.orders o
       JOIN sales.clients_addresses a ON a.id = o.client_address_id
+      LEFT JOIN sales.delivery_regions dr ON dr.id = a.delivery_region_id
       LEFT JOIN sales.order_items i ON i.order_id = o.id
       LEFT JOIN public.finished_product fp ON fp.id = i.finished_product_id
       WHERE o.status IN ('a-faire', 'en-cours')
-      GROUP BY o.id, a.id
-      ORDER BY o.loaded_date, o.trip_number, o.id
+      GROUP BY o.id, a.id, dr.id
+      ORDER BY dr.position_order NULLS LAST, lower(dr.name) NULLS LAST, o.loaded_date, o.trip_number, o.id
     `);
     let geocodedAddress = false;
     for (const order of result.rows) {
