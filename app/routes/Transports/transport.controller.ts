@@ -16,8 +16,10 @@ interface OptimizeRouteBody {
   locations: RouteLocation[];
 }
 
+let transportScanTablesPromise: Promise<void> | null = null;
 async function ensureTransportScanTables(): Promise<void> {
-  await pool.query(`
+  if (transportScanTablesPromise) return transportScanTablesPromise;
+  transportScanTablesPromise = pool.query(`
     CREATE TABLE IF NOT EXISTS public.transport_scan_sessions (
       token TEXT PRIMARY KEY,
       owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -27,13 +29,29 @@ async function ensureTransportScanTables(): Promise<void> {
     CREATE TABLE IF NOT EXISTS public.transport_scan_items (
       id BIGSERIAL PRIMARY KEY,
       session_token TEXT NOT NULL REFERENCES public.transport_scan_sessions(token) ON DELETE CASCADE,
-      address_id INTEGER NOT NULL REFERENCES sales.clients_addresses(id),
+      address_id INTEGER REFERENCES sales.clients_addresses(id),
       pallets INTEGER NOT NULL CHECK (pallets BETWEEN 1 AND 30),
+      recognized_text TEXT,
+      recognized_client_name TEXT,
+      recognized_address TEXT,
+      recognized_city TEXT,
+      recognized_postal_code TEXT,
+      product_matches JSONB NOT NULL DEFAULT '[]'::jsonb,
+      estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE public.transport_scan_items ALTER COLUMN address_id DROP NOT NULL;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_text TEXT;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_client_name TEXT;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_address TEXT;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_city TEXT;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_postal_code TEXT;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS transport_scan_items_session_idx
       ON public.transport_scan_items(session_token, id);
-  `);
+  `).then(() => undefined).catch((error) => { transportScanTablesPromise = null; throw error; });
+  return transportScanTablesPromise;
 }
 
 export async function createScanSession(req: Request, res: Response): Promise<void> {
@@ -62,11 +80,13 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
     );
     if (!session.rows.length) { res.status(404).json({ error: "Scan session not found or expired" }); return; }
     const items = await pool.query(
-      `SELECT i.id, i.address_id, i.pallets, i.created_at, c.name AS client_name,
-              a.site_name, a.site_number, a.city
+      `SELECT i.id, i.address_id, i.pallets, i.created_at, i.recognized_text,
+              i.recognized_client_name, i.recognized_address, i.recognized_city,
+              i.recognized_postal_code, i.product_matches, i.estimated_weight,
+              c.name AS client_name, a.site_name, a.site_number, a.city
        FROM public.transport_scan_items i
-       JOIN sales.clients_addresses a ON a.id = i.address_id
-       JOIN sales.clients c ON c.id = a.client_id
+       LEFT JOIN sales.clients_addresses a ON a.id = i.address_id
+       LEFT JOIN sales.clients c ON c.id = a.client_id
        WHERE i.session_token = $1 ORDER BY i.id`,
       [req.params.token],
     );
@@ -80,10 +100,10 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
 export async function addScanSessionItem(req: Request, res: Response): Promise<void> {
   try {
     await ensureTransportScanTables();
-    const addressId = Number(req.body?.addressId);
+    const addressId = req.body?.addressId == null ? null : Number(req.body.addressId);
     const pallets = Number(req.body?.pallets);
-    if (!Number.isSafeInteger(addressId) || addressId < 1 || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 30) {
-      res.status(400).json({ error: "A valid address and 1 to 30 pallets are required" }); return;
+    if ((addressId !== null && (!Number.isSafeInteger(addressId) || addressId < 1)) || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 30) {
+      res.status(400).json({ error: "A valid optional address and 1 to 30 pallets are required" }); return;
     }
     const session = await pool.query(
       `SELECT token FROM public.transport_scan_sessions
@@ -91,17 +111,58 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
       [req.params.token, req.user!.id],
     );
     if (!session.rows.length) { res.status(404).json({ error: "Scan session not found or expired" }); return; }
+    if (addressId !== null) {
+      const address = await pool.query(`SELECT id FROM sales.clients_addresses WHERE id = $1`, [addressId]);
+      if (!address.rows.length) { res.status(404).json({ error: "Client address not found" }); return; }
+    }
+    const recognizedText = typeof req.body?.recognizedText === "string" ? req.body.recognizedText.slice(0, 50000) : "";
+    const normalizedText = recognizedText.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const products = await pool.query(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true`);
+    const productMatches = products.rows.filter((product) => {
+      const code = String(product.product_code ?? "").trim().toLowerCase();
+      const words = String(product.full_name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4);
+      return (code.length >= 3 && normalizedText.includes(code)) || (words.length >= 2 && words.filter((word) => normalizedText.includes(word)).length >= Math.min(3, words.length));
+    }).slice(0, 12).map((product) => ({ id: product.id, name: product.full_name, code: product.product_code, weight: Number(product.weight) || 0 }));
+    const estimatedWeight = productMatches.reduce((sum, product) => sum + product.weight, 0);
     const result = await pool.query(
-      `INSERT INTO public.transport_scan_items (session_token, address_id, pallets)
-       SELECT $1, a.id, $3 FROM sales.clients_addresses a WHERE a.id = $2
-       RETURNING id, address_id, pallets, created_at`,
-      [req.params.token, addressId, pallets],
+      `INSERT INTO public.transport_scan_items
+       (session_token, address_id, pallets, recognized_text, recognized_client_name,
+        recognized_address, recognized_city, recognized_postal_code, product_matches, estimated_weight)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
+       RETURNING id, address_id, pallets, created_at, product_matches, estimated_weight`,
+      [req.params.token, addressId, pallets, recognizedText,
+       req.body?.recognizedClientName || null, req.body?.recognizedAddress || null,
+       req.body?.recognizedCity || null, req.body?.recognizedPostalCode || null,
+       JSON.stringify(productMatches), estimatedWeight],
     );
-    if (!result.rows.length) { res.status(404).json({ error: "Client address not found" }); return; }
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("Add transport scan item error:", error);
     res.status(500).json({ error: "Failed to add scanned order" });
+  }
+}
+
+export async function resolveScanSessionItem(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureTransportScanTables();
+    const addressId = Number(req.body?.addressId);
+    const pallets = Number(req.body?.pallets);
+    if (!Number.isSafeInteger(addressId) || addressId < 1 || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 30) {
+      res.status(400).json({ error: "A valid address and 1 to 30 pallets are required" }); return;
+    }
+    const result = await pool.query(
+      `UPDATE public.transport_scan_items i SET address_id = $4, pallets = $5
+       FROM public.transport_scan_sessions s, sales.clients_addresses a
+       WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
+         AND s.owner_user_id = $3 AND s.expires_at > NOW() AND a.id = $4
+       RETURNING i.id, i.address_id, i.pallets`,
+      [Number(req.params.itemId), req.params.token, req.user!.id, addressId, pallets],
+    );
+    if (!result.rows.length) { res.status(404).json({ error: "Scan item or address not found" }); return; }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Resolve transport scan item error:", error);
+    res.status(500).json({ error: "Failed to resolve scanned order" });
   }
 }
 
