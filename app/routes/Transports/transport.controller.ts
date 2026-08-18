@@ -32,7 +32,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
         body: JSON.stringify({
           model: process.env.OPENROUTER_VISION_MODEL || "dots-studio/dots-3-note-preview:free",
           messages: [{ role: "user", content: [
-            { type: "text", text: "Read this delivery/order document carefully. Return JSON only. Preserve exact spelling and numbers. Extract the shipping client and address, pallet count, customer PO/reference, every product line, and a faithful plain-text transcription. Never invent missing values; use null. French and English documents are expected." },
+            { type: "text", text: "Read this delivery/order document carefully and mentally rotate it upright if needed. Return JSON only. Preserve exact spelling and numbers. For the item table, extract EVERY row by column: product code only from the Code column; name only from Item; quantityLabel exactly from Qté à charger (for example 3x80); quantity as the calculated total units (3x80 = 240); pallets as the numeric value from that row's Palette column; palletType as its label such as Peco. The top-level pallets MUST be the sum of the numeric Palette column, not a quantity or the last row. Also extract shipping client/address, PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected." },
             { type: "image_url", image_url: { url: imageDataUrl } },
           ] }],
           reasoning: { effort: "none", exclude: true },
@@ -43,7 +43,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
               province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
               pallets: { type: ["integer", "null"] }, rawText: { type: "string" },
               products: { type: "array", items: { type: "object", additionalProperties: false,
-                properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "name", "quantity", "unit"] } },
+                properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
             }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "rawText", "products"]
           } } }, max_tokens: 2500,
         }),
@@ -62,7 +62,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
         customerPo: typeof parsed.customerPo === "string" ? parsed.customerPo : null,
         pallets: Number.isSafeInteger(Number(parsed.pallets)) ? Number(parsed.pallets) : null,
         rawText: typeof parsed.rawText === "string" ? parsed.rawText : content,
-        products: Array.isArray(parsed.products) ? parsed.products.slice(0, 100).map((product: any) => ({ code: typeof product?.code === "string" ? product.code : null, name: typeof product?.name === "string" ? product.name : null, quantity: Number.isFinite(Number(product?.quantity)) ? Number(product.quantity) : null, unit: typeof product?.unit === "string" ? product.unit : null })) : [],
+        products: Array.isArray(parsed.products) ? parsed.products.slice(0, 100).map((product: any) => ({ code: typeof product?.code === "string" ? product.code : null, name: typeof product?.name === "string" ? product.name : null, quantityLabel: typeof product?.quantityLabel === "string" ? product.quantityLabel : null, quantity: Number.isFinite(Number(product?.quantity)) ? Number(product.quantity) : null, pallets: Number.isFinite(Number(product?.pallets)) ? Number(product.pallets) : null, palletType: typeof product?.palletType === "string" ? product.palletType : null, unit: typeof product?.unit === "string" ? product.unit : null })) : [],
         recognitionProvider: "openrouter",
         recognitionModel: openRouterPayload.model,
       });
@@ -74,7 +74,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
       body: JSON.stringify({
         model: process.env.OPENAI_VISION_MODEL || "gpt-4o",
         input: [{ role: "user", content: [
-          { type: "input_text", text: "Read this delivery/order document carefully. Preserve exact spelling and numbers. Extract the shipping client and address, pallet count, customer PO/reference, and every product line. Do not invent missing values. Also provide a faithful plain-text transcription useful for matching against a customer and product database. French and English documents are expected." },
+          { type: "input_text", text: "Read this delivery/order document carefully and mentally rotate it upright if needed. Preserve exact spelling and numbers. For every item-table row extract product code from Code, name from Item, quantityLabel exactly from Qté à charger, quantity as calculated total units, pallets from Palette, and palletType. Top-level pallets must equal the sum of the Palette column. Do not invent missing values. Also extract shipping client/address, PO/reference, and a faithful transcription. French and English documents are expected." },
           { type: "input_image", image_url: imageDataUrl, detail: "high" },
         ] }],
         text: { format: { type: "json_schema", name: "transport_document", strict: true, schema: {
@@ -85,8 +85,8 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
             postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
             pallets: { type: ["integer", "null"] }, rawText: { type: "string" },
             products: { type: "array", items: { type: "object", additionalProperties: false,
-              properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, unit: { type: ["string", "null"] } },
-              required: ["code", "name", "quantity", "unit"] } },
+              properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } },
+              required: ["code", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
           }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "rawText", "products"]
         } } },
         max_output_tokens: 2500,
@@ -143,6 +143,8 @@ async function ensureTransportScanTables(): Promise<void> {
     ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
     ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE public.transport_scan_items DROP CONSTRAINT IF EXISTS transport_scan_items_pallets_check;
+    ALTER TABLE public.transport_scan_items ADD CONSTRAINT transport_scan_items_pallets_check CHECK (pallets BETWEEN 1 AND 999);
     CREATE INDEX IF NOT EXISTS transport_scan_items_session_idx
       ON public.transport_scan_items(session_token, id);
   `).then(() => undefined).catch((error) => { transportScanTablesPromise = null; throw error; });
@@ -197,8 +199,8 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
     await ensureTransportScanTables();
     const addressId = req.body?.addressId == null ? null : Number(req.body.addressId);
     const pallets = Number(req.body?.pallets);
-    if ((addressId !== null && (!Number.isSafeInteger(addressId) || addressId < 1)) || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 30) {
-      res.status(400).json({ error: "A valid optional address and 1 to 30 pallets are required" }); return;
+    if ((addressId !== null && (!Number.isSafeInteger(addressId) || addressId < 1)) || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 999) {
+      res.status(400).json({ error: "A valid optional address and pallet count are required" }); return;
     }
     const session = await pool.query(
       `SELECT token FROM public.transport_scan_sessions
@@ -211,14 +213,25 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
       if (!address.rows.length) { res.status(404).json({ error: "Client address not found" }); return; }
     }
     const recognizedText = typeof req.body?.recognizedText === "string" ? req.body.recognizedText.slice(0, 50000) : "";
-    const normalizedText = recognizedText.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     const products = await pool.query(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true`);
-    const productMatches = products.rows.filter((product) => {
-      const code = String(product.product_code ?? "").trim().toLowerCase();
-      const words = String(product.full_name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4);
-      return (code.length >= 3 && normalizedText.includes(code)) || (words.length >= 2 && words.filter((word) => normalizedText.includes(word)).length >= Math.min(3, words.length));
-    }).slice(0, 12).map((product) => ({ id: product.id, name: product.full_name, code: product.product_code, weight: Number(product.weight) || 0 }));
-    const estimatedWeight = productMatches.reduce((sum, product) => sum + product.weight, 0);
+    const recognizedProducts = Array.isArray(req.body?.recognizedProducts) ? req.body.recognizedProducts.slice(0, 100) : [];
+    const normalize = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const productMatches = recognizedProducts.map((recognized: any) => {
+      const code = normalize(recognized?.code).replace(/\s/g, "");
+      const words = normalize(recognized?.name).split(" ").filter((word) => word.length >= 3);
+      const candidates = products.rows.filter((product) => !code || normalize(product.product_code).replace(/\s/g, "") === code);
+      const ranked = (candidates.length ? candidates : products.rows).map((product) => {
+        const productName = normalize(product.full_name);
+        const nameScore = words.filter((word) => productName.includes(word)).length;
+        const codeScore = code && normalize(product.product_code).replace(/\s/g, "") === code ? 20 : 0;
+        return { product, score: codeScore + nameScore };
+      }).sort((a, b) => b.score - a.score);
+      const match = ranked[0]?.score > 0 ? ranked[0].product : null;
+      const quantity = Number.isFinite(Number(recognized?.quantity)) ? Number(recognized.quantity) : null;
+      const unitWeight = Number(match?.weight) || 0;
+      return { id: match?.id ?? null, name: match?.full_name ?? recognized?.name ?? null, code: match?.product_code ?? recognized?.code ?? null, weight: unitWeight, quantity, quantityLabel: recognized?.quantityLabel ?? null, pallets: Number.isFinite(Number(recognized?.pallets)) ? Number(recognized.pallets) : null, palletType: recognized?.palletType ?? null, lineWeight: quantity == null ? 0 : unitWeight * quantity, matched: Boolean(match) };
+    });
+    const estimatedWeight = productMatches.reduce((sum: number, product: any) => sum + product.lineWeight, 0);
     const result = await pool.query(
       `INSERT INTO public.transport_scan_items
        (session_token, address_id, pallets, recognized_text, recognized_client_name,
@@ -242,8 +255,8 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
     await ensureTransportScanTables();
     const addressId = Number(req.body?.addressId);
     const pallets = Number(req.body?.pallets);
-    if (!Number.isSafeInteger(addressId) || addressId < 1 || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 30) {
-      res.status(400).json({ error: "A valid address and 1 to 30 pallets are required" }); return;
+    if (!Number.isSafeInteger(addressId) || addressId < 1 || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 999) {
+      res.status(400).json({ error: "A valid address and pallet count are required" }); return;
     }
     const result = await pool.query(
       `UPDATE public.transport_scan_items i SET address_id = $4, pallets = $5, confirmed = true
