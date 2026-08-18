@@ -264,13 +264,27 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
     if (!Number.isSafeInteger(addressId) || addressId < 1 || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 999) {
       res.status(400).json({ error: "A valid address and pallet count are required" }); return;
     }
+    const submittedProducts = Array.isArray(req.body?.productMatches) ? req.body.productMatches.slice(0, 100) : [];
+    const productIds = submittedProducts.map((product: any) => Number(product?.id)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+    const catalog = productIds.length ? await pool.query(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE id = ANY($1::int[]) AND is_active = true`, [productIds]) : { rows: [] as any[] };
+    const catalogById = new Map(catalog.rows.map((product: any) => [Number(product.id), product]));
+    if (submittedProducts.some((product: any) => !catalogById.has(Number(product?.id)))) {
+      res.status(400).json({ error: "Chaque ligne reconnue doit être associée à un produit fini actif" }); return;
+    }
+    const correctedProducts = submittedProducts.map((line: any) => {
+      const product: any = catalogById.get(Number(line.id));
+      const quantity = Number.isFinite(Number(line.quantity)) ? Number(line.quantity) : null;
+      const weight = Number(product.weight) || 0;
+      return { id: product.id, code: product.product_code, name: product.full_name, weight, quantity, quantityLabel: line.quantityLabel ?? null, pallets: Number.isFinite(Number(line.pallets)) ? Number(line.pallets) : null, palletType: line.palletType ?? null, lineWeight: quantity == null ? 0 : quantity * weight, matched: true };
+    });
+    const correctedWeight = correctedProducts.reduce((sum: number, product: any) => sum + product.lineWeight, 0);
     const result = await pool.query(
-      `UPDATE public.transport_scan_items i SET address_id = $4, pallets = $5, confirmed = true
+      `UPDATE public.transport_scan_items i SET address_id = $4, pallets = $5, product_matches = $6::jsonb, estimated_weight = $7, confirmed = true
        FROM public.transport_scan_sessions s, sales.clients_addresses a
        WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
          AND s.owner_user_id = $3 AND s.expires_at > NOW() AND a.id = $4
        RETURNING i.id, i.address_id, i.pallets, i.confirmed`,
-      [Number(req.params.itemId), req.params.token, req.user!.id, addressId, pallets],
+      [Number(req.params.itemId), req.params.token, req.user!.id, addressId, pallets, JSON.stringify(correctedProducts), correctedWeight],
     );
     if (!result.rows.length) { res.status(404).json({ error: "Scan item or address not found" }); return; }
     res.json(result.rows[0]);
