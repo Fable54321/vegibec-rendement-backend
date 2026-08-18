@@ -16,6 +16,49 @@ interface OptimizeRouteBody {
   locations: RouteLocation[];
 }
 
+export async function analyzeTransportDocument(req: Request, res: Response): Promise<void> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) { res.status(503).json({ error: "La reconnaissance intelligente n’est pas configurée." }); return; }
+  const imageDataUrl = typeof req.body?.imageDataUrl === "string" ? req.body.imageDataUrl : "";
+  if (!/^data:image\/(jpeg|png|webp);base64,/i.test(imageDataUrl) || imageDataUrl.length > 14_000_000) {
+    res.status(400).json({ error: "Une image JPEG, PNG ou WebP valide est requise." }); return;
+  }
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: process.env.OPENAI_VISION_MODEL || "gpt-4o",
+        input: [{ role: "user", content: [
+          { type: "input_text", text: "Read this delivery/order document carefully. Preserve exact spelling and numbers. Extract the shipping client and address, pallet count, customer PO/reference, and every product line. Do not invent missing values. Also provide a faithful plain-text transcription useful for matching against a customer and product database. French and English documents are expected." },
+          { type: "input_image", image_url: imageDataUrl, detail: "high" },
+        ] }],
+        text: { format: { type: "json_schema", name: "transport_document", strict: true, schema: {
+          type: "object", additionalProperties: false,
+          properties: {
+            clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] },
+            city: { type: ["string", "null"] }, province: { type: ["string", "null"] },
+            postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
+            pallets: { type: ["integer", "null"] }, rawText: { type: "string" },
+            products: { type: "array", items: { type: "object", additionalProperties: false,
+              properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, unit: { type: ["string", "null"] } },
+              required: ["code", "name", "quantity", "unit"] } },
+          }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "rawText", "products"]
+        } } },
+        max_output_tokens: 2500,
+      }),
+    });
+    const payload: any = await response.json();
+    if (!response.ok) throw new Error(payload?.error?.message || `OpenAI request failed (${response.status})`);
+    const outputText = payload.output_text ?? payload.output?.flatMap((item: any) => item.content ?? []).find((item: any) => item.type === "output_text")?.text;
+    if (!outputText) throw new Error("OpenAI returned no document analysis");
+    res.json(JSON.parse(outputText));
+  } catch (error) {
+    console.error("OpenAI transport document analysis error:", error);
+    res.status(502).json({ error: "La reconnaissance intelligente a échoué. Réessayez avec une photo plus nette." });
+  }
+}
+
 let transportScanTablesPromise: Promise<void> | null = null;
 async function ensureTransportScanTables(): Promise<void> {
   if (transportScanTablesPromise) return transportScanTablesPromise;

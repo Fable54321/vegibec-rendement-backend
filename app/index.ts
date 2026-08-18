@@ -80,10 +80,14 @@ const app = express();
 
 const defaultJsonParser = express.json();
 const generatedImageJsonParser = express.json({ limit: "50mb" });
+const documentScanJsonParser = express.json({ limit: "15mb" });
 
 app.use((req, res, next) => {
   if (req.path.endsWith("/get-url/generated-images")) {
     return generatedImageJsonParser(req, res, next);
+  }
+  if (req.path === "/transport/analyze-document") {
+    return documentScanJsonParser(req, res, next);
   }
 
   return defaultJsonParser(req, res, next);

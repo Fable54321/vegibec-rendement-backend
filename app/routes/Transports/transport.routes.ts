@@ -9,6 +9,7 @@ import {
   getScanSession,
   addScanSessionItem,
   resolveScanSessionItem,
+  analyzeTransportDocument,
 } from "../Transports/transport.controller";
 import { requireAppRole } from "../../middleware/auth";
 
@@ -23,5 +24,6 @@ router.post("/scan-sessions", portalAccess, createScanSession);
 router.get("/scan-sessions/:token", portalAccess, getScanSession);
 router.post("/scan-sessions/:token/items", portalAccess, addScanSessionItem);
 router.patch("/scan-sessions/:token/items/:itemId", portalAccess, resolveScanSessionItem);
+router.post("/analyze-document", portalAccess, analyzeTransportDocument);
 
 export default router;
