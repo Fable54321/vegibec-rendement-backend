@@ -18,12 +18,56 @@ interface OptimizeRouteBody {
 
 export async function analyzeTransportDocument(req: Request, res: Response): Promise<void> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) { res.status(503).json({ error: "La reconnaissance intelligente n’est pas configurée." }); return; }
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey && !openRouterApiKey) { res.status(503).json({ error: "La reconnaissance intelligente n’est pas configurée." }); return; }
   const imageDataUrl = typeof req.body?.imageDataUrl === "string" ? req.body.imageDataUrl : "";
   if (!/^data:image\/(jpeg|png|webp);base64,/i.test(imageDataUrl) || imageDataUrl.length > 14_000_000) {
     res.status(400).json({ error: "Une image JPEG, PNG ou WebP valide est requise." }); return;
   }
   try {
+    if (openRouterApiKey) {
+      const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openRouterApiKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://vegibec-portail.com", "X-Title": "Vegibec Portail" },
+        body: JSON.stringify({
+          model: process.env.OPENROUTER_VISION_MODEL || "dots-studio/dots-3-note-preview:free",
+          messages: [{ role: "user", content: [
+            { type: "text", text: "Read this delivery/order document carefully. Return JSON only. Preserve exact spelling and numbers. Extract the shipping client and address, pallet count, customer PO/reference, every product line, and a faithful plain-text transcription. Never invent missing values; use null. French and English documents are expected." },
+            { type: "image_url", image_url: { url: imageDataUrl } },
+          ] }],
+          reasoning: { effort: "none", exclude: true },
+          response_format: { type: "json_schema", json_schema: { name: "transport_document", strict: true, schema: {
+            type: "object", additionalProperties: false,
+            properties: {
+              clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] },
+              province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
+              pallets: { type: ["integer", "null"] }, rawText: { type: "string" },
+              products: { type: "array", items: { type: "object", additionalProperties: false,
+                properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "name", "quantity", "unit"] } },
+            }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "rawText", "products"]
+          } } }, max_tokens: 2500,
+        }),
+      });
+      const openRouterPayload: any = await openRouterResponse.json();
+      if (!openRouterResponse.ok) throw new Error(openRouterPayload?.error?.message || `OpenRouter request failed (${openRouterResponse.status})`);
+      const content = openRouterPayload?.choices?.[0]?.message?.content;
+      if (typeof content !== "string") throw new Error("OpenRouter returned no document analysis");
+      const parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+      res.json({
+        clientName: typeof parsed.clientName === "string" ? parsed.clientName : null,
+        address: typeof parsed.address === "string" ? parsed.address : null,
+        city: typeof parsed.city === "string" ? parsed.city : null,
+        province: typeof parsed.province === "string" ? parsed.province : null,
+        postalCode: typeof parsed.postalCode === "string" ? parsed.postalCode : null,
+        customerPo: typeof parsed.customerPo === "string" ? parsed.customerPo : null,
+        pallets: Number.isSafeInteger(Number(parsed.pallets)) ? Number(parsed.pallets) : null,
+        rawText: typeof parsed.rawText === "string" ? parsed.rawText : content,
+        products: Array.isArray(parsed.products) ? parsed.products.slice(0, 100).map((product: any) => ({ code: typeof product?.code === "string" ? product.code : null, name: typeof product?.name === "string" ? product.name : null, quantity: Number.isFinite(Number(product?.quantity)) ? Number(product.quantity) : null, unit: typeof product?.unit === "string" ? product.unit : null })) : [],
+        recognitionProvider: "openrouter",
+        recognitionModel: openRouterPayload.model,
+      });
+      return;
+    }
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -49,7 +93,13 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
       }),
     });
     const payload: any = await response.json();
-    if (!response.ok) throw new Error(payload?.error?.message || `OpenAI request failed (${response.status})`);
+    if (!response.ok) {
+      if (payload?.error?.code === "credit_balance_exhausted" || payload?.error?.type === "insufficient_quota") {
+        res.status(402).json({ error: "Le compte OpenAI API n’a plus de crédits. Ajoutez des crédits dans la section Billing de la plateforme OpenAI." }); return;
+      }
+      if (response.status === 401) { res.status(502).json({ error: "La clé OpenAI API du serveur est invalide." }); return; }
+      throw new Error(payload?.error?.message || `OpenAI request failed (${response.status})`);
+    }
     const outputText = payload.output_text ?? payload.output?.flatMap((item: any) => item.content ?? []).find((item: any) => item.type === "output_text")?.text;
     if (!outputText) throw new Error("OpenAI returned no document analysis");
     res.json(JSON.parse(outputText));
