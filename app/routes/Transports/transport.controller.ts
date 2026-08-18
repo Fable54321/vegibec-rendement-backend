@@ -16,6 +16,12 @@ interface OptimizeRouteBody {
   locations: RouteLocation[];
 }
 
+const transportDocumentRecognitionPrompt = `Read this delivery/order document carefully. The photo is normally upright; mentally rotate it only when the text itself is clearly sideways or upside down. Preserve exact spelling and numbers.
+
+DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Ship to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
+
+For every item-table row, extract product code only from Code, name only from Item, quantityLabel exactly from Qté à charger (for example 3x80), quantity as calculated total units (3x80 = 240), pallets as the numeric value from that row's Palette column, and palletType as its label such as Peco. The top-level pallets must be the sum of the numeric Palette column, not a quantity or the last row. Also extract the PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected.`;
+
 export async function analyzeTransportDocument(req: Request, res: Response): Promise<void> {
   const apiKey = process.env.OPENAI_API_KEY;
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
@@ -32,7 +38,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
         body: JSON.stringify({
           model: process.env.OPENROUTER_VISION_MODEL || "dots-studio/dots-3-note-preview:free",
           messages: [{ role: "user", content: [
-            { type: "text", text: "Read this delivery/order document carefully and mentally rotate it upright if needed. Return JSON only. Preserve exact spelling and numbers. For the item table, extract EVERY row by column: product code only from the Code column; name only from Item; quantityLabel exactly from Qté à charger (for example 3x80); quantity as the calculated total units (3x80 = 240); pallets as the numeric value from that row's Palette column; palletType as its label such as Peco. The top-level pallets MUST be the sum of the numeric Palette column, not a quantity or the last row. Also extract shipping client/address, PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected." },
+            { type: "text", text: `${transportDocumentRecognitionPrompt}\nReturn JSON only.` },
             { type: "image_url", image_url: { url: imageDataUrl } },
           ] }],
           reasoning: { effort: "none", exclude: true },
@@ -74,7 +80,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
       body: JSON.stringify({
         model: process.env.OPENAI_VISION_MODEL || "gpt-4o",
         input: [{ role: "user", content: [
-          { type: "input_text", text: "Read this delivery/order document carefully and mentally rotate it upright if needed. Preserve exact spelling and numbers. For every item-table row extract product code from Code, name from Item, quantityLabel exactly from Qté à charger, quantity as calculated total units, pallets from Palette, and palletType. Top-level pallets must equal the sum of the Palette column. Do not invent missing values. Also extract shipping client/address, PO/reference, and a faithful transcription. French and English documents are expected." },
+          { type: "input_text", text: transportDocumentRecognitionPrompt },
           { type: "input_image", image_url: imageDataUrl, detail: "high" },
         ] }],
         text: { format: { type: "json_schema", name: "transport_document", strict: true, schema: {
