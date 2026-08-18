@@ -39,8 +39,14 @@ export async function geocodeAddress(address: GeocodableAddress): Promise<Coordi
   const streetAndCity = [normalizedStreet, address.city, address.province, address.country]
     .filter(Boolean)
     .join(", ");
+  const streetAndPostalCode = [normalizedStreet, address.postal_code, address.country]
+    .filter(Boolean)
+    .join(", ");
+  const postalCodeOnly = [address.postal_code, address.country]
+    .filter(Boolean)
+    .join(", ");
 
-  for (const query of [fullAddress, streetAndCity, fallbackAddress]) {
+  for (const query of [fullAddress, streetAndCity, fallbackAddress, streetAndPostalCode, postalCodeOnly]) {
     if (!query) continue;
     await waitForNominatimRateLimit();
     const params = new URLSearchParams({ format: "jsonv2", limit: "1", countrycodes: "ca", q: query });
