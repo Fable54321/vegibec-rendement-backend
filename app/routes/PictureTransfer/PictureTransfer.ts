@@ -270,7 +270,7 @@ router.get("/", async (req, res) => {
 
     const result = await pool.query(
       `
-      SELECT id, s3_key, description, created_at
+      SELECT id, s3_key, description, equipment_name, created_at
       FROM toolboxes_inventory.pictures
       ORDER BY created_at DESC
       LIMIT $1
@@ -294,6 +294,7 @@ router.get("/", async (req, res) => {
           id: row.id,
           key,
           description: row.description,
+          equipment_name: row.equipment_name,
           created_at: row.created_at,
           file_name: fileName,
           view_url,
