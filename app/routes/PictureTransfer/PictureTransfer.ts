@@ -191,7 +191,11 @@ router.post("/", uploadPictures, async (req, res) => {
 
   const description =
     typeof req.body.description === "string"
-      ? req.body.description.trim()
+      ? req.body.description.trim().slice(0, 1000) || null
+      : null;
+  const equipmentName =
+    typeof req.body.equipment_name === "string"
+      ? req.body.equipment_name.trim().slice(0, 150) || null
       : null;
 
   try {
@@ -211,12 +215,13 @@ router.post("/", uploadPictures, async (req, res) => {
           `
           INSERT INTO toolboxes_inventory.pictures (
             s3_key,
-            description
+            description,
+            equipment_name
           )
-          VALUES ($1, $2)
-          RETURNING id, s3_key, description, created_at
+          VALUES ($1, $2, $3)
+          RETURNING id, s3_key, description, equipment_name, created_at
           `,
-          [key, description],
+          [key, description, equipmentName],
         );
 
         const dbPicture = insertResult.rows[0];
@@ -237,6 +242,7 @@ router.post("/", uploadPictures, async (req, res) => {
           id: dbPicture.id,
           key: dbPicture.s3_key,
           description: dbPicture.description,
+          equipment_name: dbPicture.equipment_name,
           created_at: dbPicture.created_at,
           file_name: file.originalname,
           content_type: file.mimetype,
