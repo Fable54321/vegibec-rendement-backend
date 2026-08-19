@@ -222,20 +222,39 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
     const products = await pool.query(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true`);
     const recognizedProducts = Array.isArray(req.body?.recognizedProducts) ? req.body.recognizedProducts.slice(0, 100) : [];
     const normalize = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const normalizeCode = (value: unknown) => normalize(value).replace(/\s/g, "");
+    const codeCounts = products.rows.reduce((counts: Map<string, number>, product) => {
+      const code = normalizeCode(product.product_code);
+      if (code) counts.set(code, (counts.get(code) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>());
+    const productsByCode = new Map(products.rows
+      .map((product) => [normalizeCode(product.product_code), product] as const)
+      .filter(([code]) => code.length > 0 && codeCounts.get(code) === 1));
     const productMatches = recognizedProducts.map((recognized: any) => {
-      const code = normalize(recognized?.code).replace(/\s/g, "");
+      const code = normalizeCode(recognized?.code);
       const words = normalize(recognized?.name).split(" ").filter((word) => word.length >= 3);
-      const candidates = products.rows.filter((product) => !code || normalize(product.product_code).replace(/\s/g, "") === code);
-      const ranked = (candidates.length ? candidates : products.rows).map((product) => {
-        const productName = normalize(product.full_name);
-        const nameScore = words.filter((word) => productName.includes(word)).length;
-        const codeScore = code && normalize(product.product_code).replace(/\s/g, "") === code ? 20 : 0;
-        return { product, score: codeScore + nameScore };
-      }).sort((a, b) => b.score - a.score);
-      const match = ranked[0]?.score > 0 ? ranked[0].product : null;
+      let match = code ? productsByCode.get(code) ?? null : null;
+      let matchMethod: "code" | "name" | null = match ? "code" : null;
+      // A recognized code is authoritative. If it is unknown, leave the line
+      // unmatched for human confirmation instead of replacing it by name.
+      if (!code && words.length) {
+        const recognizedName = normalize(recognized?.name);
+        const ranked = products.rows.map((product) => {
+          const productName = normalize(product.full_name);
+          const matchedWords = words.filter((word) => productName.split(" ").includes(word)).length;
+          return { product, exact: productName === recognizedName, matchedWords };
+        }).sort((a, b) => Number(b.exact) - Number(a.exact) || b.matchedWords - a.matchedWords);
+        const best = ranked[0];
+        const requiredWords = Math.max(2, Math.ceil(words.length * 0.75));
+        if (best?.exact || (words.length >= 2 && best?.matchedWords >= requiredWords)) {
+          match = best.product;
+          matchMethod = "name";
+        }
+      }
       const quantity = Number.isFinite(Number(recognized?.quantity)) ? Number(recognized.quantity) : null;
       const unitWeight = Number(match?.weight) || 0;
-      return { id: match?.id ?? null, name: match?.full_name ?? recognized?.name ?? null, code: match?.product_code ?? recognized?.code ?? null, weight: unitWeight, quantity, quantityLabel: recognized?.quantityLabel ?? null, pallets: Number.isFinite(Number(recognized?.pallets)) ? Number(recognized.pallets) : null, palletType: recognized?.palletType ?? null, lineWeight: quantity == null ? 0 : unitWeight * quantity, matched: Boolean(match) };
+      return { id: match?.id ?? null, name: match?.full_name ?? recognized?.name ?? null, code: match?.product_code ?? recognized?.code ?? null, weight: unitWeight, quantity, quantityLabel: recognized?.quantityLabel ?? null, pallets: Number.isFinite(Number(recognized?.pallets)) ? Number(recognized.pallets) : null, palletType: recognized?.palletType ?? null, lineWeight: quantity == null ? 0 : unitWeight * quantity, matched: Boolean(match), matchMethod };
     });
     const estimatedWeight = productMatches.reduce((sum: number, product: any) => sum + product.lineWeight, 0);
     const result = await pool.query(
