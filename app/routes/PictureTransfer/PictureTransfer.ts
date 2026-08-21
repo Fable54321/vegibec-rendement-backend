@@ -272,10 +272,11 @@ router.get("/", async (req, res) => {
       `
       SELECT id, s3_key, description, equipment_name, created_at
       FROM toolboxes_inventory.pictures
+      WHERE s3_key LIKE $1
       ORDER BY created_at DESC
-      LIMIT $1
+      LIMIT $2
       `,
-      [limit],
+      [`${PICTURE_PREFIX}/%`, limit],
     );
 
     const pictures = await Promise.all(

@@ -13,7 +13,7 @@ const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
 const MAX_FILES_PER_UPLOAD = 10;
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
-const PICTURE_PREFIX = "picture-transfer";
+const PICTURE_PREFIX = "quality-pictures";
 const SIGNED_URL_EXPIRES_SECONDS = 60 * 60;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
@@ -201,10 +201,11 @@ router.get("/", async (req, res) => {
       `
       SELECT id, s3_key, description, equipment_name, created_at
       FROM toolboxes_inventory.pictures
+      WHERE s3_key LIKE $1
       ORDER BY created_at DESC
-      LIMIT $1
+      LIMIT $2
       `,
-      [getLimit(req.query.limit)],
+      [`${PICTURE_PREFIX}/%`, getLimit(req.query.limit)],
     );
 
     const pictures = await Promise.all(
