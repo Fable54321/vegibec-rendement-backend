@@ -42,6 +42,7 @@ import planRoute from "./routes/Visitors/plan";
 import toolboxesRoute from "./routes/ToolBoxes/toolboxes";
 import vehiclesRoute from "./routes/ToolBoxes/vehicles";
 import pictureTransferRoute from "./routes/PictureTransfer/PictureTransfer";
+import qualityPicturesRoute from "./routes/PictureTransfer/QualityPictures";
 import alternativeAuthRoute from "./routes/alternativeAuth";
 import visitorsInfoRoute from "./routes/Portal/VisitorsInfo";
 import workersScheduleRoute from "./routes/WorkersSchedule/WorkersSchedule";
@@ -205,6 +206,8 @@ app.use("/file-transfer", fileTransferRoute);
 
 
 app.use(authMiddleware);
+
+app.use("/quality-pictures", qualityPicturesRoute);
 
 app.use("/sales", salesProductsRoute);
 app.use("/sales", salesOrdersRoute);
