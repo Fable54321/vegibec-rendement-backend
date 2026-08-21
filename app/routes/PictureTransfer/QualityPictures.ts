@@ -1,4 +1,4 @@
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import express from "express";
 import multer from "multer";
@@ -245,6 +245,44 @@ router.get("/", async (req, res) => {
   } catch (error) {
     console.error("Error listing quality pictures:", error);
     return res.status(500).json({ error: "Failed to list quality pictures" });
+  }
+});
+
+router.delete("/:id", async (req, res) => {
+  const pictureId = Number.parseInt(req.params.id, 10);
+
+  if (!Number.isSafeInteger(pictureId) || pictureId <= 0) {
+    return res.status(400).json({ error: "Invalid picture ID" });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT s3_key
+      FROM toolboxes_inventory.pictures
+      WHERE id = $1 AND s3_key LIKE $2
+      `,
+      [pictureId, `${PICTURE_PREFIX}/%`],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Picture not found" });
+    }
+
+    const key = result.rows[0].s3_key as string;
+
+    await s3.send(
+      new DeleteObjectCommand({ Bucket: getBucketName(), Key: key }),
+    );
+    await pool.query(
+      "DELETE FROM toolboxes_inventory.pictures WHERE id = $1",
+      [pictureId],
+    );
+
+    return res.status(200).json({ message: "Picture permanently deleted" });
+  } catch (error) {
+    console.error("Error deleting quality picture:", error);
+    return res.status(500).json({ error: "Failed to delete quality picture" });
   }
 });
 
