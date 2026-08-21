@@ -3,6 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import express from "express";
 import multer from "multer";
 import path from "path";
+import { randomUUID } from "crypto";
 import { pool } from "../../db";
 import { s3 } from "../../s3";
 import { uploadBufferToS3 } from "../../services/s3.services";
@@ -15,6 +16,7 @@ const MAX_FILES_PER_UPLOAD = 10;
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const PICTURE_PREFIX = "quality-pictures";
 const SIGNED_URL_EXPIRES_SECONDS = 60 * 60;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   ".avif",
@@ -142,6 +144,16 @@ router.post("/", uploadPictures, async (req, res) => {
     typeof req.body.equipment_name === "string"
       ? req.body.equipment_name.trim().slice(0, 150) || null
       : null;
+  const submittedOrderGroupId =
+    typeof req.body.order_group_id === "string"
+      ? req.body.order_group_id.trim()
+      : "";
+
+  if (submittedOrderGroupId && !UUID_PATTERN.test(submittedOrderGroupId)) {
+    return res.status(400).json({ error: "Invalid order group ID" });
+  }
+
+  const orderGroupId = submittedOrderGroupId || randomUUID();
 
   try {
     const pictures = await Promise.all(
@@ -156,12 +168,13 @@ router.post("/", uploadPictures, async (req, res) => {
           INSERT INTO toolboxes_inventory.pictures (
             s3_key,
             description,
-            equipment_name
+            equipment_name,
+            order_group_id
           )
-          VALUES ($1, $2, $3)
-          RETURNING id, description, equipment_name, created_at
+          VALUES ($1, $2, $3, $4)
+          RETURNING id, description, equipment_name, order_group_id, created_at
           `,
-          [key, description, equipmentName],
+          [key, description, equipmentName, orderGroupId],
         );
         const row = result.rows[0];
 
@@ -177,6 +190,7 @@ router.post("/", uploadPictures, async (req, res) => {
           view_url: viewUrl,
           description: row.description,
           equipment_name: row.equipment_name,
+          order_group_id: row.order_group_id,
           created_at: row.created_at,
           file_name: file.originalname,
           content_type: contentType,
@@ -199,7 +213,7 @@ router.get("/", async (req, res) => {
   try {
     const result = await pool.query(
       `
-      SELECT id, s3_key, description, equipment_name, created_at
+      SELECT id, s3_key, description, equipment_name, order_group_id, created_at
       FROM toolboxes_inventory.pictures
       WHERE s3_key LIKE $1
       ORDER BY created_at DESC
@@ -221,6 +235,7 @@ router.get("/", async (req, res) => {
         ),
         description: row.description,
         equipment_name: row.equipment_name,
+        order_group_id: row.order_group_id,
         created_at: row.created_at,
         file_name: getFileName(row.s3_key),
       })),
