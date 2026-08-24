@@ -20,7 +20,9 @@ const transportDocumentRecognitionPrompt = `Read this delivery/order document ca
 
 DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Ship to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
 
-For every item-table row, extract product code only from Code, name only from Item, quantityLabel exactly from Qté à charger (for example 3x80), quantity as calculated total units (3x80 = 240), pallets as the numeric value from that row's Palette column, and palletType as its label such as Peco. The top-level pallets must be the sum of the numeric Palette column, not a quantity or the last row. Also extract the PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected.`;
+ITEM TABLE COLUMN RULE (highest priority for products): identify the table headers first and follow each row vertically under those headers. The value in the "Code" column is the product code and is the only value that may be returned as code. The adjacent "Lot #" / "Lot" column is traceability data, never a product identifier: return it only as lotNumber and never copy it into code, even when it is numeric or looks like a product code. If the Code cell cannot be read confidently, return code as null; do not substitute the lot number, item number, quantity, or any other number. The product is defined by the Code cell, not by Lot # or the item description.
+
+For every item-table row, extract code only from Code, lotNumber only from Lot #, name only from Item, quantityLabel exactly from Qté à charger (for example 3x80), quantity as calculated total units (3x80 = 240), pallets as the numeric value from that row's Palette column, and palletType as its label such as Peco. The top-level pallets must be the sum of the numeric Palette column, not a quantity or the last row. Also extract the PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected.`;
 
 export async function analyzeTransportDocument(req: Request, res: Response): Promise<void> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -49,7 +51,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
               province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
               pallets: { type: ["integer", "null"] }, rawText: { type: "string" },
               products: { type: "array", items: { type: "object", additionalProperties: false,
-                properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
+                properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
             }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "rawText", "products"]
           } } }, max_tokens: 2500,
         }),
@@ -68,7 +70,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
         customerPo: typeof parsed.customerPo === "string" ? parsed.customerPo : null,
         pallets: Number.isSafeInteger(Number(parsed.pallets)) ? Number(parsed.pallets) : null,
         rawText: typeof parsed.rawText === "string" ? parsed.rawText : content,
-        products: Array.isArray(parsed.products) ? parsed.products.slice(0, 100).map((product: any) => ({ code: typeof product?.code === "string" ? product.code : null, name: typeof product?.name === "string" ? product.name : null, quantityLabel: typeof product?.quantityLabel === "string" ? product.quantityLabel : null, quantity: Number.isFinite(Number(product?.quantity)) ? Number(product.quantity) : null, pallets: Number.isFinite(Number(product?.pallets)) ? Number(product.pallets) : null, palletType: typeof product?.palletType === "string" ? product.palletType : null, unit: typeof product?.unit === "string" ? product.unit : null })) : [],
+        products: Array.isArray(parsed.products) ? parsed.products.slice(0, 100).map((product: any) => ({ code: typeof product?.code === "string" ? product.code : null, lotNumber: typeof product?.lotNumber === "string" ? product.lotNumber : null, name: typeof product?.name === "string" ? product.name : null, quantityLabel: typeof product?.quantityLabel === "string" ? product.quantityLabel : null, quantity: Number.isFinite(Number(product?.quantity)) ? Number(product.quantity) : null, pallets: Number.isFinite(Number(product?.pallets)) ? Number(product.pallets) : null, palletType: typeof product?.palletType === "string" ? product.palletType : null, unit: typeof product?.unit === "string" ? product.unit : null })) : [],
         recognitionProvider: "openrouter",
         recognitionModel: openRouterPayload.model,
       });
@@ -91,8 +93,8 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
             postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
             pallets: { type: ["integer", "null"] }, rawText: { type: "string" },
             products: { type: "array", items: { type: "object", additionalProperties: false,
-              properties: { code: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } },
-              required: ["code", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
+              properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } },
+              required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
           }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "rawText", "products"]
         } } },
         max_output_tokens: 2500,
