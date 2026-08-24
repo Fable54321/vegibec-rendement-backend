@@ -315,6 +315,25 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
   }
 }
 
+export async function deleteScanSessionItem(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureTransportScanTables();
+    const result = await pool.query(
+      `DELETE FROM public.transport_scan_items i
+       USING public.transport_scan_sessions s
+       WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
+         AND s.owner_user_id = $3 AND s.expires_at > NOW() AND i.confirmed = false
+       RETURNING i.id`,
+      [Number(req.params.itemId), req.params.token, req.user!.id],
+    );
+    if (!result.rows.length) { res.status(404).json({ error: "Pending scanned order not found" }); return; }
+    res.status(204).send();
+  } catch (error) {
+    console.error("Delete transport scan item error:", error);
+    res.status(500).json({ error: "Failed to dismiss scanned order" });
+  }
+}
+
 export async function optimizeRoute(
   req: Request<{}, {}, OptimizeRouteBody>,
   res: Response
