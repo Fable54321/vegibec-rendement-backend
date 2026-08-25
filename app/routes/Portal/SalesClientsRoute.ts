@@ -63,9 +63,6 @@ const saveAddresses = async (db: PoolClient, clientId: number, addresses: Addres
       : validId(item.delivery_region_id) ? Number(item.delivery_region_id) : NaN
     if (Number.isNaN(deliveryRegionId)) throw new Error("Invalid delivery region")
     const siteNumber = text(item.site_number)
-    if (siteNumber !== null && !/^\d+$/.test(siteNumber)) {
-      throw new Error("Site number must be a non-negative integer")
-    }
     const values = [siteNumber, text(item.site_name), text(item.address), text(item.city), text(item.postal_code), text(item.province), text(item.country)]
     if (values.every((value) => value === null)) continue
     await db.query(
