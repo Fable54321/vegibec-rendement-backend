@@ -35,21 +35,7 @@ CREATE TABLE IF NOT EXISTS sales.microsoft_connections (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE TABLE IF NOT EXISTS sales.rfq_email_links (
-  id BIGSERIAL PRIMARY KEY,
-  cell_id BIGINT NOT NULL REFERENCES sales.rfq_cells(id) ON DELETE CASCADE,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  microsoft_message_id TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  sender_name TEXT NOT NULL DEFAULT '',
-  sender_email TEXT NOT NULL DEFAULT '',
-  received_at TIMESTAMPTZ,
-  web_link TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (cell_id, user_id, microsoft_message_id)
-);
 CREATE INDEX IF NOT EXISTS rfq_cells_client_week_idx ON sales.rfq_cells(client_id, week_start);
-CREATE INDEX IF NOT EXISTS rfq_email_links_cell_idx ON sales.rfq_email_links(cell_id);
 ALTER TABLE sales.rfq_cells ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'email';
 DO $$ BEGIN
   ALTER TABLE sales.rfq_cells ADD CONSTRAINT rfq_cells_status_check CHECK (status IN ('final', 'email'));

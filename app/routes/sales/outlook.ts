@@ -1,13 +1,11 @@
 import { randomUUID } from "crypto";
 import { Router } from "express";
 import jwt from "jsonwebtoken";
-import { pool } from "../../db";
 import {
   disconnectMicrosoftAccount,
   exchangeMicrosoftCode,
   getMicrosoftAuthorizationUrl,
   getMicrosoftConnectionStatus,
-  getOutlookMessage,
   listOutlookMessages,
   saveMicrosoftConnection,
 } from "../../services/microsoftGraph.services";
@@ -88,43 +86,4 @@ router.get("/outlook/messages", async (req, res) => {
   }
 });
 
-router.get("/outlook-links/:linkId/open", async (req, res) => {
-  const linkId = Number(req.params.linkId);
-  if (!Number.isSafeInteger(linkId) || linkId <= 0) {
-    return res.status(400).json({ error: "Invalid Outlook link id" });
-  }
-  try {
-    const result = await pool.query(
-      `SELECT microsoft_message_id FROM sales.rfq_email_links
-       WHERE id = $1 AND user_id = $2`,
-      [linkId, req.user!.id],
-    );
-    if (!result.rowCount) {
-      return res.status(404).json({ error: "Outlook link not found for this user" });
-    }
-    const message = await getOutlookMessage(req.user!.id, result.rows[0].microsoft_message_id);
-    await pool.query(
-      "UPDATE sales.rfq_email_links SET web_link = $1 WHERE id = $2",
-      [message.webLink, linkId],
-    );
-    return res.json({ url: message.webLink });
-  } catch (error) {
-    console.error("Error opening Outlook message:", error);
-    return res.status(500).json({ error: "Failed to open Outlook message" });
-  }
-});
-
-router.delete("/outlook-links/:linkId", async (req, res) => {
-  const linkId = Number(req.params.linkId);
-  if (!Number.isSafeInteger(linkId) || linkId <= 0) {
-    return res.status(400).json({ error: "Invalid Outlook link id" });
-  }
-  const result = await pool.query(
-    "DELETE FROM sales.rfq_email_links WHERE id = $1 AND user_id = $2 RETURNING id",
-    [linkId, req.user!.id],
-  );
-  return result.rowCount ? res.status(204).send() : res.status(404).json({ error: "Outlook link not found" });
-});
-
-export { getOutlookMessage };
 export default router;

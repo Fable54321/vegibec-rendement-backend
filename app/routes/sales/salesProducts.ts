@@ -3,7 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { pool } from "../../db";
 import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services";
-import outlookRoutes, { getOutlookMessage } from "./outlook";
+import outlookRoutes from "./outlook";
 
 const router = Router();
 const allowedTypes = new Set([
@@ -278,16 +278,10 @@ router.get("/clients/:clientId/rfq-cells", async (req, res) => {
           FILTER (WHERE p.id IS NOT NULL), '[]') AS prices,
         COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', a.id, 'file_name', a.file_name,
           'content_type', a.content_type)) FILTER (WHERE a.id IS NOT NULL), '[]') AS attachments,
-        COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
-          'id', e.id, 'user_id', e.user_id, 'owner_username', u.username,
-          'subject', e.subject, 'sender_name', e.sender_name, 'sender_email', e.sender_email,
-          'received_at', e.received_at
-        )) FILTER (WHERE e.id IS NOT NULL), '[]') AS email_links
+        '[]'::jsonb AS email_links
       FROM sales.rfq_cells c
       LEFT JOIN sales.rfq_prices p ON p.cell_id = c.id
       LEFT JOIN sales.rfq_attachments a ON a.cell_id = c.id
-      LEFT JOIN sales.rfq_email_links e ON e.cell_id = c.id
-      LEFT JOIN users u ON u.id = e.user_id
       WHERE c.client_id = $1
       GROUP BY c.id ORDER BY c.week_start, c.product_id, c.location_code
     `, [clientId]);
@@ -304,25 +298,10 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
   const { weekStart, locationCode, status } = req.body;
   let prices: Array<{ quantity: number; price: number }>;
   try { prices = JSON.parse(req.body.prices || "[]"); } catch { return res.status(400).json({ error: "Invalid prices" }); }
-  let outlookMessageIds: string[];
-  try { outlookMessageIds = JSON.parse(req.body.outlookMessageIds || "[]"); } catch {
-    return res.status(400).json({ error: "Invalid Outlook message ids" });
-  }
   if (!Number.isSafeInteger(clientId) || !Number.isSafeInteger(productId) ||
       !/^\d{4}-\d{2}-\d{2}$/.test(weekStart || "") || !/^[A-Z]$/.test(locationCode || "") || !["final", "email"].includes(status) ||
-      !Array.isArray(prices) || prices.some((p) => !Number.isFinite(Number(p.quantity)) || Number(p.quantity) <= 0 || !Number.isFinite(Number(p.price)) || Number(p.price) < 0) ||
-      !Array.isArray(outlookMessageIds) || outlookMessageIds.length > 5 ||
-      outlookMessageIds.some((id) => typeof id !== "string" || !id || id.length > 1000)) {
+      !Array.isArray(prices) || prices.some((p) => !Number.isFinite(Number(p.quantity)) || Number(p.quantity) <= 0 || !Number.isFinite(Number(p.price)) || Number(p.price) < 0)) {
     return res.status(400).json({ error: "Invalid RFQ cell data" });
-  }
-  let outlookMessages: Awaited<ReturnType<typeof getOutlookMessage>>[] = [];
-  try {
-    for (const messageId of [...new Set(outlookMessageIds)]) {
-      outlookMessages.push(await getOutlookMessage(req.user!.id, messageId));
-    }
-  } catch (error) {
-    console.error("Error validating Outlook messages:", error);
-    return res.status(400).json({ error: "Unable to access one of the selected Outlook messages" });
   }
   const db = await pool.connect();
   try {
@@ -348,30 +327,6 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
       await uploadBufferToS3({ key, buffer: file.buffer, contentType });
       await db.query(`INSERT INTO sales.rfq_attachments (cell_id, file_name, content_type, s3_key, size_bytes)
         VALUES ($1, $2, $3, $4, $5)`, [cellId, file.originalname, contentType, key, file.size]);
-    }
-    for (const message of outlookMessages) {
-      await db.query(
-        `INSERT INTO sales.rfq_email_links
-          (cell_id, user_id, microsoft_message_id, subject, sender_name,
-           sender_email, received_at, web_link)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (cell_id, user_id, microsoft_message_id) DO UPDATE SET
-           subject = EXCLUDED.subject,
-           sender_name = EXCLUDED.sender_name,
-           sender_email = EXCLUDED.sender_email,
-           received_at = EXCLUDED.received_at,
-           web_link = EXCLUDED.web_link`,
-        [
-          cellId,
-          req.user!.id,
-          message.id,
-          message.subject || "(Sans objet)",
-          message.from?.emailAddress?.name || "",
-          message.from?.emailAddress?.address || "",
-          message.receivedDateTime || null,
-          message.webLink,
-        ],
-      );
     }
     await db.query("COMMIT");
     return res.json({ id: cellId });
