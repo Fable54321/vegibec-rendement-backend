@@ -1012,6 +1012,38 @@ router.patch("/:id/editable", async (req, res) => {
       })
     }
 
+    let cleanedItems: ReturnType<typeof cleanPurchaseRequestItems>
+
+    try {
+      cleanedItems = cleanPurchaseRequestItems(items)
+    } catch (error) {
+      return res.status(400).json({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Invalid purchase request items",
+      })
+    }
+
+    const submittedItemIds = items
+      .map((item: any) =>
+        item.id === undefined || item.id === null || item.id === ""
+          ? null
+          : Number(item.id),
+      )
+      .filter((itemId: number | null): itemId is number => itemId !== null)
+
+    if (
+      submittedItemIds.some(
+        (itemId: number) => !Number.isInteger(itemId) || itemId <= 0,
+      ) ||
+      new Set(submittedItemIds).size !== submittedItemIds.length
+    ) {
+      return res.status(400).json({
+        message: "Invalid or duplicate item id",
+      })
+    }
+
     await client.query("BEGIN")
 
     const request = await getEditableRequestForEmail(
@@ -1075,52 +1107,78 @@ router.patch("/:id/editable", async (req, res) => {
       ],
     )
 
-    for (const item of items) {
-      const itemId = Number(item.id)
+    const existingItemsResult = await client.query(
+      `
+      SELECT id
+      FROM portal.purchase_request_items
+      WHERE purchase_request_id = $1
+      FOR UPDATE
+      `,
+      [purchaseRequestId],
+    )
+    const existingItemIds = new Set(
+      existingItemsResult.rows.map((row) => Number(row.id)),
+    )
 
-      if (!Number.isInteger(itemId) || itemId <= 0) {
-        await client.query("ROLLBACK")
+    if (submittedItemIds.some((itemId: number) => !existingItemIds.has(itemId))) {
+      await client.query("ROLLBACK")
 
-        return res.status(400).json({
-          message: "Invalid item id",
-        })
-      }
+      return res.status(400).json({
+        message: "One of the items does not belong to this purchase request",
+      })
+    }
 
-      const quantity = Number(item.quantity)
-      const requestedUnitPrice = Number(item.requested_unit_price)
+    for (const [index, item] of cleanedItems.entries()) {
+      const rawItem = items[index]
+      const itemId =
+        rawItem.id === undefined || rawItem.id === null || rawItem.id === ""
+          ? null
+          : Number(rawItem.id)
 
-      if (!Number.isFinite(quantity) || quantity <= 0) {
-        await client.query("ROLLBACK")
-
-        return res.status(400).json({
-          message: "Invalid item quantity",
-        })
-      }
-
-      if (!Number.isFinite(requestedUnitPrice) || requestedUnitPrice < 0) {
-        await client.query("ROLLBACK")
-
-        return res.status(400).json({
-          message: "Invalid requested unit price",
-        })
+      if (itemId === null) {
+        await client.query(
+          `
+          INSERT INTO portal.purchase_request_items (
+            purchase_request_id, item_index, description, reason, quantity,
+            quantity_format, requested_unit_price, requested_supplier,
+            product_link, status, modified_at, modification_reason
+          )
+          VALUES ($1, $2, $3, $4, $5::int, $6, $7::numeric, $8, $9,
+            'pending_buyer_validation', now(), $10)
+          `,
+          [
+            purchaseRequestId,
+            item.item_index,
+            item.description,
+            item.reason,
+            item.quantity,
+            item.quantity_format,
+            item.requested_unit_price,
+            item.requested_supplier,
+            item.product_link,
+            modification_reason.trim(),
+          ],
+        )
+        continue
       }
 
       const itemResult = await client.query(
   `
   UPDATE portal.purchase_request_items
   SET
-    description = $3,
-    reason = $4,
-    quantity = $5::int,
-    quantity_format = $6,
-    requested_unit_price = $7::numeric,
-    requested_supplier = $8,
-    product_link = $9,
+    item_index = $3,
+    description = $4,
+    reason = $5,
+    quantity = $6::int,
+    quantity_format = $7,
+    requested_unit_price = $8::numeric,
+    requested_supplier = $9,
+    product_link = $10,
     buyer_confirmed_unit_price = NULL,
     buyer_confirmed_supplier = NULL,
     status = 'pending_buyer_validation',
     modified_at = now(),
-    modification_reason = $10,
+    modification_reason = $11,
     updated_at = now()
   WHERE id = $1
   AND purchase_request_id = $2
@@ -1134,13 +1192,14 @@ router.patch("/:id/editable", async (req, res) => {
   [
     itemId,
     purchaseRequestId,
-    item.description?.trim() || null,
-    item.reason?.trim() || null,
-    quantity,
-    item.quantity_format?.trim() || null,
-    requestedUnitPrice,
-    item.requested_supplier?.trim() || null,
-    item.product_link?.trim() || null,
+    item.item_index,
+    item.description,
+    item.reason,
+    item.quantity,
+    item.quantity_format,
+    item.requested_unit_price,
+    item.requested_supplier,
+    item.product_link,
     modification_reason.trim(),
   ],
 )
@@ -1152,6 +1211,26 @@ router.patch("/:id/editable", async (req, res) => {
           message: "One of the items cannot be modified",
         })
       }
+    }
+
+    const removedItemIds = [...existingItemIds].filter(
+      (itemId) => !submittedItemIds.includes(itemId),
+    )
+
+    if (removedItemIds.length > 0) {
+      await client.query(
+        `
+        DELETE FROM portal.purchase_request_items
+        WHERE purchase_request_id = $1
+          AND id = ANY($2::bigint[])
+          AND NOT EXISTS (
+            SELECT 1
+            FROM portal.purchase_order_items poi
+            WHERE poi.purchase_request_item_id = portal.purchase_request_items.id
+          )
+        `,
+        [purchaseRequestId, removedItemIds],
+      )
     }
 
     await invalidateBuyerValidationTokens(client, purchaseRequestId)
