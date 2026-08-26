@@ -32,10 +32,14 @@ router.get("/foreign-workers", requireAppRole("main", ["admin", "user", "guest"]
         fwi.pin,
         fwi.contract_type,
         fwi.residence_country,
-        fwi.debut_date
+        fwi.debut_date,
+        fwd.job_id_1,
+        fwd.job_id_2
       FROM users u
       INNER JOIN foreign_workers_info fwi
         ON fwi.user_id = u.id
+      LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
+        ON fwd.user_id = u.id
       ORDER BY u.surname ASC, u.name ASC
       `
     );
