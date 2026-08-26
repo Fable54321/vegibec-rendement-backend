@@ -19,6 +19,7 @@ router.get("/", readRoles, async (_req, res) => {
         fp.quantity_format,
         fp.product_type,
         fp.qty_per_pallet,
+        fp.stacking_possibility,
         fp.weight,
         ip.on_hand_qty, ip.sold_qty, ip.balance_qty, ip.estimated_pallet_qty
       FROM public.finished_product fp
