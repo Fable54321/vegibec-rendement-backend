@@ -45,9 +45,11 @@ router.post("/", access, async (req, res) => {
     const evaluatorId = integer(req.body.evaluatorId);
     const evaluatedWorkerId = integer(req.body.evaluatedWorkerId);
     const workType = req.body.workType;
+    const positionTitle = text(req.body.positionTitle);
     const sectionC = req.body.sectionC;
     if (!evaluatorId || !evaluatedWorkerId || evaluatorId === evaluatedWorkerId) throw new Error("Los trabajadores seleccionados no son válidos.");
     if (workType !== "campo" && workType !== "bodega") throw new Error("El tipo de trabajo no es válido.");
+    if (!positionTitle || positionTitle.length > 150) throw new Error("El puesto no es válido.");
     if (!isRecord(sectionC)) throw new Error("La Sección C no es válida.");
 
     const sectionA = validateRatings(req.body.sectionA, Object.keys(sectionACriteria), "A");
@@ -75,7 +77,7 @@ router.post("/", access, async (req, res) => {
     if (!evaluator || (evaluator.job_id_1 !== 6 && evaluator.job_id_2 !== 6)) throw new Error("El evaluador seleccionado no tiene el puesto requerido.");
     if (!evaluatedWorker || evaluatedWorker.job_id_1 === 6 || evaluatedWorker.job_id_2 === 6) throw new Error("La persona evaluada no puede ser un evaluador.");
 
-    const evaluationResult = await client.query<{ id: string }>(`INSERT INTO evaluation.evaluations (evaluator_worker_id, evaluated_worker_id, submitted_by_user_id, work_type, evaluation_year) VALUES ($1, $2, $3, $4, EXTRACT(YEAR FROM $5::date)) RETURNING id`, [evaluatorId, evaluatedWorkerId, req.user.id, workType, evaluationDate]);
+    const evaluationResult = await client.query<{ id: string }>(`INSERT INTO evaluation.evaluations (evaluator_worker_id, evaluated_worker_id, submitted_by_user_id, work_type, position_title, evaluation_year) VALUES ($1, $2, $3, $4, $5, EXTRACT(YEAR FROM $6::date)) RETURNING id`, [evaluatorId, evaluatedWorkerId, req.user.id, workType, positionTitle, evaluationDate]);
     const evaluationId = evaluationResult.rows[0].id;
     for (const answer of [...sectionA, ...sectionB]) {
       await client.query(`INSERT INTO evaluation.rating_answers (evaluation_id, section, criterion_key, criterion_label, score) VALUES ($1, $2, $3, $4, $5)`, [evaluationId, answer.section, answer.key, answer.label, answer.score]);
