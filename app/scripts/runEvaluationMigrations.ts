@@ -3,9 +3,13 @@ import path from "path";
 import { pool } from "../db";
 
 async function run() {
-  const migrationPath = path.join(__dirname, "../routes/evaluation/migrations/001_create_evaluation_schema.sql");
-  await pool.query(fs.readFileSync(migrationPath, "utf8"));
-  console.log("Evaluation schema migration completed.");
+  const migrationsDirectory = path.join(__dirname, "../routes/evaluation/migrations");
+  const migrations = fs.readdirSync(migrationsDirectory).filter((file) => file.endsWith(".sql")).sort();
+  for (const migration of migrations) {
+    await pool.query(fs.readFileSync(path.join(migrationsDirectory, migration), "utf8"));
+    console.log(`Applied ${migration}`);
+  }
+  console.log("Evaluation schema migrations completed.");
 }
 
 run().catch((error) => {
