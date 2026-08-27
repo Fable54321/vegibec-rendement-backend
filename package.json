@@ -11,6 +11,7 @@
     "create-admin": "ts-node app/scripts/createAdmin.ts",
     "migrate:timesheet-overtime": "ts-node app/scripts/createTimesheetOvertimeSummaries.ts",
     "migrate:quality-picture-orders": "ts-node app/scripts/addQualityPictureOrderGroups.ts",
+    "migrate:evaluation": "ts-node app/scripts/runEvaluationMigrations.ts",
     "repair:impaut-signatures": "tsx app/scripts/repairImpAutSignatures.ts",
     "scrape:website": "ts-node app/Utils/WebsiteScraper.ts",
     "scrape:weather": "ts-node app/Utils/Weather/runWeatherScrape.ts",

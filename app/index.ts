@@ -69,6 +69,7 @@ import inventoryRoute from "./routes/Inventory/inventory";
 import trackabilityRoute from "./routes/Trackability/trackability";
 import finishedProductsRoute from "./routes/Trackability/finishedProducts";
 import transportRoute from "./routes/Transports/transport.routes";
+import evaluationRoute from "./routes/evaluation/evaluation.routes";
 
 
 
@@ -1013,6 +1014,8 @@ app.use("/portal/visitors-info", visitorsInfoRoute);
 app.use("/portal", portalRoute);
 
 app.use("/portal/foreign-workers", foreignWorkersRoute);
+
+app.use("/evaluation", evaluationRoute);
 
 app.use("/agenda", agendaRoute)
 
