@@ -5,7 +5,7 @@ import { requireAppRole } from "../../middleware/auth";
 const router = Router();
 const access = requireAppRole("main", ["admin", "user", "guest"]);
 
-const gradeScores = { needs_work: 0, good: 1, excellent: 2 } as const;
+const gradeScores = { needs_work: 0, good: 2, excellent: 3 } as const;
 type Grade = keyof typeof gradeScores;
 
 const sectionACriteria: Record<string, string> = {

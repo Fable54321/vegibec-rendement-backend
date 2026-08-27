@@ -48,7 +48,9 @@ CREATE INDEX IF NOT EXISTS evaluations_evaluated_worker_idx ON evaluation.evalua
 CREATE INDEX IF NOT EXISTS evaluations_evaluator_worker_idx ON evaluation.evaluations (evaluator_worker_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS rating_answers_evaluation_idx ON evaluation.rating_answers (evaluation_id);
 
-CREATE OR REPLACE VIEW evaluation.evaluation_scores AS
+DROP VIEW IF EXISTS evaluation.evaluation_scores;
+
+CREATE VIEW evaluation.evaluation_scores AS
 SELECT
   e.id AS evaluation_id,
   COALESCE(SUM(r.score) FILTER (WHERE r.section = 'A'), 0)::INTEGER AS section_a_score,
