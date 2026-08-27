@@ -167,3 +167,32 @@ export const requireAppRole = (appSlug: string, allowedRoles: string[]) => {
     }
   };
 };
+
+export const requireAnyAppRole = (
+  rules: Array<{ appSlug: string; allowedRoles: string[] }>,
+) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: "Not authenticated" });
+
+      const slugs = rules.map((rule) => rule.appSlug);
+      const result = await pool.query<{ slug: string; role: string }>(
+        `SELECT a.slug, uar.role
+         FROM user_app_roles uar
+         JOIN apps a ON a.id = uar.app_id
+         WHERE uar.user_id = $1 AND a.slug = ANY($2::text[])`,
+        [req.user.id, slugs],
+      );
+      const granted = result.rows.find((access) =>
+        rules.some((rule) => rule.appSlug === access.slug && rule.allowedRoles.includes(access.role)),
+      );
+      if (!granted) return res.status(403).json({ message: "Access denied" });
+
+      req.appRole = granted.role;
+      return next();
+    } catch (error) {
+      console.error("requireAnyAppRole error:", error);
+      return res.status(500).json({ message: "Server error" });
+    }
+  };
+};

@@ -3,7 +3,7 @@ import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 
 const router = Router();
-const access = requireAppRole("main", ["admin", "user", "guest"]);
+const access = requireAppRole("evaluacion", ["admin", "user"]);
 
 const gradeScores = { needs_work: 0, good: 2, excellent: 3 } as const;
 type Grade = keyof typeof gradeScores;

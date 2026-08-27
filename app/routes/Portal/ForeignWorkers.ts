@@ -1,6 +1,6 @@
 import express from "express";
 import { pool } from "../../db";
-import { requireAppRole } from "../../middleware/auth";
+import { requireAnyAppRole, requireAppRole } from "../../middleware/auth";
 import { getContractAccessDetails } from "../../Utils/ContractHelpers/buildContracSession";
 import multer from "multer";
 import path from "path";
@@ -19,7 +19,10 @@ const upload = multer({
 const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
 
 
-router.get("/foreign-workers", requireAppRole("main", ["admin", "user", "guest"]), async (_req, res) => {
+router.get("/foreign-workers", requireAnyAppRole([
+  { appSlug: "main", allowedRoles: ["admin", "user", "guest"] },
+  { appSlug: "evaluacion", allowedRoles: ["admin", "user"] },
+]), async (_req, res) => {
   try {
     const result = await pool.query(
       `
