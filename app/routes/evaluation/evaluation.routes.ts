@@ -26,6 +26,7 @@ const isRecord = (value: unknown): value is JsonRecord => Boolean(value) && type
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const integer = (value: unknown) => Number.isInteger(Number(value)) ? Number(value) : null;
 const gradeScore = (value: unknown) => typeof value === "string" && value in gradeScores ? gradeScores[value as Grade] : null;
+const isUuid = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 function validateRatings(values: unknown, keys: string[], section: "A" | "B") {
   if (!isRecord(values)) throw new Error(`La Sección ${section} no es válida.`);
@@ -44,10 +45,12 @@ router.post("/", access, async (req, res) => {
 
     const evaluatorId = integer(req.body.evaluatorId);
     const evaluatedWorkerId = integer(req.body.evaluatedWorkerId);
+    const clientSubmissionId = req.body.clientSubmissionId;
     const workType = req.body.workType;
     const positionTitle = text(req.body.positionTitle);
     const sectionC = req.body.sectionC;
     if (!evaluatorId || !evaluatedWorkerId || evaluatorId === evaluatedWorkerId) throw new Error("Los trabajadores seleccionados no son válidos.");
+    if (!isUuid(clientSubmissionId)) throw new Error("El identificador de envío no es válido.");
     if (workType !== "campo" && workType !== "bodega") throw new Error("El tipo de trabajo no es válido.");
     if (!positionTitle || positionTitle.length > 150) throw new Error("El puesto no es válido.");
     if (!isRecord(sectionC)) throw new Error("La Sección C no es válida.");
@@ -77,15 +80,20 @@ router.post("/", access, async (req, res) => {
     if (!evaluator || (evaluator.job_id_1 !== 6 && evaluator.job_id_2 !== 6)) throw new Error("El evaluador seleccionado no tiene el puesto requerido.");
     if (!evaluatedWorker || evaluatedWorker.job_id_1 === 6 || evaluatedWorker.job_id_2 === 6) throw new Error("La persona evaluada no puede ser un evaluador.");
 
-    const evaluationResult = await client.query<{ id: string }>(`INSERT INTO evaluation.evaluations (evaluator_worker_id, evaluated_worker_id, submitted_by_user_id, work_type, position_title, evaluation_year) VALUES ($1, $2, $3, $4, $5, EXTRACT(YEAR FROM $6::date)) RETURNING id`, [evaluatorId, evaluatedWorkerId, req.user.id, workType, positionTitle, evaluationDate]);
+    const evaluationResult = await client.query<{ id: string; inserted: boolean }>(`INSERT INTO evaluation.evaluations (evaluator_worker_id, evaluated_worker_id, submitted_by_user_id, work_type, position_title, evaluation_year, client_submission_id) VALUES ($1, $2, $3, $4, $5, EXTRACT(YEAR FROM $6::date), $7) ON CONFLICT (client_submission_id) WHERE client_submission_id IS NOT NULL DO UPDATE SET client_submission_id = EXCLUDED.client_submission_id RETURNING id, (xmax = 0) AS inserted`, [evaluatorId, evaluatedWorkerId, req.user.id, workType, positionTitle, evaluationDate, clientSubmissionId]);
     const evaluationId = evaluationResult.rows[0].id;
+    if (!evaluationResult.rows[0].inserted) {
+      await client.query("COMMIT");
+      const existingScores = await pool.query(`SELECT * FROM evaluation.evaluation_scores WHERE evaluation_id = $1`, [evaluationId]);
+      return res.status(200).json({ evaluationId, scores: existingScores.rows[0], deduplicated: true });
+    }
     for (const answer of [...sectionA, ...sectionB]) {
       await client.query(`INSERT INTO evaluation.rating_answers (evaluation_id, section, criterion_key, criterion_label, score) VALUES ($1, $2, $3, $4, $5)`, [evaluationId, answer.section, answer.key, answer.label, answer.score]);
     }
     await client.query(`INSERT INTO evaluation.performance_measurements (evaluation_id, evaluation_date, field_number, crop, weather_conditions, terrain_conditions, harvest_number, task, other_task, task_specification, quantity, unit, observations, final_score) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [evaluationId, evaluationDate, workType === "campo" ? text(sectionC.fieldNumber) || null : null, crop, workType === "campo" ? text(sectionC.weatherConditions) || null : null, workType === "campo" ? text(sectionC.terrainConditions) || null : null, harvestNumber, task, task === "Otro" ? otherTask : null, taskSpecification, quantity, unit, text(sectionC.observations) || null, finalScore]);
     await client.query("COMMIT");
     const saved = await pool.query(`SELECT * FROM evaluation.evaluation_scores WHERE evaluation_id = $1`, [evaluationId]);
-    return res.status(201).json({ evaluationId, scores: saved.rows[0] });
+    return res.status(201).json({ evaluationId, scores: saved.rows[0], deduplicated: false });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     const message = error instanceof Error ? error.message : "Unable to save evaluation";
