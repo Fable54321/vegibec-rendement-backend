@@ -16,6 +16,45 @@ const sectionAQuestionKeys = Array.from(
   { length: 37 },
   (_, index) => `question_${index + 1}`,
 );
+const sectionAQuestions = [
+  "¿El empleado llega tarde para tomar el bus?",
+  "¿El empleado olvida su equipo de trabajo al momento de presentarse?",
+  "¿El empleado llega preparado a su trabajo según las condiciones meteorológicas?",
+  "¿El empleado parece motivado para su día de trabajo?",
+  "¿El empleado muestra una actitud positiva hacia sus colegas?",
+  "¿El empleado muestra una actitud positiva hacia su supervisor?",
+  "¿El empleado muestra una actitud positiva hacia la empresa?",
+  "¿El empleado muestra un aumento de su rendimiento?",
+  "¿El empleado muestra desaprobación al cambiar de tipo de trabajo?",
+  "¿El empleado ayuda a sus compañeros en dificultades?",
+  "¿El empleado es voluntario para realizar tareas adicionales?",
+  "¿El empleado está dispuesto a trabajar horas adicionales?",
+  "¿El empleado se queja de sus compañeros?",
+  "¿El empleado se queja de su supervisor?",
+  "¿El empleado se queja del trabajo que realiza?",
+  "¿El empleado se queja de la empresa?",
+  "¿El empleado incita a los demás a trabajar más lento?",
+  "¿El empleado realiza acciones inseguras que podrian causar accidentes?",
+  "¿El empleado escucha y cumple las instrucciones de su supervisor?",
+  "¿El empleado mantiene los campos limpios?",
+  "¿El empleado mantiene los vehículos limpios?",
+  "¿El empleado tiene una buena actitud?",
+  "¿El empleado evita tomar riesgos inútiles?",
+  "¿El empleado tiene un buen rendimiento constante?",
+  "¿El empleado respeta las reglas y políticas de la finca?",
+  "¿El empleado brinda un trabajo de calidad?",
+  "¿El empleado cuida su material de trabajo?",
+  "¿El empleado bromea con sus compañeros de trabajo?",
+  "¿El empleado tiene propósitos inadecuados en el lugar de trabajo?",
+  "¿El empleado sigue el ritmo de los demás?",
+  "¿El empleado muestra un rendimiento constante?",
+  "¿El empleado muestra voluntad de aprender?",
+  "¿El empleado puede realizar su trabajo de manera independiente?",
+  "¿El empleado necesita ser vigilado?",
+  "¿El empleado permite al grupo alcanzar sus objetivos?",
+  "¿El empleado cuida su trabajo y lo realiza con responsabilidad?",
+  "¿Estoy feliz de tener al empleado en mi grupo?",
+];
 const allCrops = new Set([
   "Apio",
   "Chile pimiento",
@@ -346,7 +385,22 @@ router.get("/:id", access, async (req, res) => {
   if (!id) return res.status(400).json({ message: "Invalid evaluation id" });
   try {
     const header = await pool.query(
-      `SELECT e.*, s.* FROM evaluation.evaluations e JOIN evaluation.evaluation_scores s ON s.evaluation_id = e.id WHERE e.id = $1`,
+      `SELECT
+        e.*,
+        s.*,
+        evaluated.name AS evaluated_worker_name,
+        evaluated.surname AS evaluated_worker_surname,
+        evaluated_info.matricula AS evaluated_worker_matricula,
+        evaluator.name AS evaluator_worker_name,
+        evaluator.surname AS evaluator_worker_surname,
+        evaluator_info.matricula AS evaluator_worker_matricula
+      FROM evaluation.evaluations e
+      JOIN evaluation.evaluation_scores s ON s.evaluation_id = e.id
+      JOIN users evaluated ON evaluated.id = e.evaluated_worker_id
+      JOIN foreign_workers_info evaluated_info ON evaluated_info.user_id = evaluated.id
+      JOIN users evaluator ON evaluator.id = e.evaluator_worker_id
+      JOIN foreign_workers_info evaluator_info ON evaluator_info.user_id = evaluator.id
+      WHERE e.id = $1`,
       [id],
     );
     if (!header.rowCount)
@@ -367,7 +421,16 @@ router.get("/:id", access, async (req, res) => {
     ]);
     return res.json({
       evaluation: header.rows[0],
-      ratings: ratings.rows,
+      ratings: ratings.rows.map((rating) => {
+        const questionNumber = Number(String(rating.criterion_key).slice(9));
+        return {
+          ...rating,
+          criterion_label:
+            sectionAQuestions[questionNumber - 1] ?? rating.criterion_label,
+          question_number: questionNumber,
+          is_negative: negativeQuestionNumbers.has(questionNumber),
+        };
+      }),
       sectionB: measurement.rows[0],
       sectionC: permanence.rows[0],
     });
