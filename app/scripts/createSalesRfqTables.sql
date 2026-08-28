@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS sales.rfq_attachments (
   content_type TEXT NOT NULL,
   s3_key TEXT NOT NULL UNIQUE,
   size_bytes BIGINT NOT NULL,
+  region_code VARCHAR(1),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS sales.microsoft_connections (
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS sales.microsoft_connections (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS rfq_cells_client_week_idx ON sales.rfq_cells(client_id, week_start);
+ALTER TABLE sales.rfq_attachments ADD COLUMN IF NOT EXISTS region_code VARCHAR(1);
 ALTER TABLE sales.rfq_cells ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'email';
 DO $$ BEGIN
   ALTER TABLE sales.rfq_cells ADD CONSTRAINT rfq_cells_status_check CHECK (status IN ('final', 'email'));

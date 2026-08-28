@@ -16,6 +16,34 @@ const run = async () => {
     }
     const clientId = clientResult.rows[0].id;
 
+    await db.query(`
+      ALTER TABLE sales.rfq_attachments
+      ADD COLUMN IF NOT EXISTS region_code VARCHAR(1)
+    `);
+    await db.query(`
+      UPDATE sales.rfq_attachments a
+      SET region_code = c.location_code
+      FROM sales.rfq_cells c
+      WHERE c.id = a.cell_id AND a.region_code IS NULL
+    `);
+    // On databases where the market merge ran before region tracking was added,
+    // an attachment whose S3 path names another cell came from the merged Q cell.
+    await db.query(`
+      UPDATE sales.rfq_attachments a
+      SET region_code = 'Q'
+      FROM sales.rfq_cells c
+      WHERE c.id = a.cell_id AND c.client_id = $1 AND c.location_code = 'B'
+        AND split_part(a.s3_key, '/', 3) <> c.id::text
+    `, [clientId]);
+    // These were the two Q-only cells in the production data when the initial
+    // merge ran; their cell IDs did not change, so their S3 paths cannot reveal it.
+    await db.query(`
+      UPDATE sales.rfq_attachments a
+      SET region_code = 'Q'
+      FROM sales.rfq_cells c
+      WHERE c.id = a.cell_id AND c.client_id = $1 AND c.id = ANY($2::bigint[])
+    `, [clientId, [320, 795]]);
+
     const beforeResult = await db.query(`
       SELECT
         COUNT(*)::int AS cells,
@@ -100,7 +128,20 @@ const run = async () => {
       throw new Error(`Merge verification failed: ${JSON.stringify({ before, after })}`);
     }
 
-    console.log(JSON.stringify({ mode: apply ? "apply" : "dry-run", before, after }, null, 2));
+    const attachmentRegions = await db.query(`
+      SELECT a.region_code, COUNT(*)::int AS attachments
+      FROM sales.rfq_attachments a
+      JOIN sales.rfq_cells c ON c.id = a.cell_id
+      WHERE c.client_id = $1 AND c.location_code = 'B'
+      GROUP BY a.region_code ORDER BY a.region_code
+    `, [clientId]);
+
+    console.log(JSON.stringify({
+      mode: apply ? "apply" : "dry-run",
+      before,
+      after,
+      attachmentRegions: attachmentRegions.rows,
+    }, null, 2));
     await db.query(apply ? "COMMIT" : "ROLLBACK");
   } catch (error) {
     await db.query("ROLLBACK");

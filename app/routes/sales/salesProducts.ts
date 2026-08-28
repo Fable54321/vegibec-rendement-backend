@@ -280,7 +280,7 @@ router.get("/clients/:clientId/rfq-cells", async (req, res) => {
         COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', p.id, 'quantity', p.quantity, 'price', p.price))
           FILTER (WHERE p.id IS NOT NULL), '[]') AS prices,
         COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', a.id, 'file_name', a.file_name,
-          'content_type', a.content_type)) FILTER (WHERE a.id IS NOT NULL), '[]') AS attachments,
+          'content_type', a.content_type, 'region_code', a.region_code)) FILTER (WHERE a.id IS NOT NULL), '[]') AS attachments,
         '[]'::jsonb AS email_links
       FROM sales.rfq_cells c
       LEFT JOIN sales.rfq_prices p ON p.cell_id = c.id
@@ -300,6 +300,8 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
   const productId = Number(req.body.productId);
   const { weekStart, locationCode, status } = req.body;
   const normalizedLocationCode = normalizeRfqLocationCode(clientId, locationCode);
+  let fileRegions: string[];
+  try { fileRegions = JSON.parse(req.body.fileRegions || "[]"); } catch { return res.status(400).json({ error: "Invalid file regions" }); }
   let prices: Array<{ quantity: number; price: number }>;
   try { prices = JSON.parse(req.body.prices || "[]"); } catch { return res.status(400).json({ error: "Invalid prices" }); }
   if (!Number.isSafeInteger(clientId) || !Number.isSafeInteger(productId) ||
@@ -324,13 +326,21 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
       "INSERT INTO sales.rfq_prices (cell_id, quantity, price) VALUES ($1, $2, $3)",
       [cellId, Number(item.quantity), Number(item.price)],
     );
-    for (const file of (req.files as Express.Multer.File[] | undefined) ?? []) {
+    const uploadedFiles = (req.files as Express.Multer.File[] | undefined) ?? [];
+    const normalizedFileRegions = fileRegions.length
+      ? fileRegions
+      : uploadedFiles.map(() => locationCode);
+    if (normalizedFileRegions.length !== uploadedFiles.length || normalizedFileRegions.some((code) => !/^[A-Z]$/.test(code))) {
+      await db.query("ROLLBACK");
+      return res.status(400).json({ error: "Invalid file regions" });
+    }
+    for (const [index, file] of uploadedFiles.entries()) {
       const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
       const key = `sales/rfq/${cellId}/${randomUUID()}-${safeName}`;
       const contentType = getStoredContentType(file);
       await uploadBufferToS3({ key, buffer: file.buffer, contentType });
-      await db.query(`INSERT INTO sales.rfq_attachments (cell_id, file_name, content_type, s3_key, size_bytes)
-        VALUES ($1, $2, $3, $4, $5)`, [cellId, file.originalname, contentType, key, file.size]);
+      await db.query(`INSERT INTO sales.rfq_attachments (cell_id, file_name, content_type, s3_key, size_bytes, region_code)
+        VALUES ($1, $2, $3, $4, $5, $6)`, [cellId, file.originalname, contentType, key, file.size, normalizedFileRegions[index]]);
     }
     await db.query("COMMIT");
     return res.json({ id: cellId });
