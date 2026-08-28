@@ -286,6 +286,53 @@ router.post("/", access, async (req, res) => {
   }
 });
 
+router.get("/", access, async (_req, res) => {
+  try {
+    const evaluations = await pool.query(
+      `SELECT
+        e.id,
+        e.work_type,
+        e.position_title,
+        e.evaluation_year,
+        e.created_at,
+        evaluated.id AS evaluated_worker_id,
+        evaluated.name AS evaluated_worker_name,
+        evaluated.surname AS evaluated_worker_surname,
+        evaluator.id AS evaluator_worker_id,
+        evaluator.name AS evaluator_worker_name,
+        evaluator.surname AS evaluator_worker_surname,
+        pm.evaluation_date,
+        pm.field_number,
+        pm.crop,
+        pm.other_crop,
+        pm.task,
+        pm.other_task,
+        pm.task_specification,
+        pm.quantity,
+        pm.unit,
+        pm.final_score,
+        pe.recommend_next_season,
+        scores.questionnaire_average
+      FROM evaluation.evaluations e
+      JOIN users evaluated ON evaluated.id = e.evaluated_worker_id
+      JOIN users evaluator ON evaluator.id = e.evaluator_worker_id
+      JOIN evaluation.performance_measurements pm ON pm.evaluation_id = e.id
+      JOIN evaluation.permanence_evaluations pe ON pe.evaluation_id = e.id
+      LEFT JOIN LATERAL (
+        SELECT ROUND(AVG(ra.score)::numeric, 2) AS questionnaire_average
+        FROM evaluation.rating_answers ra
+        WHERE ra.evaluation_id = e.id
+      ) scores ON true
+      ORDER BY pm.evaluation_date DESC, e.created_at DESC`,
+    );
+
+    return res.json({ evaluations: evaluations.rows });
+  } catch (error) {
+    console.error("Get evaluations error:", error);
+    return res.status(500).json({ message: "Unable to load evaluations" });
+  }
+});
+
 router.get("/:id", access, async (req, res) => {
   const id = integer(req.params.id);
   if (!id) return res.status(400).json({ message: "Invalid evaluation id" });
