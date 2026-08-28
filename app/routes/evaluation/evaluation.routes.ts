@@ -312,14 +312,18 @@ router.get("/", access, async (_req, res) => {
         pm.unit,
         pm.final_score,
         pe.recommend_next_season,
-        scores.questionnaire_average
+        ROUND(
+          (COALESCE(scores.questionnaire_average, 0) / 3 * 70) +
+          (pm.final_score::numeric / 3 * 30),
+          2
+        ) AS overall_score
       FROM evaluation.evaluations e
       JOIN users evaluated ON evaluated.id = e.evaluated_worker_id
       JOIN users evaluator ON evaluator.id = e.evaluator_worker_id
       JOIN evaluation.performance_measurements pm ON pm.evaluation_id = e.id
       JOIN evaluation.permanence_evaluations pe ON pe.evaluation_id = e.id
       LEFT JOIN LATERAL (
-        SELECT ROUND(AVG(ra.score)::numeric, 2) AS questionnaire_average
+        SELECT AVG(ra.score)::numeric AS questionnaire_average
         FROM evaluation.rating_answers ra
         WHERE ra.evaluation_id = e.id
       ) scores ON true
