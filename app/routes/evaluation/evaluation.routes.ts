@@ -8,16 +8,11 @@ const access = requireAppRole("evaluacion", ["admin", "user"]);
 const gradeScores = { needs_work: 0, good: 2, excellent: 3 } as const;
 type Grade = keyof typeof gradeScores;
 
-const sectionACriteria: Record<string, string> = {
-  puntualidad: "Puntualidad", competencias_tecnicas: "Competencias técnicas",
-  coherencia: "Coherencia", adaptabilidad: "Adaptabilidad", asistencia: "Asistencia",
-  comunicacion: "Comunicación", cooperacion_equipo: "Cooperación en equipo",
-  productividad_calidad: "Productividad y calidad del trabajo", responsabilidad: "Responsabilidad",
-};
 const campoOnlyQuestionNumbers = new Set([2, 3, 15, 20, 21, 28, 29]);
-const sectionBKeys = Array.from({ length: 37 }, (_, index) => `question_${index + 1}`);
-const allCrops = new Set(["Apio", "Chile pimiento", "Coliflor", "Lechuga romana", "Lechuga bola", "Lechuga rizada", "Coles de Bruselas", "Repollo", "Repollo plano", "Col (repollo) de Saboya", "Zucchini", "Corazón de romana"]);
-const bodegaCrops = new Set(["Chile pimiento", "Coliflor", "Coles de Bruselas", "Repollo", "Repollo plano", "Zucchini"]);
+const negativeQuestionNumbers = new Set([1, 2, 9, 13, 14, 15, 16, 17, 18, 28, 29, 34]);
+const sectionAQuestionKeys = Array.from({ length: 37 }, (_, index) => `question_${index + 1}`);
+const allCrops = new Set(["Apio", "Chile pimiento", "Coliflor", "Lechuga romana", "Lechuga bola", "Lechuga rizada", "Coles de Bruselas", "Repollo", "Repollo plano", "Col (repollo) de Saboya", "Zucchini", "Corazón de romana", "Otro"]);
+const bodegaCrops = new Set(["Chile pimiento", "Coliflor", "Coles de Bruselas", "Repollo", "Repollo plano", "Zucchini", "Otro"]);
 const allTasks = new Set(["Cosecha", "Empaque (campo)", "Empaque (bodega)", "Ensamblador de cajas", "Plantación", "Esquivada", "Conductor de maquinaria", "Fletero", "Deshierbada", "Piedra", "Piochada", "Otro"]);
 const bodegaTasks = new Set(["Empaque (bodega)", "Ensamblador de cajas", "Esquivada", "Otro"]);
 
@@ -28,12 +23,14 @@ const integer = (value: unknown) => Number.isInteger(Number(value)) ? Number(val
 const gradeScore = (value: unknown) => typeof value === "string" && value in gradeScores ? gradeScores[value as Grade] : null;
 const isUuid = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
-function validateRatings(values: unknown, keys: string[], section: "A" | "B") {
-  if (!isRecord(values)) throw new Error(`La Sección ${section} no es válida.`);
+function validateSectionAQuestions(values: unknown, keys: string[]) {
+  if (!isRecord(values)) throw new Error("La Sección A no es válida.");
   return keys.map((key) => {
-    const score = gradeScore(values[key]);
-    if (score === null) throw new Error(`Falta una calificación válida para ${section}.${key}.`);
-    return { section, key, label: section === "A" ? sectionACriteria[key] : `Pregunta ${key.slice(9)}`, score };
+    const questionNumber = Number(key.slice(9));
+    const rawScore = gradeScore(values[key]);
+    if (rawScore === null) throw new Error(`Falta una calificación válida para A.${key}.`);
+    const score = negativeQuestionNumbers.has(questionNumber) ? 3 - rawScore : rawScore;
+    return { section: "A", key, label: `Pregunta ${questionNumber}`, score };
   });
 }
 
@@ -53,13 +50,13 @@ router.post("/", access, async (req, res) => {
     if (!isUuid(clientSubmissionId)) throw new Error("El identificador de envío no es válido.");
     if (workType !== "campo" && workType !== "bodega") throw new Error("El tipo de trabajo no es válido.");
     if (!positionTitle || positionTitle.length > 150) throw new Error("El puesto no es válido.");
-    if (!isRecord(sectionC)) throw new Error("La Sección C no es válida.");
+    if (!isRecord(sectionC)) throw new Error("La Sección B no es válida.");
 
-    const sectionA = validateRatings(req.body.sectionA, Object.keys(sectionACriteria), "A");
-    const requiredBKeys = sectionBKeys.filter((_, index) => workType === "campo" || !campoOnlyQuestionNumbers.has(index + 1));
-    const sectionB = validateRatings(req.body.sectionB, requiredBKeys, "B");
+    const requiredAKeys = sectionAQuestionKeys.filter((_, index) => workType === "campo" || !campoOnlyQuestionNumbers.has(index + 1));
+    const sectionA = validateSectionAQuestions(req.body.sectionB, requiredAKeys);
     const evaluationDate = text(sectionC.evaluationDate);
     const crop = text(sectionC.crop);
+    const otherCrop = text(sectionC.otherCrop);
     const task = text(sectionC.task);
     const otherTask = text(sectionC.otherTask);
     const taskSpecification = text(sectionC.taskSpecification);
@@ -67,8 +64,9 @@ router.post("/", access, async (req, res) => {
     const harvestNumber = integer(sectionC.harvestNumber);
     const quantity = Number(sectionC.quantity);
     const finalScore = gradeScore(sectionC.finalRating);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(evaluationDate) || !crop || !task || !taskSpecification || !unit || !harvestNumber || harvestNumber < 1 || harvestNumber > 3 || !Number.isFinite(quantity) || quantity < 0 || finalScore === null) throw new Error("Faltan datos obligatorios o hay valores inválidos en la Sección C.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(evaluationDate) || !crop || !task || !taskSpecification || !unit || !harvestNumber || harvestNumber < 1 || harvestNumber > 3 || !Number.isInteger(quantity) || quantity < 1 || finalScore === null) throw new Error("Faltan datos obligatorios o hay valores inválidos en la Sección B.");
     if (task === "Otro" && !otherTask) throw new Error("Debe especificar la otra tarea.");
+    if (crop === "Otro" && !otherCrop) throw new Error("Debe especificar el otro tipo de cultivo.");
     if (!(workType === "bodega" ? bodegaCrops : allCrops).has(crop)) throw new Error("El cultivo no es válido para el tipo de trabajo.");
     if (!(workType === "bodega" ? bodegaTasks : allTasks).has(task)) throw new Error("La tarea no es válida para el tipo de trabajo.");
 
@@ -87,10 +85,10 @@ router.post("/", access, async (req, res) => {
       const existingScores = await pool.query(`SELECT * FROM evaluation.evaluation_scores WHERE evaluation_id = $1`, [evaluationId]);
       return res.status(200).json({ evaluationId, scores: existingScores.rows[0], deduplicated: true });
     }
-    for (const answer of [...sectionA, ...sectionB]) {
+    for (const answer of sectionA) {
       await client.query(`INSERT INTO evaluation.rating_answers (evaluation_id, section, criterion_key, criterion_label, score) VALUES ($1, $2, $3, $4, $5)`, [evaluationId, answer.section, answer.key, answer.label, answer.score]);
     }
-    await client.query(`INSERT INTO evaluation.performance_measurements (evaluation_id, evaluation_date, field_number, crop, weather_conditions, terrain_conditions, harvest_number, task, other_task, task_specification, quantity, unit, observations, final_score) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [evaluationId, evaluationDate, workType === "campo" ? text(sectionC.fieldNumber) || null : null, crop, workType === "campo" ? text(sectionC.weatherConditions) || null : null, workType === "campo" ? text(sectionC.terrainConditions) || null : null, harvestNumber, task, task === "Otro" ? otherTask : null, taskSpecification, quantity, unit, text(sectionC.observations) || null, finalScore]);
+    await client.query(`INSERT INTO evaluation.performance_measurements (evaluation_id, evaluation_date, field_number, crop, other_crop, weather_conditions, terrain_conditions, harvest_number, task, other_task, task_specification, quantity, unit, observations, final_score) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [evaluationId, evaluationDate, workType === "campo" ? text(sectionC.fieldNumber) || null : null, crop, crop === "Otro" ? otherCrop : null, workType === "campo" ? text(sectionC.weatherConditions) || null : null, workType === "campo" ? text(sectionC.terrainConditions) || null : null, harvestNumber, task, task === "Otro" ? otherTask : null, taskSpecification, quantity, unit, text(sectionC.observations) || null, finalScore]);
     await client.query("COMMIT");
     const saved = await pool.query(`SELECT * FROM evaluation.evaluation_scores WHERE evaluation_id = $1`, [evaluationId]);
     return res.status(201).json({ evaluationId, scores: saved.rows[0], deduplicated: false });
