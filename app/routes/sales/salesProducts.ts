@@ -6,6 +6,9 @@ import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../../
 import outlookRoutes from "./outlook";
 
 const router = Router();
+const SOBEYS_CLIENT_ID = 5;
+const normalizeRfqLocationCode = (clientId: number, locationCode: string) =>
+  clientId === SOBEYS_CLIENT_ID && locationCode === "Q" ? "B" : locationCode;
 const allowedTypes = new Set([
   "image/jpeg", "image/png", "image/webp", "application/pdf",
   "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -296,6 +299,7 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
   const clientId = Number(req.body.clientId);
   const productId = Number(req.body.productId);
   const { weekStart, locationCode, status } = req.body;
+  const normalizedLocationCode = normalizeRfqLocationCode(clientId, locationCode);
   let prices: Array<{ quantity: number; price: number }>;
   try { prices = JSON.parse(req.body.prices || "[]"); } catch { return res.status(400).json({ error: "Invalid prices" }); }
   if (!Number.isSafeInteger(clientId) || !Number.isSafeInteger(productId) ||
@@ -313,7 +317,7 @@ router.put("/rfq-cells", upload.array("files", 5), async (req, res) => {
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (client_id, product_id, week_start, location_code)
       DO UPDATE SET status = EXCLUDED.status, updated_at = NOW() RETURNING id
-    `, [clientId, productId, weekStart, locationCode, status]);
+    `, [clientId, productId, weekStart, normalizedLocationCode, status]);
     const cellId = cellResult.rows[0].id;
     await db.query("DELETE FROM sales.rfq_prices WHERE cell_id = $1", [cellId]);
     for (const item of prices) await db.query(
@@ -362,7 +366,7 @@ router.patch("/rfq-cells/move-batch", async (req, res) => {
       return {
         cellId: Number(item.cellId),
         weekStart: String(item.weekStart),
-        locationCode: String(item.locationCode),
+        locationCode: normalizeRfqLocationCode(clientId, String(item.locationCode)),
       };
     });
   const cellIds = normalizedMoves.map((move) => move.cellId);
@@ -450,6 +454,7 @@ router.patch("/rfq-cells/:cellId/move", async (req, res) => {
   const productId = Number(req.body?.productId);
   const weekStart = typeof req.body?.weekStart === "string" ? req.body.weekStart : "";
   const locationCode = typeof req.body?.locationCode === "string" ? req.body.locationCode : "";
+  const normalizedLocationCode = normalizeRfqLocationCode(clientId, locationCode);
 
   if (
     !Number.isSafeInteger(cellId) || cellId <= 0 ||
@@ -475,7 +480,7 @@ router.patch("/rfq-cells/:cellId/move", async (req, res) => {
        SET product_id = $1, week_start = $2, location_code = $3, updated_at = NOW()
        WHERE id = $4 AND client_id = $5
        RETURNING id, client_id, product_id, week_start::text, location_code`,
-      [productId, weekStart, locationCode, cellId, clientId],
+      [productId, weekStart, normalizedLocationCode, cellId, clientId],
     );
     if (!moved.rowCount) {
       return res.status(404).json({ error: "RFQ cell not found" });
