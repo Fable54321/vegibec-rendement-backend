@@ -393,13 +393,25 @@ router.get("/:id", access, async (req, res) => {
         evaluated_info.matricula AS evaluated_worker_matricula,
         evaluator.name AS evaluator_worker_name,
         evaluator.surname AS evaluator_worker_surname,
-        evaluator_info.matricula AS evaluator_worker_matricula
+        evaluator_info.matricula AS evaluator_worker_matricula,
+        scores.questionnaire_average,
+        ROUND(
+          (COALESCE(scores.questionnaire_average, 0) / 3 * 70) +
+          (pm.final_score::numeric / 3 * 30),
+          2
+        ) AS overall_score
       FROM evaluation.evaluations e
       JOIN evaluation.evaluation_scores s ON s.evaluation_id = e.id
+      JOIN evaluation.performance_measurements pm ON pm.evaluation_id = e.id
       JOIN users evaluated ON evaluated.id = e.evaluated_worker_id
       JOIN foreign_workers_info evaluated_info ON evaluated_info.user_id = evaluated.id
       JOIN users evaluator ON evaluator.id = e.evaluator_worker_id
       JOIN foreign_workers_info evaluator_info ON evaluator_info.user_id = evaluator.id
+      LEFT JOIN LATERAL (
+        SELECT AVG(ra.score)::numeric AS questionnaire_average
+        FROM evaluation.rating_answers ra
+        WHERE ra.evaluation_id = e.id
+      ) scores ON true
       WHERE e.id = $1`,
       [id],
     );
