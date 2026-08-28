@@ -298,9 +298,11 @@ router.get("/", access, async (_req, res) => {
         evaluated.id AS evaluated_worker_id,
         evaluated.name AS evaluated_worker_name,
         evaluated.surname AS evaluated_worker_surname,
+        evaluated_info.matricula AS evaluated_worker_matricula,
         evaluator.id AS evaluator_worker_id,
         evaluator.name AS evaluator_worker_name,
         evaluator.surname AS evaluator_worker_surname,
+        evaluator_info.matricula AS evaluator_worker_matricula,
         pm.evaluation_date,
         pm.field_number,
         pm.crop,
@@ -319,7 +321,9 @@ router.get("/", access, async (_req, res) => {
         ) AS overall_score
       FROM evaluation.evaluations e
       JOIN users evaluated ON evaluated.id = e.evaluated_worker_id
+      JOIN foreign_workers_info evaluated_info ON evaluated_info.user_id = evaluated.id
       JOIN users evaluator ON evaluator.id = e.evaluator_worker_id
+      JOIN foreign_workers_info evaluator_info ON evaluator_info.user_id = evaluator.id
       JOIN evaluation.performance_measurements pm ON pm.evaluation_id = e.id
       JOIN evaluation.permanence_evaluations pe ON pe.evaluation_id = e.id
       LEFT JOIN LATERAL (
