@@ -68,7 +68,7 @@ router.post("/", access, async (req, res) => {
     const finalScore = gradeScore(sectionC.finalRating);
     const recommendNextSeason = permanence.recommendNextSeason;
     const permanenceExplanation = text(permanence.explanation);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(evaluationDate) || !crop || !task || !taskSpecification || !unit || !harvestNumber || harvestNumber < 1 || harvestNumber > 3 || !Number.isInteger(quantity) || quantity < 1 || finalScore === null) throw new Error("Faltan datos obligatorios o hay valores inválidos en la Sección B.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(evaluationDate) || !crop || !task || !taskSpecification || !unit || !harvestNumber || harvestNumber < 1 || harvestNumber > 3 || !Number.isInteger(quantity * 2) || quantity < 0.5 || finalScore === null) throw new Error("Faltan datos obligatorios o hay valores inválidos en la Sección B.");
     if (task === "Otro" && !otherTask) throw new Error("Debe especificar la otra tarea.");
     if (crop === "Otro" && !otherCrop) throw new Error("Debe especificar el otro tipo de cultivo.");
     if (!(workType === "bodega" ? bodegaCrops : allCrops).has(crop)) throw new Error("El cultivo no es válido para el tipo de trabajo.");
