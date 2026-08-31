@@ -45,7 +45,7 @@ const sectionAQuestions = [
   "¿El empleado brinda un trabajo de calidad?",
   "¿El empleado cuida su material de trabajo?",
   "¿El empleado distrae constantemente a sus compañeros de trabajo?",
-  "¿El empleado tiene propósitos inadecuados en el lugar de trabajo?",
+  "¿El empleado hace comentarios sexuales, irrespetuosos o agresivos hacia otros compañeros?",
   "¿El empleado sigue el ritmo de los demás?",
   "¿El empleado muestra un rendimiento constante?",
   "¿El empleado muestra voluntad de aprender?",
