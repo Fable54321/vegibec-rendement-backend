@@ -105,6 +105,33 @@ const isRecord = (value: unknown): value is JsonRecord =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const text = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
+const unsafeControlCharacters = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+function safeText(
+  value: unknown,
+  label: string,
+  maxLength: number,
+  options: { required?: boolean; multiline?: boolean } = {},
+) {
+  if (typeof value !== "string") {
+    if (options.required) throw new Error(`${label} no es válido.`);
+    return "";
+  }
+  const normalized = value.normalize("NFC").trim();
+  if (
+    (options.required && !normalized) ||
+    normalized.length > maxLength ||
+    unsafeControlCharacters.test(normalized) ||
+    (!options.multiline && /[\r\n\t]/.test(normalized))
+  ) {
+    throw new Error(`${label} no es válido.`);
+  }
+  return normalized;
+}
+function isValidIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 const integer = (value: unknown) =>
   Number.isInteger(Number(value)) ? Number(value) : null;
 const gradeScore = (value: unknown) =>
@@ -143,17 +170,15 @@ router.post("/", access, async (req, res) => {
     const evaluatedWorkerId = integer(req.body.evaluatedWorkerId);
     const clientSubmissionId = req.body.clientSubmissionId;
     const workType = req.body.workType;
-    const positionTitle = text(req.body.positionTitle);
+    const positionTitle = safeText(req.body.positionTitle, "El puesto", 150, { required: true });
     const sectionC = req.body.sectionC;
     const permanence = req.body.permanence;
-    if (!evaluatorId || !evaluatedWorkerId || evaluatorId === evaluatedWorkerId)
+    if (!evaluatorId || evaluatorId < 1 || !evaluatedWorkerId || evaluatedWorkerId < 1 || evaluatorId === evaluatedWorkerId)
       throw new Error("Los trabajadores seleccionados no son válidos.");
     if (!isUuid(clientSubmissionId))
       throw new Error("El identificador de envío no es válido.");
     if (workType !== "campo" && workType !== "bodega")
       throw new Error("El tipo de trabajo no es válido.");
-    if (!positionTitle || positionTitle.length > 150)
-      throw new Error("El puesto no es válido.");
     if (!isRecord(sectionC)) throw new Error("La Sección B no es válida.");
     if (!isRecord(permanence)) throw new Error("La Sección C no es válida.");
 
@@ -165,20 +190,24 @@ router.post("/", access, async (req, res) => {
       req.body.sectionB,
       requiredAKeys,
     );
-    const evaluationDate = text(sectionC.evaluationDate);
+    const evaluationDate = safeText(sectionC.evaluationDate, "La fecha", 10, { required: true });
     const crop = text(sectionC.crop);
-    const otherCrop = text(sectionC.otherCrop);
+    const otherCrop = safeText(sectionC.otherCrop, "El otro cultivo", 100);
     const task = text(sectionC.task);
-    const otherTask = text(sectionC.otherTask);
-    const taskSpecification = text(sectionC.taskSpecification);
-    const unit = text(sectionC.unit);
+    const otherTask = safeText(sectionC.otherTask, "La otra tarea", 150);
+    const taskSpecification = safeText(sectionC.taskSpecification, "La especificación de la tarea", 300, { required: true });
+    const unit = safeText(sectionC.unit, "La unidad de medida", 50, { required: true });
+    const fieldNumber = safeText(sectionC.fieldNumber, "El número de campo", 50);
+    const weatherConditions = safeText(sectionC.weatherConditions, "Las condiciones meteorológicas", 200);
+    const terrainConditions = safeText(sectionC.terrainConditions, "Las condiciones del terreno", 200);
+    const observations = safeText(sectionC.observations, "Las observaciones", 2000, { multiline: true });
     const harvestNumber = integer(sectionC.harvestNumber);
     const quantity = Number(sectionC.quantity);
     const finalScore = gradeScore(sectionC.finalRating);
     const recommendNextSeason = permanence.recommendNextSeason;
-    const permanenceExplanation = text(permanence.explanation);
+    const permanenceExplanation = safeText(permanence.explanation, "La explicación", 2000, { required: true, multiline: true });
     if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(evaluationDate) ||
+      !isValidIsoDate(evaluationDate) ||
       !crop ||
       !task ||
       !taskSpecification ||
@@ -188,6 +217,7 @@ router.post("/", access, async (req, res) => {
       harvestNumber > 3 ||
       !Number.isInteger(quantity * 2) ||
       quantity < 0.5 ||
+      quantity > 1000000 ||
       finalScore === null
     )
       throw new Error(
@@ -203,8 +233,7 @@ router.post("/", access, async (req, res) => {
       throw new Error("La tarea no es válida para el tipo de trabajo.");
     if (
       (recommendNextSeason !== "yes" && recommendNextSeason !== "no") ||
-      !permanenceExplanation ||
-      permanenceExplanation.length > 2000
+      !permanenceExplanation
     )
       throw new Error(
         "Faltan datos obligatorios o hay valores inválidos en la Sección C.",
@@ -277,18 +306,18 @@ router.post("/", access, async (req, res) => {
       [
         evaluationId,
         evaluationDate,
-        workType === "campo" ? text(sectionC.fieldNumber) || null : null,
+        workType === "campo" ? fieldNumber || null : null,
         crop,
         crop === "Otro" ? otherCrop : null,
-        workType === "campo" ? text(sectionC.weatherConditions) || null : null,
-        workType === "campo" ? text(sectionC.terrainConditions) || null : null,
+        workType === "campo" ? weatherConditions || null : null,
+        workType === "campo" ? terrainConditions || null : null,
         harvestNumber,
         task,
         task === "Otro" ? otherTask : null,
         taskSpecification,
         quantity,
         unit,
-        text(sectionC.observations) || null,
+        observations || null,
         finalScore,
       ],
     );
@@ -309,17 +338,17 @@ router.post("/", access, async (req, res) => {
     const message =
       error instanceof Error ? error.message : "Unable to save evaluation";
     console.error("Save evaluation error:", error);
-    return res
-      .status(
+    const status =
         message.includes("invalid") ||
           message.includes("válid") ||
           message.includes("Faltan") ||
           message.includes("Debe") ||
           message.includes("trabajador")
           ? 400
-          : 500,
-      )
-      .json({ message });
+          : 500;
+    return res.status(status).json({
+      message: status === 400 ? message : "Unable to save evaluation",
+    });
   } finally {
     client.release();
   }
@@ -382,7 +411,7 @@ router.get("/", access, async (_req, res) => {
 
 router.get("/:id", access, async (req, res) => {
   const id = integer(req.params.id);
-  if (!id) return res.status(400).json({ message: "Invalid evaluation id" });
+  if (!id || id < 1) return res.status(400).json({ message: "Invalid evaluation id" });
   try {
     const header = await pool.query(
       `SELECT
