@@ -44,7 +44,7 @@ const sectionAQuestions = [
   "¿El empleado respeta las reglas y políticas de la finca?",
   "¿El empleado brinda un trabajo de calidad?",
   "¿El empleado cuida su material de trabajo?",
-  "¿El empleado bromea con sus compañeros de trabajo?",
+  "¿El empleado distrae constantemente a sus compañeros de trabajo?",
   "¿El empleado tiene propósitos inadecuados en el lugar de trabajo?",
   "¿El empleado sigue el ritmo de los demás?",
   "¿El empleado muestra un rendimiento constante?",
