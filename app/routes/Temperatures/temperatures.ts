@@ -51,11 +51,19 @@ router.get("/devices", async (req, res) => {
     const upstreamResponse = await fetch(upstreamUrl, {
       method: "POST",
       headers: {
-        Accept: "application/json",
+        Accept: "*/*",
+        "Accept-Language": "en-US,en;q=0.9,fr-CA;q=0.8,fr;q=0.7",
         "Content-Type": "application/json; charset=utf-8",
         Cookie: cookie,
         Origin: "https://sa.ke2.io",
         Referer: "https://sa.ke2.io/n.html",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+          "AppleWebKit/537.36 (KHTML, like Gecko) " +
+          "Chrome/152.0.0.0 Safari/537.36",
       },
       body: JSON.stringify({ intersecting: [] }),
       signal: AbortSignal.timeout(15_000),
