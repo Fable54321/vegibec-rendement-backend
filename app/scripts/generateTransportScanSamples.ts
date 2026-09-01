@@ -5,7 +5,10 @@ import { pool } from "../db";
 
 type ClientAddress = { client_name: string; client_number: string | null; site_number: string | number | null; address: string; city: string; postal_code: string; province: string | null; country: string | null };
 type Product = { id: number; full_name: string; product_code: string | null; weight: string | number | null };
+type ManifestEntry = Awaited<ReturnType<typeof generateDocument>>;
 const outputDirectory = path.join(process.cwd(), "public", "generated", "transport-samples");
+const manifestPath = path.join(outputDirectory, "manifest.json");
+const samplesToGenerate = 10;
 const paper = { width: 612, height: 792 };
 const black = rgb(0.08, 0.08, 0.08);
 const grey = rgb(0.92, 0.92, 0.92);
@@ -20,12 +23,15 @@ const drawBarcode = (page: PDFPage, value: string, x: number, y: number, width: 
   bits.forEach((bit, index) => { const current = barWidth * (bit === "1" ? 1.3 : 0.65); if (index % 2 === 0 || bit === "1") page.drawRectangle({ x: cursor, y, width: current, height, color: black }); cursor += barWidth * 1.5; });
 };
 
-async function generateDocument(index: number, client: ClientAddress, products: Product[]) {
+async function generateDocument(index: number, client: ClientAddress, products: Product[], usedTripNumbers: Set<string>) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([paper.width, paper.height]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const tripNumber = String(11500 + index + Math.floor(Math.random() * 400));
+  let tripNumber: string;
+  do tripNumber = String(11500 + Math.floor(Math.random() * 500));
+  while (usedTripNumbers.has(tripNumber));
+  usedTripNumbers.add(tripNumber);
   const po = String(2000000000 + Math.floor(Math.random() * 7999999999));
   const shippingDate = new Date(Date.now() + index * 86_400_000).toISOString().slice(0, 10);
   const rows = products.slice(0, 4 + (index % 3)).map((product, rowIndex) => {
@@ -90,13 +96,25 @@ async function generateDocument(index: number, client: ClientAddress, products: 
 
 async function main() {
   await fs.mkdir(outputDirectory, { recursive: true });
-  const clients = await pool.query<ClientAddress>(`SELECT c.name AS client_name, c.client_number, a.site_number, a.address, a.city, a.postal_code, a.province, a.country FROM sales.clients c JOIN sales.clients_addresses a ON a.client_id = c.id WHERE a.address IS NOT NULL AND a.city IS NOT NULL AND a.postal_code IS NOT NULL ORDER BY random() LIMIT 5`);
-  const products = await pool.query<Product>(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true AND product_code IS NOT NULL AND weight IS NOT NULL ORDER BY random() LIMIT 30`);
-  if (clients.rows.length < 5 || products.rows.length < 8) throw new Error("Not enough clients, addresses, or products to generate samples.");
-  const manifest = [];
-  for (let index = 0; index < 5; index++) manifest.push(await generateDocument(index, clients.rows[index], [...products.rows.slice(index * 4), ...products.rows.slice(0, index * 4)]));
-  await fs.writeFile(path.join(outputDirectory, "manifest.json"), JSON.stringify(manifest, null, 2));
-  console.log(`Generated ${manifest.length} documents in ${outputDirectory}`);
+  let existingManifest: ManifestEntry[] = [];
+  try { existingManifest = JSON.parse(await fs.readFile(manifestPath, "utf8")); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+
+  const clients = await pool.query<ClientAddress>(`SELECT c.name AS client_name, c.client_number, a.site_number, a.address, a.city, a.postal_code, a.province, a.country FROM sales.clients c JOIN sales.clients_addresses a ON a.client_id = c.id WHERE a.address IS NOT NULL AND a.city IS NOT NULL AND a.postal_code IS NOT NULL ORDER BY random() LIMIT $1`, [samplesToGenerate]);
+  const products = await pool.query<Product>(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true AND product_code IS NOT NULL AND weight IS NOT NULL AND weight > 0 ORDER BY random() LIMIT 60`);
+  if (clients.rows.length < samplesToGenerate || products.rows.length < 10) throw new Error("Not enough clients, addresses, or positive-weight products to generate samples.");
+
+  const usedTripNumbers = new Set(existingManifest.map((entry) => entry.tripNumber));
+  const generated: ManifestEntry[] = [];
+  for (let sampleIndex = 0; sampleIndex < samplesToGenerate; sampleIndex++) {
+    const documentIndex = existingManifest.length + sampleIndex;
+    const productOffset = sampleIndex * 5;
+    const orderedProducts = [...products.rows.slice(productOffset), ...products.rows.slice(0, productOffset)];
+    generated.push(await generateDocument(documentIndex, clients.rows[sampleIndex], orderedProducts, usedTripNumbers));
+  }
+  const manifest = [...existingManifest, ...generated];
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+  console.log(`Generated ${generated.length} new documents (${manifest.length} total) in ${outputDirectory}`);
   await pool.end();
 }
 
