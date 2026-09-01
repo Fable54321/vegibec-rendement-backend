@@ -1,5 +1,10 @@
 import express from "express";
-import { Browser, Page, chromium } from "playwright";
+import type { Browser, Page } from "playwright";
+
+// Render does not preserve Playwright's build-user cache at runtime. Keeping
+// the browser alongside the package makes it part of the deployed application.
+process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
+const { chromium } = require("playwright") as typeof import("playwright");
 
 const router = express.Router();
 
