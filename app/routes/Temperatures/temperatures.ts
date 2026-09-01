@@ -63,6 +63,8 @@ router.get("/devices", async (req, res) => {
 
     const responseBody = await upstreamResponse.text();
     const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const upstreamContentLength =
+      upstreamResponse.headers.get("content-length") ?? null;
 
     if (!upstreamResponse.ok) {
       console.error(
@@ -75,6 +77,20 @@ router.get("/devices", async (req, res) => {
     }
 
     res.set("Cache-Control", "no-store");
+
+    if (!responseBody.trim()) {
+      console.error("SmartAccess returned an empty successful response", {
+        upstreamStatus: upstreamResponse.status,
+        contentType: contentType || null,
+        contentLength: upstreamContentLength,
+      });
+      return res.status(502).json({
+        error: "SmartAccess returned an empty response.",
+        upstreamStatus: upstreamResponse.status,
+        upstreamContentType: contentType || null,
+        upstreamContentLength,
+      });
+    }
 
     try {
       return res.json(JSON.parse(responseBody));
