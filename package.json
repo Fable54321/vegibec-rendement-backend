@@ -4,6 +4,7 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
+    "postinstall": "playwright install chromium",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "nodemon --watch app --watch .env --ext ts,env --exec ts-node app/index.ts",
@@ -45,6 +46,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.6.205",
     "pg": "^8.16.3",
+    "playwright": "^1.62.1",
     "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },

@@ -1,26 +1,179 @@
 import express from "express";
+import { Browser, Page, chromium } from "playwright";
 
 const router = express.Router();
 
-const SMARTACCESS_DEVICES_URL = "https://sa.ke2.io/therm/devices";
+const SMARTACCESS_URL = "https://sa.ke2.io/n.html";
 const MAX_AGE_PATTERN = /^\d+[smhdw]$/i;
+const CACHE_TTL_MS = 30_000;
+const SESSION_DATA_TTL_MS = 120_000;
 
-function getSmartAccessCookie(): string | null {
-  const ke3Token = process.env.SMARTACCESS_KE3AT;
-  const ke2Token = process.env.SMARTACCESS_KE2AT;
+let browser: Browser | null = null;
+let page: Page | null = null;
+let sessionPromise: Promise<Page> | null = null;
 
-  if (!ke3Token || !ke2Token) return null;
+const cache = new Map<string, { expiresAt: number; data: unknown }>();
+const pendingRequests = new Map<string, Promise<unknown>>();
+const capturedDevices = new Map<
+  string,
+  { capturedAt: number; data: unknown }
+>();
 
-  return [
-    `KE3AT_sa.ke2.io=${ke3Token}`,
-    `KE2AT_sa.ke2.io=${ke2Token}`,
-  ].join("; ");
+function getCredentials() {
+  const username = process.env.SMARTACCESS_USERNAME?.trim();
+  const password = process.env.SMARTACCESS_PASSWORD;
+
+  if (!username || !password) return null;
+  return { username, password };
 }
 
-/**
- * Proxies the SmartAccess device list without exposing its session cookies.
- * GET /temperatures/devices?max-age=168h&sp=0
- */
+async function closeSession(): Promise<void> {
+  const currentBrowser = browser;
+  browser = null;
+  page = null;
+  sessionPromise = null;
+  capturedDevices.clear();
+
+  await currentBrowser?.close().catch(() => undefined);
+}
+
+async function createAuthenticatedPage(): Promise<Page> {
+  const credentials = getCredentials();
+  if (!credentials) {
+    throw new Error(
+      "SmartAccess is not configured. Set SMARTACCESS_USERNAME and SMARTACCESS_PASSWORD.",
+    );
+  }
+
+  await closeSession();
+
+  browser = await chromium.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  });
+
+  const context = await browser.newContext({
+    locale: "en-US",
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/152.0.0.0 Safari/537.36",
+  });
+  const authenticatedPage = await context.newPage();
+
+  authenticatedPage.on("response", async (response) => {
+    try {
+      const url = new URL(response.url());
+      if (url.pathname !== "/therm/devices" || response.status() !== 200) return;
+
+      const maxAge = url.searchParams.get("max-age");
+      const sp = url.searchParams.get("sp");
+      if (!maxAge || sp === null) return;
+
+      const responseText = await response.text();
+      if (!responseText.trim()) return;
+
+      capturedDevices.set(`${maxAge}:${sp}`, {
+        capturedAt: Date.now(),
+        data: JSON.parse(responseText),
+      });
+    } catch {
+      // SmartAccess issues several requests during startup; ignore incomplete
+      // responses and retain the latest complete JSON response.
+    }
+  });
+
+  await authenticatedPage.goto(SMARTACCESS_URL, {
+    waitUntil: "domcontentloaded",
+    timeout: 30_000,
+  });
+
+  await Promise.race([
+    authenticatedPage.locator("#upEmailInput").waitFor({
+      state: "visible",
+      timeout: 30_000,
+    }),
+    authenticatedPage.waitForURL(
+      (url) => url.hostname === "sa.ke2.io" && url.hash === "#home",
+      { timeout: 30_000 },
+    ),
+  ]);
+
+  if (await authenticatedPage.locator("#upEmailInput").isVisible()) {
+    await authenticatedPage.locator("#upEmailInput").fill(credentials.username);
+    await authenticatedPage.locator("#upPasswordInput").fill(credentials.password);
+
+    await authenticatedPage.locator("#upSubmitBtn").click();
+  }
+
+  await authenticatedPage.waitForURL(
+    (url) => url.hostname === "sa.ke2.io" && url.hash === "#home",
+    { timeout: 60_000 },
+  );
+
+  const captureDeadline = Date.now() + 60_000;
+  while (!capturedDevices.has("168h:0") && Date.now() < captureDeadline) {
+    await authenticatedPage.waitForTimeout(250);
+  }
+
+  if (!capturedDevices.has("168h:0")) {
+    throw new Error("SmartAccess loaded without usable device data.");
+  }
+
+  page = authenticatedPage;
+  return authenticatedPage;
+}
+
+async function getAuthenticatedPage(): Promise<Page> {
+  if (page && !page.isClosed()) return page;
+
+  if (!sessionPromise) {
+    sessionPromise = createAuthenticatedPage().finally(() => {
+      sessionPromise = null;
+    });
+  }
+
+  return sessionPromise;
+}
+
+async function fetchDevicesInBrowser(
+  maxAge: string,
+  sp: string,
+): Promise<unknown> {
+  await getAuthenticatedPage();
+
+  const cacheKey = `${maxAge}:${sp}`;
+  let captured = capturedDevices.get(cacheKey);
+
+  if (
+    !captured ||
+    captured.capturedAt + SESSION_DATA_TTL_MS <= Date.now()
+  ) {
+    await closeSession();
+    await getAuthenticatedPage();
+    captured = capturedDevices.get(cacheKey);
+  }
+
+  if (!captured) {
+    throw new Error(
+      `SmartAccess did not load device data for max-age=${maxAge} and sp=${sp}.`,
+    );
+  }
+
+  return captured.data;
+}
+
+async function fetchDevices(maxAge: string, sp: string): Promise<unknown> {
+  try {
+    return await fetchDevicesInBrowser(maxAge, sp);
+  } catch (firstError) {
+    console.warn("SmartAccess browser session failed; retrying login:", firstError);
+    await closeSession();
+    return fetchDevicesInBrowser(maxAge, sp);
+  }
+}
+
+/** GET /temperatures/devices?max-age=168h&sp=0 */
 router.get("/devices", async (req, res) => {
   const maxAge = String(req.query["max-age"] ?? "168h");
   const sp = String(req.query.sp ?? "0");
@@ -30,93 +183,44 @@ router.get("/devices", async (req, res) => {
       error: "Invalid max-age. Use a number followed by s, m, h, d, or w.",
     });
   }
-
   if (!/^\d+$/.test(sp)) {
     return res.status(400).json({ error: "Invalid sp value." });
   }
-
-  const cookie = getSmartAccessCookie();
-  if (!cookie) {
+  if (!getCredentials()) {
     return res.status(503).json({
       error:
-        "SmartAccess is not configured. Set SMARTACCESS_KE3AT and SMARTACCESS_KE2AT.",
+        "SmartAccess is not configured. Set SMARTACCESS_USERNAME and SMARTACCESS_PASSWORD.",
     });
   }
 
-  const upstreamUrl = new URL(SMARTACCESS_DEVICES_URL);
-  upstreamUrl.searchParams.set("max-age", maxAge);
-  upstreamUrl.searchParams.set("sp", sp);
+  const cacheKey = `${maxAge}:${sp}`;
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    res.set("Cache-Control", "private, max-age=15");
+    return res.json(cached.data);
+  }
 
   try {
-    const upstreamResponse = await fetch(upstreamUrl, {
-      method: "POST",
-      headers: {
-        Accept: "*/*",
-        "Accept-Language": "en-US,en;q=0.9,fr-CA;q=0.8,fr;q=0.7",
-        "Content-Type": "application/json; charset=utf-8",
-        Cookie: cookie,
-        Origin: "https://sa.ke2.io",
-        Referer: "https://sa.ke2.io/n.html",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-          "AppleWebKit/537.36 (KHTML, like Gecko) " +
-          "Chrome/152.0.0.0 Safari/537.36",
-      },
-      body: JSON.stringify({ intersecting: [] }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const responseBody = await upstreamResponse.text();
-    const contentType = upstreamResponse.headers.get("content-type") ?? "";
-    const upstreamContentLength =
-      upstreamResponse.headers.get("content-length") ?? null;
-
-    if (!upstreamResponse.ok) {
-      console.error(
-        `SmartAccess request failed with status ${upstreamResponse.status}`,
-      );
-      return res.status(502).json({
-        error: "SmartAccess rejected the request.",
-        upstreamStatus: upstreamResponse.status,
+    // Serialize page evaluations because SmartAccess maintains state in the page.
+    let pendingRequest = pendingRequests.get(cacheKey);
+    if (!pendingRequest) {
+      pendingRequest = fetchDevices(maxAge, sp).finally(() => {
+        pendingRequests.delete(cacheKey);
       });
+      pendingRequests.set(cacheKey, pendingRequest);
     }
 
-    res.set("Cache-Control", "no-store");
-
-    if (!responseBody.trim()) {
-      console.error("SmartAccess returned an empty successful response", {
-        upstreamStatus: upstreamResponse.status,
-        contentType: contentType || null,
-        contentLength: upstreamContentLength,
-      });
-      return res.status(502).json({
-        error: "SmartAccess returned an empty response.",
-        upstreamStatus: upstreamResponse.status,
-        upstreamContentType: contentType || null,
-        upstreamContentLength,
-      });
-    }
-
-    try {
-      return res.json(JSON.parse(responseBody));
-    } catch {
-      if (contentType.includes("application/json")) {
-        return res.status(502).json({
-          error: "SmartAccess returned invalid JSON.",
-        });
-      }
-    }
-
-    return res.type(contentType || "text/plain").send(responseBody);
+    const data = await pendingRequest;
+    cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, data });
+    res.set("Cache-Control", "private, max-age=15");
+    return res.json(data);
   } catch (error) {
-    const timedOut = error instanceof Error && error.name === "TimeoutError";
-    console.error("SmartAccess request error:", error);
-    return res.status(timedOut ? 504 : 502).json({
-      error: timedOut
-        ? "SmartAccess request timed out."
-        : "Could not reach SmartAccess.",
+    console.error("SmartAccess scraping error:", error);
+    return res.status(502).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Could not scrape SmartAccess.",
     });
   }
 });
