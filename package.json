@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "nodemon --watch app --watch .env --ext ts,env --exec ts-node app/index.ts",
-    "temperatures": "ts-node app/routes/Temperature/Temperature.ts",
+    "temperatures": "ts-node app/routes/Temperatures/temperatures.ts",
     "create-admin": "ts-node app/scripts/createAdmin.ts",
     "migrate:timesheet-overtime": "ts-node app/scripts/createTimesheetOvertimeSummaries.ts",
     "migrate:quality-picture-orders": "ts-node app/scripts/addQualityPictureOrderGroups.ts",

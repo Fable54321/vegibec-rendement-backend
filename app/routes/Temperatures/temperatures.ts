@@ -1,0 +1,101 @@
+import express from "express";
+
+const router = express.Router();
+
+const SMARTACCESS_DEVICES_URL = "https://sa.ke2.io/therm/devices";
+const MAX_AGE_PATTERN = /^\d+[smhdw]$/i;
+
+function getSmartAccessCookie(): string | null {
+  const ke3Token = process.env.SMARTACCESS_KE3AT;
+  const ke2Token = process.env.SMARTACCESS_KE2AT;
+
+  if (!ke3Token || !ke2Token) return null;
+
+  return [
+    `KE3AT_sa.ke2.io=${ke3Token}`,
+    `KE2AT_sa.ke2.io=${ke2Token}`,
+  ].join("; ");
+}
+
+/**
+ * Proxies the SmartAccess device list without exposing its session cookies.
+ * GET /temperatures/devices?max-age=168h&sp=0
+ */
+router.get("/devices", async (req, res) => {
+  const maxAge = String(req.query["max-age"] ?? "168h");
+  const sp = String(req.query.sp ?? "0");
+
+  if (!MAX_AGE_PATTERN.test(maxAge)) {
+    return res.status(400).json({
+      error: "Invalid max-age. Use a number followed by s, m, h, d, or w.",
+    });
+  }
+
+  if (!/^\d+$/.test(sp)) {
+    return res.status(400).json({ error: "Invalid sp value." });
+  }
+
+  const cookie = getSmartAccessCookie();
+  if (!cookie) {
+    return res.status(503).json({
+      error:
+        "SmartAccess is not configured. Set SMARTACCESS_KE3AT and SMARTACCESS_KE2AT.",
+    });
+  }
+
+  const upstreamUrl = new URL(SMARTACCESS_DEVICES_URL);
+  upstreamUrl.searchParams.set("max-age", maxAge);
+  upstreamUrl.searchParams.set("sp", sp);
+
+  try {
+    const upstreamResponse = await fetch(upstreamUrl, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        Cookie: cookie,
+        Origin: "https://sa.ke2.io",
+        Referer: "https://sa.ke2.io/n.html",
+      },
+      body: JSON.stringify({ intersecting: [] }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const responseBody = await upstreamResponse.text();
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+
+    if (!upstreamResponse.ok) {
+      console.error(
+        `SmartAccess request failed with status ${upstreamResponse.status}`,
+      );
+      return res.status(502).json({
+        error: "SmartAccess rejected the request.",
+        upstreamStatus: upstreamResponse.status,
+      });
+    }
+
+    res.set("Cache-Control", "no-store");
+
+    if (contentType.includes("application/json")) {
+      try {
+        return res.json(JSON.parse(responseBody));
+      } catch {
+        return res.status(502).json({
+          error: "SmartAccess returned invalid JSON.",
+        });
+      }
+    }
+
+    return res.type(contentType || "text/plain").send(responseBody);
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "TimeoutError";
+    console.error("SmartAccess request error:", error);
+    return res.status(timedOut ? 504 : 502).json({
+      error: timedOut
+        ? "SmartAccess request timed out."
+        : "Could not reach SmartAccess.",
+    });
+  }
+});
+
+export default router;

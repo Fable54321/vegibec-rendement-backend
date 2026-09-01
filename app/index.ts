@@ -70,6 +70,7 @@ import trackabilityRoute from "./routes/Trackability/trackability";
 import finishedProductsRoute from "./routes/Trackability/finishedProducts";
 import transportRoute from "./routes/Transports/transport.routes";
 import evaluationRoute from "./routes/evaluation/evaluation.routes";
+import temperaturesRoute from "./routes/Temperatures/temperatures";
 
 
 
@@ -1052,6 +1053,8 @@ app.use("/converter", converterRoute);
 app.use("/visitors", visitorsRoute);
 
 app.use("/weather", weatherRoute);
+
+app.use("/temperatures", temperaturesRoute);
 
 app.use("/facebook", facebookRoute);
 
