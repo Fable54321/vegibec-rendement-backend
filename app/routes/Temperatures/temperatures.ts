@@ -76,10 +76,10 @@ router.get("/devices", async (req, res) => {
 
     res.set("Cache-Control", "no-store");
 
-    if (contentType.includes("application/json")) {
-      try {
-        return res.json(JSON.parse(responseBody));
-      } catch {
+    try {
+      return res.json(JSON.parse(responseBody));
+    } catch {
+      if (contentType.includes("application/json")) {
         return res.status(502).json({
           error: "SmartAccess returned invalid JSON.",
         });
