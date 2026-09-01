@@ -60,7 +60,6 @@ import purchaseDraftsRoute from "./routes/Portal/PurchaseDrafts";
 import portalUnprotectedRoute from "./routes/Unprotected/PortalUnprotected";
 import suppliersRoute from "./routes/Portal/SuppliersRoute";
 import salesClientsRoute from "./routes/Portal/SalesClientsRoute";
-import agendaRoute, { startAgendaNotificationWorker } from "./routes/Agenda/Agenda";
 import salesProductsRoute from "./routes/sales/salesProducts";
 import salesOrdersRoute from "./routes/sales/salesOrders";
 import roomsRoute from "./routes/Portal/RoomsRoute";
@@ -1019,8 +1018,6 @@ app.use("/portal/foreign-workers", foreignWorkersRoute);
 
 app.use("/evaluation", evaluationRoute);
 
-app.use("/agenda", agendaRoute)
-
 app.use("/warehouse", warehouseProductsRoute);
 
 app.use("/inventory", inventoryRoute);
@@ -1074,8 +1071,6 @@ const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () =>
   console.log("✅ Server running on http://localhost:3000"),
 );
-
-startAgendaNotificationWorker();
 
 server.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {
