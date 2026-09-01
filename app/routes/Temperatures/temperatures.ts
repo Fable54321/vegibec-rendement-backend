@@ -1,5 +1,4 @@
 import express from "express";
-import http2, { IncomingHttpHeaders } from "node:http2";
 
 const router = express.Router();
 
@@ -16,80 +15,6 @@ function getSmartAccessCookie(): string | null {
     `KE3AT_sa.ke2.io=${ke3Token}`,
     `KE2AT_sa.ke2.io=${ke2Token}`,
   ].join("; ");
-}
-
-type SmartAccessResponse = {
-  status: number;
-  headers: IncomingHttpHeaders;
-  body: string;
-};
-
-function requestSmartAccess(
-  upstreamUrl: URL,
-  cookie: string,
-): Promise<SmartAccessResponse> {
-  return new Promise((resolve, reject) => {
-    const client = http2.connect(upstreamUrl.origin);
-    let settled = false;
-
-    const finishWithError = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      client.close();
-      reject(error);
-    };
-
-    client.once("error", finishWithError);
-
-    const request = client.request({
-      ":method": "POST",
-      ":path": `${upstreamUrl.pathname}${upstreamUrl.search}`,
-      accept: "*/*",
-      "accept-language": "en-US,en;q=0.9,fr-CA;q=0.8,fr;q=0.7",
-      "content-type": "application/json; charset=utf-8",
-      cookie,
-      origin: "https://sa.ke2.io",
-      referer: "https://sa.ke2.io/n.html",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-origin",
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/152.0.0.0 Safari/537.36",
-    });
-
-    const chunks: Buffer[] = [];
-    let responseHeaders: IncomingHttpHeaders = {};
-
-    request.setEncoding("utf8");
-    request.setTimeout(15_000, () => {
-      request.close(http2.constants.NGHTTP2_CANCEL);
-      const timeoutError = new Error("SmartAccess request timed out.");
-      timeoutError.name = "TimeoutError";
-      finishWithError(timeoutError);
-    });
-
-    request.on("response", (headers) => {
-      responseHeaders = headers;
-    });
-    request.on("data", (chunk: string) => {
-      chunks.push(Buffer.from(chunk));
-    });
-    request.once("error", finishWithError);
-    request.once("end", () => {
-      if (settled) return;
-      settled = true;
-      client.close();
-      resolve({
-        status: Number(responseHeaders[":status"] ?? 502),
-        headers: responseHeaders,
-        body: Buffer.concat(chunks).toString("utf8"),
-      });
-    });
-
-    request.end(JSON.stringify({ intersecting: [] }));
-  });
 }
 
 /**
@@ -123,14 +48,32 @@ router.get("/devices", async (req, res) => {
   upstreamUrl.searchParams.set("sp", sp);
 
   try {
-    const upstreamResponse = await requestSmartAccess(upstreamUrl, cookie);
-    const responseBody = upstreamResponse.body;
-    const contentType = String(upstreamResponse.headers["content-type"] ?? "");
-    const upstreamContentLength = upstreamResponse.headers["content-length"]
-      ? String(upstreamResponse.headers["content-length"])
-      : null;
+    const upstreamResponse = await fetch(upstreamUrl, {
+      method: "POST",
+      headers: {
+        Accept: "*/*",
+        "Accept-Language": "en-US,en;q=0.9,fr-CA;q=0.8,fr;q=0.7",
+        "Content-Type": "application/json; charset=utf-8",
+        Cookie: cookie,
+        Origin: "https://sa.ke2.io",
+        Referer: "https://sa.ke2.io/n.html",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+          "AppleWebKit/537.36 (KHTML, like Gecko) " +
+          "Chrome/152.0.0.0 Safari/537.36",
+      },
+      body: JSON.stringify({ intersecting: [] }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const responseBody = await upstreamResponse.text();
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const upstreamContentLength =
+      upstreamResponse.headers.get("content-length") ?? null;
 
-    if (upstreamResponse.status < 200 || upstreamResponse.status >= 300) {
+    if (!upstreamResponse.ok) {
       console.error(
         `SmartAccess request failed with status ${upstreamResponse.status}`,
       );
