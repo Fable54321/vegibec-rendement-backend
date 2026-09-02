@@ -24,6 +24,107 @@ const capturedDevices = new Map<
   { capturedAt: number; data: unknown }
 >();
 
+type JsonRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): JsonRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+}
+
+function cleanString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned || null;
+}
+
+function statusValue(status: JsonRecord, key: string): unknown {
+  return asRecord(status[key])["::c"];
+}
+
+function parseTemperature(value: unknown) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+
+  const match = cleaned.match(/^(-?\d+(?:\.\d+)?)\s*°?([FC])$/i);
+  if (!match) return null;
+
+  return {
+    value: Number(match[1]),
+    unit: match[2].toUpperCase(),
+  };
+}
+
+function parseRelay(value: unknown): boolean | null {
+  const cleaned = cleanString(value)?.toLowerCase();
+  if (cleaned === "relay on") return true;
+  if (cleaned === "relay off") return false;
+  return null;
+}
+
+function normalizeSmartAccessData(rawData: unknown) {
+  const devices: JsonRecord[] = [];
+
+  for (const [groupKey, rawDevices] of Object.entries(asRecord(rawData))) {
+    const [, account = null, site = null] = groupKey.split("㊙");
+
+    for (const [deviceKey, rawDevice] of Object.entries(asRecord(rawDevices))) {
+      const device = asRecord(rawDevice);
+      const status = asRecord(device.status);
+      const firmware = asRecord(device.FW);
+      const rawAlarms = statusValue(status, "AS");
+      const alarms = (Array.isArray(rawAlarms) ? rawAlarms : [])
+        .map(cleanString)
+        .filter(
+          (alarm): alarm is string =>
+            alarm !== null && alarm.toLowerCase() !== "all clear",
+        );
+
+      devices.push({
+        id: cleanString(device.mac) ?? deviceKey,
+        name: cleanString(statusValue(status, "LO")),
+        account,
+        site,
+        lastSeen:
+          cleanString(status["::at"]) ?? cleanString(device.timestamp),
+        error: cleanString(device.error),
+        alarms,
+        mode: cleanString(statusValue(status, "MDS")),
+        temperatures: {
+          tr: parseTemperature(statusValue(status, "TR")),
+          tc: parseTemperature(statusValue(status, "TC")),
+          x4: parseTemperature(statusValue(status, "X4")),
+        },
+        relays: {
+          rc: parseRelay(statusValue(status, "RC")),
+          rd: parseRelay(statusValue(status, "RD")),
+          rf: parseRelay(statusValue(status, "RF")),
+          rx: parseRelay(statusValue(status, "RX")),
+        },
+        firmware: {
+          partNumber: cleanString(firmware.PartNumber),
+          version: cleanString(firmware.Version),
+          communicationType: cleanString(firmware.CommType),
+        },
+      });
+    }
+  }
+
+  const timestamps = devices
+    .map((device) => device.lastSeen)
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => Date.parse(value))
+    .filter(Number.isFinite);
+
+  return {
+    updatedAt: timestamps.length
+      ? new Date(Math.max(...timestamps)).toISOString()
+      : new Date().toISOString(),
+    count: devices.length,
+    devices,
+  };
+}
+
 function getCredentials() {
   const username = process.env.SMARTACCESS_USERNAME?.trim();
   const password = process.env.SMARTACCESS_PASSWORD;
@@ -215,7 +316,7 @@ router.get("/devices", async (req, res) => {
       pendingRequests.set(cacheKey, pendingRequest);
     }
 
-    const data = await pendingRequest;
+    const data = normalizeSmartAccessData(await pendingRequest);
     cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, data });
     res.set("Cache-Control", "private, max-age=15");
     return res.json(data);
