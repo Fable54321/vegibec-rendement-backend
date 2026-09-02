@@ -129,7 +129,8 @@ const allowedOrigins = [
   "https://devis.vegibec-portail.com",
   "https://achats.vegibec-portail.com",
   "https://agenda.vegibec-portail.com",
-  "https://evaluacion.vegibec-portail.com"
+  "https://evaluacion.vegibec-portail.com",
+  "https://frigos.vegibec-portail.com",
 ];
 
 app.use(
