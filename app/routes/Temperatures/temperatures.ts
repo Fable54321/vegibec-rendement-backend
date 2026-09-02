@@ -73,12 +73,20 @@ function normalizeSmartAccessData(rawData: unknown) {
       const status = asRecord(device.status);
       const firmware = asRecord(device.FW);
       const rawAlarms = statusValue(status, "AS");
-      const alarms = (Array.isArray(rawAlarms) ? rawAlarms : [])
+      const alarmSlots = (Array.isArray(rawAlarms) ? rawAlarms : [])
         .map(cleanString)
-        .filter(
-          (alarm): alarm is string =>
-            alarm !== null && alarm.toLowerCase() !== "all clear",
+        .map((alarm) =>
+          alarm?.toLowerCase() === "all clear" ? null : alarm,
         );
+      const alarm1Value = cleanString(statusValue(status, "A1"));
+      const primaryAlarm =
+        alarm1Value?.toLowerCase() === "all clear" ? null : alarm1Value;
+      const otherAlarms = alarmSlots
+        .slice(1)
+        .filter((alarm): alarm is string => alarm !== null);
+      const alarms = [primaryAlarm, ...otherAlarms].filter(
+        (alarm): alarm is string => alarm !== null,
+      );
 
       devices.push({
         id: cleanString(device.mac) ?? deviceKey,
@@ -89,6 +97,8 @@ function normalizeSmartAccessData(rawData: unknown) {
           cleanString(status["::at"]) ?? cleanString(device.timestamp),
         error: cleanString(device.error),
         alarms,
+        primaryAlarm,
+        otherAlarms,
         mode: cleanString(statusValue(status, "MDS")),
         temperatures: {
           tr: parseTemperature(statusValue(status, "TR")),
