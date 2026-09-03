@@ -11,6 +11,7 @@ import {
 import {
   optimizeRoundTrip,
 } from "../Transports/routeOptimizer.service";
+import { getHereFinalRoute } from "../Transports/hereRouting.service";
 
 interface OptimizeRouteBody {
   locations: RouteLocation[];
@@ -362,6 +363,22 @@ export async function optimizeRoute(
       (index) => locations[index]
     );
 
+    let hereRoute = null;
+    let hereWarning: string | null = null;
+
+    if (process.env.HERE_API_KEY) {
+      try {
+        hereRoute = await getHereFinalRoute(orderedLocations);
+      } catch (error: unknown) {
+        hereWarning = error instanceof Error
+          ? error.message
+          : "HERE final route calculation failed";
+        console.error("HERE final route error:", error);
+      }
+    } else {
+      hereWarning = "HERE_API_KEY is not configured";
+    }
+
     const legs = [];
 
     for (let i = 0; i < optimization.route.length - 1; i++) {
@@ -403,6 +420,9 @@ export async function optimizeRoute(
 
       durations: matrixResult.durations,
       distances: matrixResult.distances,
+
+      here: hereRoute,
+      hereWarning,
     });
   } catch (error: unknown) {
     console.error("Route optimization error:", error);
