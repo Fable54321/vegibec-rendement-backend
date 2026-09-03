@@ -4,6 +4,7 @@ import { pool } from "../../db";
 import { geocodeAddress } from "./geocoding.service";
 
 import {
+  getRouteGeometry,
   getRouteMatrix,
   type RouteLocation,
 } from "../Transports/osrm.service";
@@ -362,6 +363,7 @@ export async function optimizeRoute(
     const orderedLocations = optimization.route.map(
       (index) => locations[index]
     );
+    const geometry = await getRouteGeometry(orderedLocations);
 
     let hereRoute = null;
     let hereWarning: string | null = null;
@@ -420,6 +422,7 @@ export async function optimizeRoute(
 
       durations: matrixResult.durations,
       distances: matrixResult.distances,
+      geometry,
 
       here: hereRoute,
       hereWarning,
