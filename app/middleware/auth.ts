@@ -24,6 +24,7 @@ export const authMiddleware = async (
     "/auth",
     "/visitors/plan-access",
     "/sales/outlook/callback",
+    "/transport/public-scan",
   ];
 
   if (publicPaths.some((path) => req.originalUrl.startsWith(path))) {
