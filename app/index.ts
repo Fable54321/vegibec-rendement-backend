@@ -88,7 +88,10 @@ app.use((req, res, next) => {
   if (req.path.endsWith("/get-url/generated-images")) {
     return generatedImageJsonParser(req, res, next);
   }
-  if (req.path === "/transport/analyze-document") {
+  if (
+    req.path === "/transport/analyze-document" ||
+    /^\/transport\/public-scan\/[^/]+\/analyze-document$/.test(req.path)
+  ) {
     return documentScanJsonParser(req, res, next);
   }
 
