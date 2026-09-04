@@ -116,7 +116,7 @@ export async function getHereFinalRoute(
 
   const request = requestHereRoute(orderedLocations, transportMode, avoidedFeatures)
     .then((value) => {
-      const ttl = Math.max(0, Number(process.env.HERE_ROUTE_CACHE_TTL_MS) || 900_000);
+      const ttl = Math.max(0, Number(process.env.HERE_ROUTE_CACHE_TTL_MS) || 21_600_000);
       routeCache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
       if (routeCache.size > 200) routeCache.delete(routeCache.keys().next().value!);
       return value;
@@ -139,7 +139,7 @@ async function requestHereRoute(
     destination: `${last.lat},${last.lng}`,
     transportMode,
     routingMode: "fast",
-    departureTime: "now",
+    departureTime: "any",
     return: "polyline,summary,actions,instructions",
     lang: "fr-FR",
     units: "metric",
