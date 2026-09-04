@@ -12,6 +12,7 @@ import {
   resolveScanSessionItem,
   deleteScanSessionItem,
   analyzeTransportDocument,
+  ensureTransportScanTables,
 } from "../Transports/transport.controller";
 import {
   createSavedRoutePlan,
@@ -26,9 +27,10 @@ const portalAccess = requireAppRole("main", ["admin", "user", "guest"]);
 
 const scanTokenAccess = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await ensureTransportScanTables();
     const session = await pool.query(
       `SELECT s.owner_user_id, u.username
-       FROM public.transport_scan_sessions s
+       FROM logistics.transport_scan_sessions s
        JOIN users u ON u.id = s.owner_user_id
        WHERE s.token = $1 AND s.expires_at > NOW()
        LIMIT 1`,

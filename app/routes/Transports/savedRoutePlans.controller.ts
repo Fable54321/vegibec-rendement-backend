@@ -8,7 +8,15 @@ let tablePromise: Promise<void> | null = null;
 function ensureTable(): Promise<void> {
   if (tablePromise) return tablePromise;
   tablePromise = pool.query(`
-    CREATE TABLE IF NOT EXISTS public.transport_route_plans (
+    CREATE SCHEMA IF NOT EXISTS logistics;
+    DO $$
+    BEGIN
+      IF to_regclass('logistics.transport_route_plans') IS NULL
+         AND to_regclass('public.transport_route_plans') IS NOT NULL THEN
+        ALTER TABLE public.transport_route_plans SET SCHEMA logistics;
+      END IF;
+    END $$;
+    CREATE TABLE IF NOT EXISTS logistics.transport_route_plans (
       id UUID PRIMARY KEY,
       name TEXT NOT NULL,
       delivery_date DATE NOT NULL,
@@ -19,7 +27,7 @@ function ensureTable(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS transport_route_plans_delivery_date_idx
-      ON public.transport_route_plans (delivery_date DESC, created_at DESC);
+      ON logistics.transport_route_plans (delivery_date DESC, created_at DESC);
   `).then(() => undefined).catch((error) => {
     tablePromise = null;
     throw error;
@@ -44,7 +52,7 @@ export async function listSavedRoutePlans(_req: Request, res: Response): Promise
     await ensureTable();
     const result = await pool.query(`
       SELECT id, name, delivery_date, routes, items, created_at, updated_at
-      FROM public.transport_route_plans
+      FROM logistics.transport_route_plans
       ORDER BY delivery_date DESC, created_at DESC
     `);
     res.json(result.rows.map(mapPlan));
@@ -63,7 +71,7 @@ export async function createSavedRoutePlan(req: Request, res: Response): Promise
     }
     await ensureTable();
     const result = await pool.query(`
-      INSERT INTO public.transport_route_plans (id, name, delivery_date, routes, items, created_by_user_id)
+      INSERT INTO logistics.transport_route_plans (id, name, delivery_date, routes, items, created_by_user_id)
       VALUES ($1, $2, $3::date, $4::jsonb, $5::jsonb, $6)
       RETURNING id, name, delivery_date, routes, items, created_at, updated_at
     `, [randomUUID(), name.trim().slice(0, 200), deliveryDate, JSON.stringify(routes), JSON.stringify(items), req.user?.id ?? null]);
@@ -83,7 +91,7 @@ export async function updateSavedRoutePlan(req: Request, res: Response): Promise
     }
     await ensureTable();
     const result = await pool.query(`
-      UPDATE public.transport_route_plans
+      UPDATE logistics.transport_route_plans
       SET routes = $2::jsonb, updated_at = NOW()
       WHERE id = $1::uuid
       RETURNING id, name, delivery_date, routes, items, created_at, updated_at
@@ -102,7 +110,7 @@ export async function updateSavedRoutePlan(req: Request, res: Response): Promise
 export async function deleteSavedRoutePlan(req: Request, res: Response): Promise<void> {
   try {
     await ensureTable();
-    const result = await pool.query("DELETE FROM public.transport_route_plans WHERE id = $1::uuid RETURNING id", [req.params.planId]);
+    const result = await pool.query("DELETE FROM logistics.transport_route_plans WHERE id = $1::uuid RETURNING id", [req.params.planId]);
     if (!result.rows.length) {
       res.status(404).json({ error: "Saved route plan not found" });
       return;

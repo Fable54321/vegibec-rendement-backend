@@ -126,18 +126,30 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
 }
 
 let transportScanTablesPromise: Promise<void> | null = null;
-async function ensureTransportScanTables(): Promise<void> {
+export async function ensureTransportScanTables(): Promise<void> {
   if (transportScanTablesPromise) return transportScanTablesPromise;
   transportScanTablesPromise = pool.query(`
-    CREATE TABLE IF NOT EXISTS public.transport_scan_sessions (
+    CREATE SCHEMA IF NOT EXISTS logistics;
+    DO $$
+    BEGIN
+      IF to_regclass('logistics.transport_scan_sessions') IS NULL
+         AND to_regclass('public.transport_scan_sessions') IS NOT NULL THEN
+        ALTER TABLE public.transport_scan_sessions SET SCHEMA logistics;
+      END IF;
+      IF to_regclass('logistics.transport_scan_items') IS NULL
+         AND to_regclass('public.transport_scan_items') IS NOT NULL THEN
+        ALTER TABLE public.transport_scan_items SET SCHEMA logistics;
+      END IF;
+    END $$;
+    CREATE TABLE IF NOT EXISTS logistics.transport_scan_sessions (
       token TEXT PRIMARY KEY,
       owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '8 hours'
     );
-    CREATE TABLE IF NOT EXISTS public.transport_scan_items (
+    CREATE TABLE IF NOT EXISTS logistics.transport_scan_items (
       id BIGSERIAL PRIMARY KEY,
-      session_token TEXT NOT NULL REFERENCES public.transport_scan_sessions(token) ON DELETE CASCADE,
+      session_token TEXT NOT NULL REFERENCES logistics.transport_scan_sessions(token) ON DELETE CASCADE,
       address_id INTEGER REFERENCES sales.clients_addresses(id),
       pallets INTEGER NOT NULL CHECK (pallets BETWEEN 1 AND 30),
       recognized_text TEXT,
@@ -150,19 +162,19 @@ async function ensureTransportScanTables(): Promise<void> {
       confirmed BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    ALTER TABLE public.transport_scan_items ALTER COLUMN address_id DROP NOT NULL;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_text TEXT;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_client_name TEXT;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_address TEXT;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_city TEXT;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_postal_code TEXT;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
-    ALTER TABLE public.transport_scan_items ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT false;
-    ALTER TABLE public.transport_scan_items DROP CONSTRAINT IF EXISTS transport_scan_items_pallets_check;
-    ALTER TABLE public.transport_scan_items ADD CONSTRAINT transport_scan_items_pallets_check CHECK (pallets BETWEEN 1 AND 999);
+    ALTER TABLE logistics.transport_scan_items ALTER COLUMN address_id DROP NOT NULL;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_text TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_client_name TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_address TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_city TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_postal_code TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE logistics.transport_scan_items DROP CONSTRAINT IF EXISTS transport_scan_items_pallets_check;
+    ALTER TABLE logistics.transport_scan_items ADD CONSTRAINT transport_scan_items_pallets_check CHECK (pallets BETWEEN 1 AND 999);
     CREATE INDEX IF NOT EXISTS transport_scan_items_session_idx
-      ON public.transport_scan_items(session_token, id);
+      ON logistics.transport_scan_items(session_token, id);
   `).then(() => undefined).catch((error) => { transportScanTablesPromise = null; throw error; });
   return transportScanTablesPromise;
 }
@@ -172,7 +184,7 @@ export async function createScanSession(req: Request, res: Response): Promise<vo
     await ensureTransportScanTables();
     const token = crypto.randomBytes(18).toString("base64url");
     const result = await pool.query(
-      `INSERT INTO public.transport_scan_sessions (token, owner_user_id)
+      `INSERT INTO logistics.transport_scan_sessions (token, owner_user_id)
        VALUES ($1, $2) RETURNING token, expires_at`,
       [token, req.user!.id],
     );
@@ -187,7 +199,7 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
   try {
     await ensureTransportScanTables();
     const session = await pool.query(
-      `SELECT token, expires_at FROM public.transport_scan_sessions
+      `SELECT token, expires_at FROM logistics.transport_scan_sessions
        WHERE token = $1 AND owner_user_id = $2 AND expires_at > NOW()`,
       [req.params.token, req.user!.id],
     );
@@ -197,7 +209,7 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
               i.recognized_client_name, i.recognized_address, i.recognized_city,
               i.recognized_postal_code, i.product_matches, i.estimated_weight, i.confirmed,
               c.name AS client_name, a.site_name, a.site_number, a.city
-       FROM public.transport_scan_items i
+       FROM logistics.transport_scan_items i
        LEFT JOIN sales.clients_addresses a ON a.id = i.address_id
        LEFT JOIN sales.clients c ON c.id = a.client_id
        WHERE i.session_token = $1 ORDER BY i.id`,
@@ -219,7 +231,7 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
       res.status(400).json({ error: "A valid optional address and pallet count are required" }); return;
     }
     const session = await pool.query(
-      `SELECT token FROM public.transport_scan_sessions
+      `SELECT token FROM logistics.transport_scan_sessions
        WHERE token = $1 AND owner_user_id = $2 AND expires_at > NOW()`,
       [req.params.token, req.user!.id],
     );
@@ -268,7 +280,7 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
     });
     const estimatedWeight = Number.isFinite(Number(req.body?.recognizedWeight)) && Number(req.body.recognizedWeight) >= 0 ? Number(req.body.recognizedWeight) : 0;
     const result = await pool.query(
-      `INSERT INTO public.transport_scan_items
+      `INSERT INTO logistics.transport_scan_items
        (session_token, address_id, pallets, recognized_text, recognized_client_name,
         recognized_address, recognized_city, recognized_postal_code, product_matches, estimated_weight)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
@@ -308,8 +320,8 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
       return { id: product.id, code: product.product_code, name: product.full_name, weight, quantity, quantityLabel: line.quantityLabel ?? null, pallets: Number.isFinite(Number(line.pallets)) ? Number(line.pallets) : null, palletType: line.palletType ?? null, lineWeight: quantity == null ? 0 : quantity * weight, matched: true };
     });
     const result = await pool.query(
-      `UPDATE public.transport_scan_items i SET address_id = $4, pallets = $5, product_matches = $6::jsonb, estimated_weight = $7, confirmed = true
-       FROM public.transport_scan_sessions s, sales.clients_addresses a
+      `UPDATE logistics.transport_scan_items i SET address_id = $4, pallets = $5, product_matches = $6::jsonb, estimated_weight = $7, confirmed = true
+       FROM logistics.transport_scan_sessions s, sales.clients_addresses a
        WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
          AND s.owner_user_id = $3 AND s.expires_at > NOW() AND a.id = $4
        RETURNING i.id, i.address_id, i.pallets, i.confirmed`,
@@ -327,8 +339,8 @@ export async function deleteScanSessionItem(req: Request, res: Response): Promis
   try {
     await ensureTransportScanTables();
     const result = await pool.query(
-      `DELETE FROM public.transport_scan_items i
-       USING public.transport_scan_sessions s
+      `DELETE FROM logistics.transport_scan_items i
+       USING logistics.transport_scan_sessions s
        WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
          AND s.owner_user_id = $3 AND s.expires_at > NOW() AND i.confirmed = false
        RETURNING i.id`,
