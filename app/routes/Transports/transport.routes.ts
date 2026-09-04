@@ -13,6 +13,12 @@ import {
   deleteScanSessionItem,
   analyzeTransportDocument,
 } from "../Transports/transport.controller";
+import {
+  createSavedRoutePlan,
+  deleteSavedRoutePlan,
+  listSavedRoutePlans,
+  updateSavedRoutePlan,
+} from "./savedRoutePlans.controller";
 import { requireAppRole } from "../../middleware/auth";
 
 const router = Router();
@@ -45,6 +51,10 @@ router.get("/orders", portalAccess, getTransportOrders);
 router.get("/client-stops", portalAccess, getClientStops);
 router.post("/client-locations", portalAccess, resolveClientLocations);
 router.post("/optimize-route", portalAccess, optimizeRoute);
+router.get("/route-plans", portalAccess, listSavedRoutePlans);
+router.post("/route-plans", portalAccess, createSavedRoutePlan);
+router.patch("/route-plans/:planId", portalAccess, updateSavedRoutePlan);
+router.delete("/route-plans/:planId", portalAccess, deleteSavedRoutePlan);
 router.post("/scan-sessions", portalAccess, createScanSession);
 router.get("/scan-sessions/:token", portalAccess, getScanSession);
 router.post("/scan-sessions/:token/items", portalAccess, addScanSessionItem);

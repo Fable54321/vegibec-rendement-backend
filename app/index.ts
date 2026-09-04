@@ -83,6 +83,7 @@ const app = express();
 const defaultJsonParser = express.json();
 const generatedImageJsonParser = express.json({ limit: "50mb" });
 const documentScanJsonParser = express.json({ limit: "15mb" });
+const routePlanJsonParser = express.json({ limit: "10mb" });
 
 app.use((req, res, next) => {
   if (req.path.endsWith("/get-url/generated-images")) {
@@ -93,6 +94,9 @@ app.use((req, res, next) => {
     /^\/transport\/public-scan\/[^/]+\/analyze-document$/.test(req.path)
   ) {
     return documentScanJsonParser(req, res, next);
+  }
+  if (/^\/transport\/route-plans(?:\/[^/]+)?$/.test(req.path)) {
+    return routePlanJsonParser(req, res, next);
   }
 
   return defaultJsonParser(req, res, next);

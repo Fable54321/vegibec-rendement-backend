@@ -89,7 +89,8 @@ function getAvoidedFeatures(): string[] {
 }
 
 export async function getHereFinalRoute(
-  orderedLocations: RouteLocation[]
+  orderedLocations: RouteLocation[],
+  departureTime?: string,
 ): Promise<HereFinalRouteResult> {
   const apiKey = process.env.HERE_API_KEY;
 
@@ -107,6 +108,7 @@ export async function getHereFinalRoute(
     transportMode,
     avoidedFeatures,
     vehicle: getVehicleParameters(),
+    departureTime: departureTime ? departureTime.slice(0, 16) : "any",
     locations: orderedLocations.map(({ lat, lng }) => [lat.toFixed(5), lng.toFixed(5)]),
   });
   const cached = routeCache.get(cacheKey);
@@ -114,9 +116,10 @@ export async function getHereFinalRoute(
   const inFlight = inFlightRoutes.get(cacheKey);
   if (inFlight) return inFlight;
 
-  const request = requestHereRoute(orderedLocations, transportMode, avoidedFeatures)
+  const request = requestHereRoute(orderedLocations, transportMode, avoidedFeatures, departureTime)
     .then((value) => {
-      const ttl = Math.max(0, Number(process.env.HERE_ROUTE_CACHE_TTL_MS) || 21_600_000);
+      const configuredTtl = Math.max(0, Number(process.env.HERE_ROUTE_CACHE_TTL_MS) || 21_600_000);
+      const ttl = departureTime ? Math.min(configuredTtl, 300_000) : configuredTtl;
       routeCache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
       if (routeCache.size > 200) routeCache.delete(routeCache.keys().next().value!);
       return value;
@@ -130,6 +133,7 @@ async function requestHereRoute(
   orderedLocations: RouteLocation[],
   transportMode: "car" | "truck",
   avoidedFeatures: string[],
+  departureTime?: string,
 ): Promise<HereFinalRouteResult> {
   const apiKey = process.env.HERE_API_KEY!;
   const first = orderedLocations[0];
@@ -139,7 +143,7 @@ async function requestHereRoute(
     destination: `${last.lat},${last.lng}`,
     transportMode,
     routingMode: "fast",
-    departureTime: "any",
+    departureTime: departureTime ?? "any",
     return: "polyline,summary,actions,instructions",
     lang: "fr-FR",
     units: "metric",

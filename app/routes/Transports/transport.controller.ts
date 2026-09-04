@@ -16,6 +16,9 @@ import { getHereFinalRoute } from "../Transports/hereRouting.service";
 
 interface OptimizeRouteBody {
   locations: RouteLocation[];
+  departureTime?: string;
+  traffic?: boolean;
+  preserveOrder?: boolean;
 }
 
 const transportDocumentRecognitionPrompt = `Read this delivery/order document carefully. The photo is normally upright; mentally rotate it only when the text itself is clearly sideways or upside down. Preserve exact spelling and numbers.
@@ -344,7 +347,7 @@ export async function optimizeRoute(
   res: Response
 ): Promise<void> {
   try {
-    const { locations } = req.body;
+    const { locations, departureTime, traffic, preserveOrder } = req.body;
 
     if (!Array.isArray(locations) || locations.length < 2) {
       res.status(400).json({
@@ -356,9 +359,9 @@ export async function optimizeRoute(
 
     const matrixResult = await getRouteMatrix(locations);
 
-    const optimization = optimizeRoundTrip(
-      matrixResult.durations
-    );
+    const optimization = preserveOrder
+      ? { route: locations.map((_, index) => index), totalDuration: locations.slice(0, -1).reduce((total, _, index) => total + (matrixResult.durations[index]?.[index + 1] ?? 0), 0) }
+      : optimizeRoundTrip(matrixResult.durations);
 
     const orderedLocations = optimization.route.map(
       (index) => locations[index]
@@ -370,7 +373,7 @@ export async function optimizeRoute(
 
     if (process.env.HERE_API_KEY) {
       try {
-        hereRoute = await getHereFinalRoute(orderedLocations);
+        hereRoute = await getHereFinalRoute(orderedLocations, traffic ? departureTime ?? new Date().toISOString() : undefined);
       } catch (error: unknown) {
         hereWarning = error instanceof Error
           ? error.message
@@ -441,6 +444,7 @@ export async function optimizeRoute(
       geometry: hereRoute?.geometry ?? routeDetails.geometry,
       steps: hereRoute?.steps?.length ? hereRoute.steps : routeDetails.steps,
       routingProvider: hereRoute ? "here" : "osrm",
+      trafficAware: Boolean(hereRoute && traffic),
       truckValidated: usesHereTruckRoute,
       routingWarning: hereWarning,
 
