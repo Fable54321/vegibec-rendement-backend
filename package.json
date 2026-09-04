@@ -28,6 +28,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1025.0",
     "@aws-sdk/s3-request-presigner": "^3.1025.0",
+    "@here/flexpolyline": "^0.1.0",
     "@napi-rs/canvas": "^0.1.97",
     "@types/web-push": "^3.6.4",
     "bcrypt": "^6.0.0",

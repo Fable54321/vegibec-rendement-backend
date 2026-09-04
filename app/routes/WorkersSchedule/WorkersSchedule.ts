@@ -99,6 +99,7 @@ const upload = multer({
 const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
 
 
+/* Disabled: this bulk upload route was created for a one-time operation.
 router.post(
   "/foreign-workers/personal-pictures/bulk-by-matricula",
   requireAppRole("main", ["admin"]),
@@ -317,6 +318,7 @@ router.post(
     }
   }
 );
+*/
 
 
 

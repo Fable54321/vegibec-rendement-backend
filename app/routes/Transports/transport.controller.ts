@@ -409,21 +409,40 @@ export async function optimizeRoute(
       });
     }
 
+    const hereSections = hereRoute?.sections ?? [];
+    const finalLegs = hereSections.length === legs.length
+      ? legs.map((leg, index) => {
+          const summary = hereSections[index].summary;
+          return {
+            ...leg,
+            durationSeconds: summary?.duration ?? leg.durationSeconds,
+            durationMinutes: Math.round((summary?.duration ?? leg.durationSeconds) / 60),
+            distanceMeters: summary?.length ?? leg.distanceMeters,
+            distanceKm: Math.round((summary?.length ?? leg.distanceMeters) / 100) / 10,
+          };
+        })
+      : legs;
+    const usesHereTruckRoute = hereRoute?.transportMode === "truck";
+    const finalDurationSeconds = hereRoute?.durationSeconds ?? optimization.totalDuration;
+
     res.json({
       route: orderedLocations,
       routeIndexes: optimization.route,
-      legs,
+      legs: finalLegs,
 
       totalDurationSeconds:
-        optimization.totalDuration,
+        finalDurationSeconds,
 
       totalDurationMinutes:
-        Math.round(optimization.totalDuration / 60),
+        Math.round(finalDurationSeconds / 60),
 
       durations: matrixResult.durations,
       distances: matrixResult.distances,
-      geometry: routeDetails.geometry,
-      steps: routeDetails.steps,
+      geometry: hereRoute?.geometry ?? routeDetails.geometry,
+      steps: hereRoute?.steps?.length ? hereRoute.steps : routeDetails.steps,
+      routingProvider: hereRoute ? "here" : "osrm",
+      truckValidated: usesHereTruckRoute,
+      routingWarning: hereWarning,
 
       here: hereRoute,
       hereWarning,

@@ -1,4 +1,5 @@
 import type { RouteLocation } from "./osrm.service";
+import { decode } from "@here/flexpolyline";
 
 interface HereSummary {
   duration?: number;
@@ -20,6 +21,15 @@ interface HereSection {
   notices?: HereNotice[];
   departure?: unknown;
   arrival?: unknown;
+  actions?: HereAction[];
+}
+
+interface HereAction {
+  action?: string;
+  direction?: string;
+  instruction?: string;
+  duration?: number;
+  length?: number;
 }
 
 interface HereRoute {
@@ -48,9 +58,22 @@ export interface HereFinalRouteResult {
   distanceMeters: number;
   sections: HereSection[];
   notices: HereNotice[];
+  geometry: { type: "LineString"; coordinates: [number, number][] };
+  steps: Array<{
+    legIndex: number;
+    distanceMeters: number;
+    durationSeconds: number;
+    streetName: string;
+    maneuverType: string;
+    maneuverModifier: string | null;
+    exit: number | null;
+    instruction: string | null;
+  }>;
 }
 
 const HERE_ROUTING_URL = "https://router.hereapi.com/v8/routes";
+const routeCache = new Map<string, { expiresAt: number; value: HereFinalRouteResult }>();
+const inFlightRoutes = new Map<string, Promise<HereFinalRouteResult>>();
 
 function getTransportMode(): "car" | "truck" {
   return process.env.HERE_TRANSPORT_MODE?.toLowerCase() === "truck"
@@ -80,6 +103,35 @@ export async function getHereFinalRoute(
 
   const transportMode = getTransportMode();
   const avoidedFeatures = getAvoidedFeatures();
+  const cacheKey = JSON.stringify({
+    transportMode,
+    avoidedFeatures,
+    vehicle: getVehicleParameters(),
+    locations: orderedLocations.map(({ lat, lng }) => [lat.toFixed(5), lng.toFixed(5)]),
+  });
+  const cached = routeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const inFlight = inFlightRoutes.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const request = requestHereRoute(orderedLocations, transportMode, avoidedFeatures)
+    .then((value) => {
+      const ttl = Math.max(0, Number(process.env.HERE_ROUTE_CACHE_TTL_MS) || 900_000);
+      routeCache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
+      if (routeCache.size > 200) routeCache.delete(routeCache.keys().next().value!);
+      return value;
+    })
+    .finally(() => inFlightRoutes.delete(cacheKey));
+  inFlightRoutes.set(cacheKey, request);
+  return request;
+}
+
+async function requestHereRoute(
+  orderedLocations: RouteLocation[],
+  transportMode: "car" | "truck",
+  avoidedFeatures: string[],
+): Promise<HereFinalRouteResult> {
+  const apiKey = process.env.HERE_API_KEY!;
   const first = orderedLocations[0];
   const last = orderedLocations[orderedLocations.length - 1];
   const params = new URLSearchParams({
@@ -88,8 +140,14 @@ export async function getHereFinalRoute(
     transportMode,
     routingMode: "fast",
     departureTime: "now",
-    return: "polyline,summary",
+    return: "polyline,summary,actions,instructions",
+    lang: "fr-FR",
+    units: "metric",
     apiKey,
+  });
+
+  Object.entries(getVehicleParameters()).forEach(([key, value]) => {
+    params.set(`vehicle[${key}]`, value);
   });
 
   for (const location of orderedLocations.slice(1, -1)) {
@@ -140,6 +198,27 @@ export async function getHereFinalRoute(
       ...(route.notices ?? []),
       ...sections.flatMap((section) => section.notices ?? []),
     ];
+    const coordinates = sections.flatMap((section, sectionIndex) => {
+      if (!section.polyline) return [];
+      const decoded = decode(section.polyline).polyline.map(
+        ([lat, lng]) => [lng, lat] as [number, number],
+      );
+      return sectionIndex === 0 ? decoded : decoded.slice(1);
+    });
+    const steps = sections.flatMap((section, legIndex) =>
+      (section.actions ?? []).map((action) => ({
+        legIndex,
+        distanceMeters: action.length ?? 0,
+        durationSeconds: action.duration ?? 0,
+        streetName: "",
+        maneuverType: action.action ?? "continue",
+        maneuverModifier: action.direction ?? null,
+        exit: null,
+        instruction: action.instruction ?? null,
+      })),
+    );
+
+    if (coordinates.length < 2) throw new Error("HERE did not return route geometry");
 
     return {
       provider: "here",
@@ -151,8 +230,26 @@ export async function getHereFinalRoute(
       distanceMeters,
       sections,
       notices,
+      geometry: { type: "LineString", coordinates },
+      steps,
     };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function getVehicleParameters(): Record<string, string> {
+  const variables: Record<string, string | undefined> = {
+    grossWeight: process.env.HERE_VEHICLE_GROSS_WEIGHT,
+    currentWeight: process.env.HERE_VEHICLE_CURRENT_WEIGHT,
+    height: process.env.HERE_VEHICLE_HEIGHT_CM,
+    width: process.env.HERE_VEHICLE_WIDTH_CM,
+    length: process.env.HERE_VEHICLE_LENGTH_CM,
+    axleCount: process.env.HERE_VEHICLE_AXLE_COUNT,
+    trailerCount: process.env.HERE_VEHICLE_TRAILER_COUNT,
+    trailerAxleCount: process.env.HERE_VEHICLE_TRAILER_AXLE_COUNT,
+  };
+  return Object.fromEntries(
+    Object.entries(variables).filter((entry): entry is [string, string] => Boolean(entry[1])),
+  );
 }
