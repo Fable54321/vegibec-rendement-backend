@@ -363,7 +363,7 @@ export async function optimizeRoute(
     const orderedLocations = optimization.route.map(
       (index) => locations[index]
     );
-    const geometry = await getRouteGeometry(orderedLocations);
+    const routeDetails = await getRouteGeometry(orderedLocations);
 
     let hereRoute = null;
     let hereWarning: string | null = null;
@@ -422,7 +422,8 @@ export async function optimizeRoute(
 
       durations: matrixResult.durations,
       distances: matrixResult.distances,
-      geometry,
+      geometry: routeDetails.geometry,
+      steps: routeDetails.steps,
 
       here: hereRoute,
       hereWarning,

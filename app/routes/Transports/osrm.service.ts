@@ -15,7 +15,21 @@ interface OsrmTableResponse {
 interface OsrmRouteResponse {
   code: string;
   message?: string;
-  routes?: Array<{ geometry: { type: "LineString"; coordinates: [number, number][] } }>;
+  routes?: Array<{
+    geometry: { type: "LineString"; coordinates: [number, number][] };
+    legs?: Array<{
+      steps?: Array<{
+        distance: number;
+        duration: number;
+        name: string;
+        maneuver: {
+          type: string;
+          modifier?: string;
+          exit?: number;
+        };
+      }>;
+    }>;
+  }>;
 }
 
 export interface RouteMatrixResult {
@@ -38,9 +52,22 @@ export async function getRouteMatrix(locations: RouteLocation[]): Promise<RouteM
 
 export async function getRouteGeometry(locations: RouteLocation[]) {
   const coordinates = locations.map((location) => `${location.lng},${location.lat}`).join(";");
-  const response = await fetch(`${OSRM_BASE_URL}/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`);
+  const response = await fetch(`${OSRM_BASE_URL}/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`);
   const data = (await response.json()) as OsrmRouteResponse;
-  const geometry = data.routes?.[0]?.geometry;
-  if (!response.ok || data.code !== "Ok" || !geometry) throw new Error(data.message ?? `OSRM route request failed (${response.status})`);
-  return geometry;
+  const route = data.routes?.[0];
+  if (!response.ok || data.code !== "Ok" || !route?.geometry) throw new Error(data.message ?? `OSRM route request failed (${response.status})`);
+  return {
+    geometry: route.geometry,
+    steps: (route.legs ?? []).flatMap((leg, legIndex) =>
+      (leg.steps ?? []).map((step) => ({
+        legIndex,
+        distanceMeters: step.distance,
+        durationSeconds: step.duration,
+        streetName: step.name,
+        maneuverType: step.maneuver.type,
+        maneuverModifier: step.maneuver.modifier ?? null,
+        exit: step.maneuver.exit ?? null,
+      })),
+    ),
+  };
 }
