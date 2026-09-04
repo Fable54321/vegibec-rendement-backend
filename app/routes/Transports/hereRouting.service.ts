@@ -160,14 +160,42 @@ async function requestHereRoute(
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);
+  const requestUrl = `${HERE_ROUTING_URL}?${params.toString()}`;
+  const safeRequestUrl = redactApiKey(requestUrl);
 
   try {
-    const response = await fetch(`${HERE_ROUTING_URL}?${params.toString()}`, {
+    console.info("HERE route request", {
+      url: safeRequestUrl,
+      transportMode,
+      avoidedFeatures,
+      vehicleParameters: getVehicleParameters(),
+      waypointCount: orderedLocations.length,
+    });
+
+    const response = await fetch(requestUrl, {
       signal: controller.signal,
     });
-    const data = (await response.json()) as HereRoutesResponse;
+    const responseText = await response.text();
+    let data: HereRoutesResponse;
+    try {
+      data = JSON.parse(responseText) as HereRoutesResponse;
+    } catch {
+      console.error("HERE route returned a non-JSON response", {
+        status: response.status,
+        statusText: response.statusText,
+        url: safeRequestUrl,
+        responseBody: responseText.slice(0, 4_000),
+      });
+      throw new Error(`HERE routing returned invalid JSON (${response.status})`);
+    }
 
     if (!response.ok) {
+      console.error("HERE route request rejected", {
+        status: response.status,
+        statusText: response.statusText,
+        url: safeRequestUrl,
+        response: data,
+      });
       const details = data.title ?? data.cause ?? data.action ?? data.code;
       throw new Error(
         `HERE routing request failed (${response.status})${details ? `: ${details}` : ""}`
@@ -178,6 +206,10 @@ async function requestHereRoute(
     const sections = route?.sections ?? [];
 
     if (!route || sections.length === 0) {
+      console.error("HERE route response contained no usable route", {
+        url: safeRequestUrl,
+        response: data,
+      });
       throw new Error("HERE did not return a route");
     }
 
@@ -220,6 +252,16 @@ async function requestHereRoute(
 
     if (coordinates.length < 2) throw new Error("HERE did not return route geometry");
 
+    console.info("HERE route response accepted", {
+      status: response.status,
+      sectionCount: sections.length,
+      coordinateCount: coordinates.length,
+      actionCount: steps.length,
+      distanceMeters,
+      durationSeconds,
+      noticeCount: notices.length,
+    });
+
     return {
       provider: "here",
       transportMode,
@@ -236,6 +278,14 @@ async function requestHereRoute(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function redactApiKey(url: string) {
+  const safeUrl = new URL(url);
+  if (safeUrl.searchParams.has("apiKey")) {
+    safeUrl.searchParams.set("apiKey", "[REDACTED]");
+  }
+  return safeUrl.toString();
 }
 
 function getVehicleParameters(): Record<string, string> {
