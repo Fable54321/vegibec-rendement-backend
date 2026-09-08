@@ -212,10 +212,33 @@ async function fetchReports() {
   return null
 }
 
-// helper: get details for one slug id + date
-async function fetchReport(id: number, date: string) {
+// Accept the ISO dates used by Agrivision and USDA's slash-separated dates.
+export function normalizeReportDate(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  const usda = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value)
+  if (!iso && !usda) return null
+  const year = Number(iso ? iso[1] : usda![3])
+  const month = Number(iso ? iso[2] : usda![1])
+  const day = Number(iso ? iso[3] : usda![2])
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null
+  return `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${year}`
+}
+
+function reportRows(payload: any): any[] | null {
+  if (Array.isArray(payload)) {
+    const batches = payload.map(reportRows)
+    return batches.every(batch => batch !== null) ? batches.flat() : null
+  }
+  return Array.isArray(payload?.results) ? payload.results : null
+}
+
+// Empty or wrong-date responses must not prevent trying other USDA filters.
+export async function fetchReport(id: number, date: string) {
   const sectionNames = ["Report%20Details", "Details"]
-  const dateFilters = [`report_begin_date=${date}`, `report_date=${date}`]
+  const dateFilters = [`report_date=${date}`, `report_begin_date=${date}`]
+  let foundEmptyResponse = false
 
   for (const baseUrl of USDA_API_BASE_URLS) {
     for (const sectionName of sectionNames) {
@@ -224,13 +247,18 @@ async function fetchReport(id: number, date: string) {
           `${baseUrl}/reports/${id}/${sectionName}` +
           `?q=${encodeURIComponent(dateFilter)}`
         const report = await fetchJsonSafely(url)
-
-        if (report) return report
+        const rows = reportRows(report)
+        if (rows === null) continue
+        if (!rows.length) foundEmptyResponse = true
+        const matchingRows = rows.filter(row =>
+          normalizeReportDate(row.report_date) === date,
+        )
+        if (matchingRows.length) return { results: matchingRows }
       }
     }
   }
 
-  return null
+  return foundEmptyResponse ? { results: [] } : null
 }
 
 function parseFv120SlugIds(reports: unknown) {
@@ -343,11 +371,11 @@ async function getFv120SlugIds() {
 
 // route: /vegReports?date=MM/DD/YYYY
 router.get("/", async (req, res) => {
-  const date = req.query.date as string | undefined
+  const date = normalizeReportDate(req.query.date)
 
   if (!date) {
     return res.status(400).json({
-      error: "Date is required (MM/DD/YYYY)",
+      error: "A valid date is required (YYYY-MM-DD or MM/DD/YYYY)",
     })
   }
 
@@ -368,6 +396,10 @@ router.get("/", async (req, res) => {
     const settledReports = await Promise.allSettled(
       idsToFetch.map((id) => fetchReport(id, date)),
     )
+
+    if (settledReports.some(result => result.status === "rejected" || result.value === null)) {
+      return res.status(502).json({ error: "One or more USDA reports could not be fetched", date, reports: [] })
+    }
 
     const reports = settledReports
       .map((result, index) => {
