@@ -21,6 +21,7 @@ import {
   updateSavedRoutePlan,
 } from "./savedRoutePlans.controller";
 import { requireAppRole } from "../../middleware/auth";
+import { createTransportOnlyOrders } from "./transportOnlyOrders.controller";
 
 const router = Router();
 const portalAccess = requireAppRole("main", ["admin", "user", "guest"]);
@@ -50,6 +51,7 @@ router.post("/public-scan/:token/items", scanTokenAccess, addScanSessionItem);
 router.post("/public-scan/:token/analyze-document", scanTokenAccess, analyzeTransportDocument);
 
 router.get("/orders", portalAccess, getTransportOrders);
+router.post("/transport-only-orders", portalAccess, createTransportOnlyOrders);
 router.get("/client-stops", portalAccess, getClientStops);
 router.post("/client-locations", portalAccess, resolveClientLocations);
 router.post("/optimize-route", portalAccess, optimizeRoute);
