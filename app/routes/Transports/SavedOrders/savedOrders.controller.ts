@@ -66,3 +66,33 @@ export async function listSavedOrders(req: Request, res: Response): Promise<void
     res.status(500).json({ error: "Failed to load saved transport orders" });
   }
 }
+
+export async function deleteSavedOrder(req: Request, res: Response): Promise<void> {
+  try {
+    const type = req.params.type;
+    const id = req.params.orderId;
+    if (type !== "scanned" && type !== "generated") {
+      res.status(400).json({ error: "Invalid saved order type" });
+      return;
+    }
+    await ensureTransportScanTables();
+    await ensureTransportOnlyOrdersTable();
+    const result = type === "generated"
+      ? await pool.query(
+          "DELETE FROM logistics.transport_only_orders WHERE id = $1::uuid RETURNING id",
+          [id],
+        )
+      : await pool.query(
+          "DELETE FROM logistics.transport_scan_items WHERE id = $1::bigint AND confirmed = true RETURNING id",
+          [id],
+        );
+    if (!result.rows.length) {
+      res.status(404).json({ error: "Saved order not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error("Delete saved transport order error:", error);
+    res.status(500).json({ error: "Failed to delete saved transport order" });
+  }
+}
