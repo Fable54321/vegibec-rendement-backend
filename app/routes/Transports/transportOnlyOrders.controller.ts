@@ -5,7 +5,7 @@ import { pool } from "../../db";
 
 let tablePromise: Promise<void> | null = null;
 
-function ensureTable(): Promise<void> {
+export function ensureTransportOnlyOrdersTable(): Promise<void> {
   if (tablePromise) return tablePromise;
   tablePromise = pool.query(`
     CREATE SCHEMA IF NOT EXISTS logistics;
@@ -52,7 +52,7 @@ export async function createTransportOnlyOrders(req: Request, res: Response): Pr
       return;
     }
 
-    await ensureTable();
+    await ensureTransportOnlyOrdersTable();
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
