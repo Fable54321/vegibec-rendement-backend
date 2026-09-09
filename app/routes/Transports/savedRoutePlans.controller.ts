@@ -64,18 +64,34 @@ export async function listSavedRoutePlans(_req: Request, res: Response): Promise
 
 export async function createSavedRoutePlan(req: Request, res: Response): Promise<void> {
   try {
-    const { name, deliveryDate, routes, items } = req.body ?? {};
-    if (typeof name !== "string" || !name.trim() || !validDate(deliveryDate) || !Array.isArray(routes) || routes.length === 0 || !Array.isArray(items)) {
+    const { name, deliveryDate, routes, items, replacePlanIds = [] } = req.body ?? {};
+    if (typeof name !== "string" || !name.trim() || !validDate(deliveryDate) || !Array.isArray(routes) || routes.length === 0 || !Array.isArray(items) || !Array.isArray(replacePlanIds) || replacePlanIds.some((id) => !validUuid(id))) {
       res.status(400).json({ error: "A name, delivery date, routes and items are required" });
       return;
     }
     await ensureTable();
-    const result = await pool.query(`
-      INSERT INTO logistics.transport_route_plans (id, name, delivery_date, routes, items, created_by_user_id)
-      VALUES ($1, $2, $3::date, $4::jsonb, $5::jsonb, $6)
-      RETURNING id, name, delivery_date, routes, items, created_at, updated_at
-    `, [randomUUID(), name.trim().slice(0, 200), deliveryDate, JSON.stringify(routes), JSON.stringify(items), req.user?.id ?? null]);
-    res.status(201).json(mapPlan(result.rows[0]));
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(`
+        INSERT INTO logistics.transport_route_plans (id, name, delivery_date, routes, items, created_by_user_id)
+        VALUES ($1, $2, $3::date, $4::jsonb, $5::jsonb, $6)
+        RETURNING id, name, delivery_date, routes, items, created_at, updated_at
+      `, [randomUUID(), name.trim().slice(0, 200), deliveryDate, JSON.stringify(routes), JSON.stringify(items), req.user?.id ?? null]);
+      if (replacePlanIds.length > 0) {
+        await client.query(
+          "DELETE FROM logistics.transport_route_plans WHERE id = ANY($1::uuid[])",
+          [replacePlanIds],
+        );
+      }
+      await client.query("COMMIT");
+      res.status(201).json(mapPlan(result.rows[0]));
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error("Create saved route plan error:", error);
     res.status(500).json({ error: "Failed to save route plan" });
@@ -124,6 +140,10 @@ export async function deleteSavedRoutePlan(req: Request, res: Response): Promise
 
 function validDate(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T12:00:00Z`));
+}
+
+function validUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function dateOnly(value: unknown) {

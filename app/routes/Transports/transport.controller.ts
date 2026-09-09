@@ -21,6 +21,13 @@ interface OptimizeRouteBody {
   preserveOrder?: boolean;
 }
 
+function validDateOnly(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
 const transportDocumentRecognitionPrompt = `Read this delivery/order document carefully. The photo is normally upright; mentally rotate it only when the text itself is clearly sideways or upside down. Preserve exact spelling and numbers.
 
 DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Ship to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
@@ -28,6 +35,8 @@ DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province
 ITEM TABLE COLUMN RULE (highest priority for products): identify the table headers first and follow each row vertically under those headers. The value in the "Code" column is the product code and is the only value that may be returned as code. The adjacent "Lot #" / "Lot" column is traceability data, never a product identifier: return it only as lotNumber and never copy it into code, even when it is numeric or looks like a product code. If the Code cell cannot be read confidently, return code as null; do not substitute the lot number, item number, quantity, or any other number. The product is defined by the Code cell, not by Lot # or the item description.
 
 TOTAL WEIGHT RULE (highest priority for totalWeight): locate the shaded summary/footer row directly below the final item row. It begins with the printed label "Poids total" (or "Total weight"). Read only the number in that same summary row immediately to the right of that label. Spaces are thousands separators: for example, "187 440" means totalWeight 187440. Never use any number from the vertical "Lot #" column above it; those repeated eight-digit lot numbers are unrelated to weight. Never infer or calculate totalWeight from product quantities, catalog weights, totals elsewhere on the page, or lot numbers. If the number beside the explicit label cannot be read, return null.
+
+LOADING DATE RULE (highest priority for loadedDate): locate the outlined rectangle labelled "Chargé" (also accept "Charge", "Loaded", or "Loading date"). Read the handwritten or printed date inside that rectangle, not dates elsewhere on the document. Return it as YYYY-MM-DD. Interpret an ambiguous numeric date in the expected French/Canadian day-month-year order. If the rectangle or its date is unreadable, return null; never substitute the order, delivery, printing, or current date.
 
 For every item-table row, extract code only from Code, lotNumber only from Lot #, name only from Item, quantityLabel exactly from Qté à charger (for example 3x80), quantity as calculated total units (3x80 = 240), pallets as the numeric value from that row's Palette column, and palletType as its label such as Peco. The top-level pallets must be the sum of the numeric Palette column, not a quantity or the last row. Extract totalWeight only from the value printed next to "Poids total" / "Total weight" on the document; return the numeric pound value and do not calculate it from item rows. Also extract the PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected.`;
 
@@ -55,11 +64,11 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
             type: "object", additionalProperties: false,
             properties: {
               clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] },
-              province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
+              province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
               pallets: { type: ["integer", "null"] }, totalWeight: { type: ["number", "null"] }, rawText: { type: "string" },
               products: { type: "array", items: { type: "object", additionalProperties: false,
                 properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
-            }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "totalWeight", "rawText", "products"]
+            }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
           } } }, max_tokens: 2500,
         }),
       });
@@ -75,6 +84,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
         province: typeof parsed.province === "string" ? parsed.province : null,
         postalCode: typeof parsed.postalCode === "string" ? parsed.postalCode : null,
         customerPo: typeof parsed.customerPo === "string" ? parsed.customerPo : null,
+        loadedDate: validDateOnly(parsed.loadedDate) ? parsed.loadedDate : null,
         pallets: Number.isSafeInteger(Number(parsed.pallets)) ? Number(parsed.pallets) : null,
         totalWeight: Number.isFinite(Number(parsed.totalWeight)) ? Number(parsed.totalWeight) : null,
         rawText: typeof parsed.rawText === "string" ? parsed.rawText : content,
@@ -98,12 +108,12 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
           properties: {
             clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] },
             city: { type: ["string", "null"] }, province: { type: ["string", "null"] },
-            postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] },
+            postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
             pallets: { type: ["integer", "null"] }, totalWeight: { type: ["number", "null"] }, rawText: { type: "string" },
             products: { type: "array", items: { type: "object", additionalProperties: false,
               properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } },
               required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
-          }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "pallets", "totalWeight", "rawText", "products"]
+          }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
         } } },
         max_output_tokens: 2500,
       }),
@@ -118,7 +128,11 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
     }
     const outputText = payload.output_text ?? payload.output?.flatMap((item: any) => item.content ?? []).find((item: any) => item.type === "output_text")?.text;
     if (!outputText) throw new Error("OpenAI returned no document analysis");
-    res.json(JSON.parse(outputText));
+    const parsed = JSON.parse(outputText);
+    res.json({
+      ...parsed,
+      loadedDate: validDateOnly(parsed?.loadedDate) ? parsed.loadedDate : null,
+    });
   } catch (error) {
     console.error("OpenAI transport document analysis error:", error);
     res.status(502).json({ error: "La reconnaissance intelligente a échoué. Réessayez avec une photo plus nette." });
@@ -157,6 +171,7 @@ export async function ensureTransportScanTables(): Promise<void> {
       recognized_address TEXT,
       recognized_city TEXT,
       recognized_postal_code TEXT,
+      loaded_date DATE,
       product_matches JSONB NOT NULL DEFAULT '[]'::jsonb,
       estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0,
       confirmed BOOLEAN NOT NULL DEFAULT false,
@@ -168,6 +183,7 @@ export async function ensureTransportScanTables(): Promise<void> {
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_address TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_city TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_postal_code TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS loaded_date DATE;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT false;
@@ -207,7 +223,7 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
     const items = await pool.query(
       `SELECT i.id, i.address_id, i.pallets, i.created_at, i.recognized_text,
               i.recognized_client_name, i.recognized_address, i.recognized_city,
-              i.recognized_postal_code, i.product_matches, i.estimated_weight, i.confirmed,
+              i.recognized_postal_code, i.loaded_date, i.product_matches, i.estimated_weight, i.confirmed,
               c.name AS client_name, a.site_name, a.site_number, a.city
        FROM logistics.transport_scan_items i
        LEFT JOIN sales.clients_addresses a ON a.id = i.address_id
@@ -279,16 +295,17 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
       return { id: match?.id ?? null, name: match?.full_name ?? recognized?.name ?? null, code: match?.product_code ?? recognized?.code ?? null, weight: unitWeight, quantity, quantityLabel: recognized?.quantityLabel ?? null, pallets: Number.isFinite(Number(recognized?.pallets)) ? Number(recognized.pallets) : null, palletType: recognized?.palletType ?? null, lineWeight: quantity == null ? 0 : unitWeight * quantity, matched: Boolean(match), matchMethod };
     });
     const estimatedWeight = Number.isFinite(Number(req.body?.recognizedWeight)) && Number(req.body.recognizedWeight) >= 0 ? Number(req.body.recognizedWeight) : 0;
+    const loadedDate = validDateOnly(req.body?.recognizedLoadedDate) ? req.body.recognizedLoadedDate : null;
     const result = await pool.query(
       `INSERT INTO logistics.transport_scan_items
        (session_token, address_id, pallets, recognized_text, recognized_client_name,
-        recognized_address, recognized_city, recognized_postal_code, product_matches, estimated_weight)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
-       RETURNING id, address_id, pallets, created_at, product_matches, estimated_weight`,
+        recognized_address, recognized_city, recognized_postal_code, product_matches, estimated_weight, loaded_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::date)
+       RETURNING id, address_id, pallets, created_at, product_matches, estimated_weight, loaded_date`,
       [req.params.token, addressId, pallets, recognizedText,
        req.body?.recognizedClientName || null, req.body?.recognizedAddress || null,
        req.body?.recognizedCity || null, req.body?.recognizedPostalCode || null,
-       JSON.stringify(productMatches), estimatedWeight],
+       JSON.stringify(productMatches), estimatedWeight, loadedDate],
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -303,8 +320,9 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
     const addressId = Number(req.body?.addressId);
     const pallets = Number(req.body?.pallets);
     const estimatedWeight = Number(req.body?.estimatedWeight);
-    if (!Number.isSafeInteger(addressId) || addressId < 1 || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 999 || !Number.isFinite(estimatedWeight) || estimatedWeight < 0) {
-      res.status(400).json({ error: "A valid address, pallet count, and total weight are required" }); return;
+    const loadedDate = req.body?.loadedDate;
+    if (!Number.isSafeInteger(addressId) || addressId < 1 || !Number.isSafeInteger(pallets) || pallets < 1 || pallets > 999 || !Number.isFinite(estimatedWeight) || estimatedWeight < 0 || !validDateOnly(loadedDate)) {
+      res.status(400).json({ error: "A valid address, pallet count, total weight, and loading date are required" }); return;
     }
     const submittedProducts = Array.isArray(req.body?.productMatches) ? req.body.productMatches.slice(0, 100) : [];
     const productIds = submittedProducts.map((product: any) => Number(product?.id)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
@@ -320,12 +338,12 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
       return { id: product.id, code: product.product_code, name: product.full_name, weight, quantity, quantityLabel: line.quantityLabel ?? null, pallets: Number.isFinite(Number(line.pallets)) ? Number(line.pallets) : null, palletType: line.palletType ?? null, lineWeight: quantity == null ? 0 : quantity * weight, matched: true };
     });
     const result = await pool.query(
-      `UPDATE logistics.transport_scan_items i SET address_id = $4, pallets = $5, product_matches = $6::jsonb, estimated_weight = $7, confirmed = true
+      `UPDATE logistics.transport_scan_items i SET address_id = $4, pallets = $5, product_matches = $6::jsonb, estimated_weight = $7, loaded_date = $8::date, confirmed = true
        FROM logistics.transport_scan_sessions s, sales.clients_addresses a
        WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
          AND s.owner_user_id = $3 AND s.expires_at > NOW() AND a.id = $4
-       RETURNING i.id, i.address_id, i.pallets, i.confirmed`,
-      [Number(req.params.itemId), req.params.token, req.user!.id, addressId, pallets, JSON.stringify(correctedProducts), estimatedWeight],
+       RETURNING i.id, i.address_id, i.pallets, i.loaded_date, i.confirmed`,
+      [Number(req.params.itemId), req.params.token, req.user!.id, addressId, pallets, JSON.stringify(correctedProducts), estimatedWeight, loadedDate],
     );
     if (!result.rows.length) { res.status(404).json({ error: "Scan item or address not found" }); return; }
     res.json(result.rows[0]);

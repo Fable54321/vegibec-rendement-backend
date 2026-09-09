@@ -4,6 +4,8 @@ node_modules/
 # Environment variables
 .env
 
+vegibec-rendement-backend.env
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
