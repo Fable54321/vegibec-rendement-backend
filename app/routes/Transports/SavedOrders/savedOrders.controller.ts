@@ -96,3 +96,47 @@ export async function deleteSavedOrder(req: Request, res: Response): Promise<voi
     res.status(500).json({ error: "Failed to delete saved transport order" });
   }
 }
+
+export async function updateSavedOrderDate(req: Request, res: Response): Promise<void> {
+  try {
+    const type = req.params.type;
+    const id = req.params.orderId;
+    const loadedDate = req.body?.loadedDate;
+    if ((type !== "scanned" && type !== "generated") || !validDate(loadedDate)) {
+      res.status(400).json({ error: "A valid order type and loading date are required" });
+      return;
+    }
+    await ensureTransportScanTables();
+    await ensureTransportOnlyOrdersTable();
+    const result = type === "generated"
+      ? await pool.query(`
+          UPDATE logistics.transport_only_orders
+          SET loaded_date = $2::date,
+              order_data = jsonb_set(order_data, '{loaded_date}', to_jsonb($2::text)),
+              updated_at = NOW()
+          WHERE id = $1::uuid
+          RETURNING id
+        `, [id, loadedDate])
+      : await pool.query(`
+          UPDATE logistics.transport_scan_items
+          SET loaded_date = $2::date
+          WHERE id = $1::bigint AND confirmed = true
+          RETURNING id
+        `, [id, loadedDate]);
+    if (!result.rows.length) {
+      res.status(404).json({ error: "Saved order not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error("Update saved transport order date error:", error);
+    res.status(500).json({ error: "Failed to update saved transport order date" });
+  }
+}
+
+function validDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}

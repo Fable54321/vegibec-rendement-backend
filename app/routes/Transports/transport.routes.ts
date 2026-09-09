@@ -22,7 +22,7 @@ import {
 } from "./savedRoutePlans.controller";
 import { requireAppRole } from "../../middleware/auth";
 import { createTransportOnlyOrders } from "./transportOnlyOrders.controller";
-import { deleteSavedOrder, listSavedOrders } from "./SavedOrders/savedOrders.controller";
+import { deleteSavedOrder, listSavedOrders, updateSavedOrderDate } from "./SavedOrders/savedOrders.controller";
 
 const router = Router();
 const portalAccess = requireAppRole("main", ["admin", "user", "guest"]);
@@ -55,6 +55,7 @@ router.get("/orders", portalAccess, getTransportOrders);
 router.post("/transport-only-orders", portalAccess, createTransportOnlyOrders);
 router.get("/saved-orders", portalAccess, listSavedOrders);
 router.delete("/saved-orders/:type/:orderId", portalAccess, deleteSavedOrder);
+router.patch("/saved-orders/:type/:orderId/date", portalAccess, updateSavedOrderDate);
 router.get("/client-stops", portalAccess, getClientStops);
 router.post("/client-locations", portalAccess, resolveClientLocations);
 router.post("/optimize-route", portalAccess, optimizeRoute);
