@@ -439,6 +439,9 @@ router.get("/", async (req, res) => {
         COALESCE(orders.actual_purchased_total_price, 0)::numeric
           AS actual_purchased_total_price,
 
+        COALESCE(suppliers.supplier_summaries, '[]'::jsonb)
+          AS supplier_summaries,
+
         orders.last_purchased_at,
         receipts.last_received_at,
 
@@ -541,6 +544,41 @@ router.get("/", async (req, res) => {
         GROUP BY po.purchase_request_id
       ) orders
         ON orders.purchase_request_id = pr.id
+
+      LEFT JOIN (
+        SELECT
+          supplier_totals.purchase_request_id,
+          JSONB_AGG(
+            JSONB_BUILD_OBJECT(
+              'name', supplier_totals.supplier_name,
+              'total', supplier_totals.total
+            )
+            ORDER BY supplier_totals.supplier_name
+          ) AS supplier_summaries
+        FROM (
+          SELECT
+            po.purchase_request_id,
+            COALESCE(NULLIF(TRIM(po.supplier_name), ''), 'Fournisseur non précisé')
+              AS supplier_name,
+            COALESCE(
+              SUM(
+                COALESCE(
+                  poi.final_total_price,
+                  poi.ordered_quantity * poi.final_unit_price
+                )
+              ),
+              0
+            )::numeric AS total
+          FROM portal.purchase_orders po
+          LEFT JOIN portal.purchase_order_items poi
+            ON poi.purchase_order_id = po.id
+          GROUP BY
+            po.purchase_request_id,
+            COALESCE(NULLIF(TRIM(po.supplier_name), ''), 'Fournisseur non précisé')
+        ) supplier_totals
+        GROUP BY supplier_totals.purchase_request_id
+      ) suppliers
+        ON suppliers.purchase_request_id = pr.id
 
       LEFT JOIN (
         SELECT
