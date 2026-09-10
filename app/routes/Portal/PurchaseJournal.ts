@@ -368,6 +368,7 @@ function getDelegationSelectSql(whereClause: string) {
 router.get("/", async (req, res) => {
   try {
     await ensureRecurringColumns()
+
     const { status } = req.query
 
     const params: unknown[] = []
@@ -385,6 +386,7 @@ router.get("/", async (req, res) => {
         pr.request_reference,
         pr.requested_by,
         pr.requester_email,
+        pr.is_direct_order,
         pr.is_recurring,
         pr.recurring_source_request_id,
         pr.status,
@@ -394,16 +396,17 @@ router.get("/", async (req, res) => {
         pr.requested_at,
         pr.created_at,
         pr.buyer_validated_at,
-pr.admin_decision_at,
-pr.cancelled_at,
-pr.cancelled_by_name,
-pr.cancelled_by_email,
-pr.cancellation_reason,
-pr.updated_at,
+        pr.admin_decision_at,
+        pr.cancelled_at,
+        pr.cancelled_by_name,
+        pr.cancelled_by_email,
+        pr.cancellation_reason,
+        pr.updated_at,
 
         COALESCE(items.item_count, 0)::int AS item_count,
 
         COALESCE(items.item_descriptions, ARRAY[]::text[]) AS item_descriptions,
+
         COALESCE(items.items, '[]'::json) AS items,
 
         COALESCE(items.requested_total_quantity, 0)::numeric
@@ -446,10 +449,13 @@ pr.updated_at,
       LEFT JOIN (
         SELECT
           purchase_request_id,
+
           COUNT(*)::int AS item_count,
 
-          ARRAY_AGG(description ORDER BY item_index ASC, id ASC)
-            AS item_descriptions,
+          ARRAY_AGG(
+            description
+            ORDER BY item_index ASC, id ASC
+          ) AS item_descriptions,
 
           JSON_AGG(
             JSON_BUILD_OBJECT(
@@ -471,9 +477,13 @@ pr.updated_at,
             0
           )::numeric AS buyer_confirmed_total_price,
 
-          COALESCE(SUM(quantity), 0)::numeric AS requested_total_quantity
+          COALESCE(
+            SUM(quantity),
+            0
+          )::numeric AS requested_total_quantity
 
         FROM portal.purchase_request_items
+
         GROUP BY purchase_request_id
       ) items
         ON items.purchase_request_id = pr.id
@@ -482,8 +492,13 @@ pr.updated_at,
         SELECT DISTINCT ON (purchase_request_id)
           purchase_request_id,
           description
+
         FROM portal.purchase_request_items
-        ORDER BY purchase_request_id, item_index ASC, id ASC
+
+        ORDER BY
+          purchase_request_id,
+          item_index ASC,
+          id ASC
       ) first_item
         ON first_item.purchase_request_id = pr.id
 
@@ -491,7 +506,8 @@ pr.updated_at,
         SELECT
           po.purchase_request_id,
 
-          COUNT(DISTINCT po.id)::int AS purchase_order_count,
+          COUNT(DISTINCT po.id)::int
+            AS purchase_order_count,
 
           COALESCE(
             SUM(
@@ -503,13 +519,18 @@ pr.updated_at,
             0
           )::numeric AS actual_purchased_total_price,
 
-          COALESCE(SUM(poi.ordered_quantity), 0)::numeric
-            AS ordered_total_quantity,
+          COALESCE(
+            SUM(poi.ordered_quantity),
+            0
+          )::numeric AS ordered_total_quantity,
 
-          COALESCE(SUM(poi.ordered_quantity), 0)::numeric
-            AS purchased_total_quantity,
+          COALESCE(
+            SUM(poi.ordered_quantity),
+            0
+          )::numeric AS purchased_total_quantity,
 
           MAX(po.purchased_at) AS last_purchased_at,
+
           MAX(po.received_at) AS last_received_at
 
         FROM portal.purchase_orders po
@@ -524,13 +545,22 @@ pr.updated_at,
       LEFT JOIN (
         SELECT
           rv.purchase_request_id,
-          COUNT(DISTINCT rv.id)::int AS receipt_voucher_count,
-          COALESCE(SUM(rvi.received_quantity), 0)::numeric
-            AS received_total_quantity,
+
+          COUNT(DISTINCT rv.id)::int
+            AS receipt_voucher_count,
+
+          COALESCE(
+            SUM(rvi.received_quantity),
+            0
+          )::numeric AS received_total_quantity,
+
           MAX(rv.received_at) AS last_received_at
+
         FROM portal.receipt_vouchers rv
+
         LEFT JOIN portal.receipt_voucher_items rvi
           ON rvi.receipt_voucher_id = rv.id
+
         GROUP BY rv.purchase_request_id
       ) receipts
         ON receipts.purchase_request_id = pr.id
@@ -547,19 +577,31 @@ pr.updated_at,
       const buyerConfirmedTotal = Number(row.buyer_confirmed_total_price || 0)
       const requestedTotal = Number(row.requested_total_price || 0)
       const actualPurchasedTotal = Number(row.actual_purchased_total_price || 0)
-      const requestedTotalQuantity = Number(row.requested_total_quantity || 0)
-      const purchasedTotalQuantity = Number(row.purchased_total_quantity || 0)
-      const orderedTotalQuantity = Number(row.ordered_total_quantity || 0)
-      const receivedTotalQuantity = Number(row.received_total_quantity || 0)
+
+      const requestedTotalQuantity = Number(
+        row.requested_total_quantity || 0,
+      )
+
+      const purchasedTotalQuantity = Number(
+        row.purchased_total_quantity || 0,
+      )
+
+      const orderedTotalQuantity = Number(
+        row.ordered_total_quantity || 0,
+      )
+
+      const receivedTotalQuantity = Number(
+        row.received_total_quantity || 0,
+      )
 
       const hasPurchaseOrders = purchaseOrderCount > 0
       const hasBuyerConfirmedPrice = buyerConfirmedTotal > 0
 
       const displayTotalPrice = hasPurchaseOrders
-        ? row.actual_purchased_total_price
+        ? actualPurchasedTotal
         : hasBuyerConfirmedPrice
-          ? row.buyer_confirmed_total_price
-          : row.requested_total_price
+          ? buyerConfirmedTotal
+          : requestedTotal
 
       const displayTotalPriceSource = hasPurchaseOrders
         ? "actual_purchased"
@@ -567,44 +609,84 @@ pr.updated_at,
           ? "buyer_confirmed"
           : "requester_estimated"
 
+      const isDirectOrder = Boolean(row.is_direct_order)
+
       return {
         ...row,
 
         id: Number(row.id),
 
+        is_direct_order: isDirectOrder,
+
+        request_origin: isDirectOrder
+          ? "direct_order"
+          : "request",
+
+        requester_display: isDirectOrder
+          ? "Commande directe"
+          : row.requested_by,
+
         item_count: Number(row.item_count || 0),
+
         item_descriptions: Array.isArray(row.item_descriptions)
           ? row.item_descriptions.filter(Boolean)
           : [],
-        items: Array.isArray(row.items) ? row.items : [],
+
+        items: Array.isArray(row.items)
+          ? row.items
+          : [],
+
         purchase_order_count: purchaseOrderCount,
-        receipt_voucher_count: Number(row.receipt_voucher_count || 0),
+
+        receipt_voucher_count: Number(
+          row.receipt_voucher_count || 0,
+        ),
+
         requested_total_quantity: requestedTotalQuantity,
+
         purchased_total_quantity: purchasedTotalQuantity,
+
         ordered_total_quantity: orderedTotalQuantity,
+
         received_total_quantity: receivedTotalQuantity,
+
         has_receivable_items:
-          orderedTotalQuantity > 0 && receivedTotalQuantity < orderedTotalQuantity,
+          orderedTotalQuantity > 0 &&
+          receivedTotalQuantity < orderedTotalQuantity,
 
         requested_total_price: requestedTotal,
+
         buyer_confirmed_total_price: buyerConfirmedTotal,
+
         actual_purchased_total_price: actualPurchasedTotal,
+
         purchase_orders_total: actualPurchasedTotal,
 
         display_total_price: displayTotalPrice,
+
         display_total_price_source: displayTotalPriceSource,
 
         // Compatibility aliases for the frontend context
         admin_decided_at: row.admin_decision_at,
+
         purchased_at: row.last_purchased_at,
+
         received_at: row.last_received_at,
+
         cancelled_at: row.cancelled_at,
-cancelled_by_name: row.cancelled_by_name,
-cancelled_by_email: row.cancelled_by_email,
-cancellation_reason: row.cancellation_reason,
+
+        cancelled_by_name: row.cancelled_by_name,
+
+        cancelled_by_email: row.cancelled_by_email,
+
+        cancellation_reason: row.cancellation_reason,
+
         status_label: getPurchaseRequestStatusLabel(row.status),
 
-        available_action: getAvailableAction(row.status, Number(row.id)),
+        available_action: getAvailableAction(
+          row.status,
+          Number(row.id),
+        ),
       }
     })
 
@@ -1335,6 +1417,7 @@ router.get("/:id", async (req, res) => {
         po.purchased_at,
 
         po.purchased_at AS ordered_at,
+        receipt_completion.fully_received_at,
 
         COALESCE(order_totals.subtotal_price, 0)::numeric AS subtotal_price,
         0::numeric AS taxes_price,
@@ -1366,6 +1449,32 @@ router.get("/:id", async (req, res) => {
 
       LEFT JOIN public.users purchased_by
         ON purchased_by.id = po.purchased_by_user_id
+
+      LEFT JOIN (
+        SELECT
+          order_items.purchase_order_id,
+          CASE
+            WHEN BOOL_AND(
+              COALESCE(receipts.received_quantity, 0) >= order_items.ordered_quantity
+            )
+            THEN MAX(receipts.last_received_at)
+            ELSE NULL
+          END AS fully_received_at
+        FROM portal.purchase_order_items order_items
+        LEFT JOIN (
+          SELECT
+            receipt_items.purchase_order_item_id,
+            SUM(receipt_items.received_quantity)::numeric AS received_quantity,
+            MAX(receipt_vouchers.received_at) AS last_received_at
+          FROM portal.receipt_voucher_items receipt_items
+          INNER JOIN portal.receipt_vouchers receipt_vouchers
+            ON receipt_vouchers.id = receipt_items.receipt_voucher_id
+          GROUP BY receipt_items.purchase_order_item_id
+        ) receipts
+          ON receipts.purchase_order_item_id = order_items.id
+        GROUP BY order_items.purchase_order_id
+      ) receipt_completion
+        ON receipt_completion.purchase_order_id = po.id
 
       WHERE po.purchase_request_id = $1
 
