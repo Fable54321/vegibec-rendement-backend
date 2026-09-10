@@ -668,14 +668,15 @@ router.post("/direct-purchase-order", async (req, res) => {
     const buyerEmail = cleanRecurringText(req.body?.buyer_email)
 
     const requestResult = await client.query(
-      `INSERT INTO portal.purchase_requests
-        (request_reference, request_year, request_month, request_month_sequence,
-         requested_by, requester_email, urgency, status, buyer_user_id,
-         buyer_validated_at, buyer_email, admin_decision, admin_decision_at, purchased_at)
-       VALUES ($1,$2,$3,$4,$5,$6,'normal','purchased',$7,now(),$6,'approved',now(),now())
-       RETURNING *`,
-      [reference, year, month, sequence, buyerName, buyerEmail, req.user?.id ?? null],
-    )
+  `INSERT INTO portal.purchase_requests 
+    (request_reference, request_year, request_month, request_month_sequence, 
+     requested_by, requester_email, urgency, status, buyer_user_id, 
+     buyer_validated_at, buyer_email, admin_decision, admin_decision_at, purchased_at,
+     is_direct_order) 
+   VALUES ($1,$2,$3,$4,$5,$6,'normal','purchased',$7,now(),$6,'approved',now(),now(),TRUE) 
+   RETURNING *`,
+  [reference, year, month, sequence, buyerName, buyerEmail, req.user?.id ?? null],
+)
     const purchaseRequest = requestResult.rows[0]
     const requestItemIds: number[] = []
 
