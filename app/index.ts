@@ -70,7 +70,7 @@ import finishedProductsRoute from "./routes/Trackability/finishedProducts";
 import transportRoute from "./routes/Transports/transport.routes";
 import evaluationRoute from "./routes/evaluation/evaluation.routes";
 import temperaturesRoute from "./routes/Temperatures/temperatures";
-
+import hrLogsRoute from "./routes/HRLogs/HRLogs.routes";
 
 
 
@@ -213,7 +213,7 @@ app.use("/auth", authRoute);
 
 app.use("/file-transfer", fileTransferRoute);
 
-
+////// PROTECTION STARTS HERE ////////
 
 app.use(authMiddleware);
 
@@ -224,7 +224,7 @@ app.use("/sales", salesOrdersRoute);
 
 app.use("/alternative-auth", alternativeAuthRoute);
 
-
+app.use("/hr-logs", hrLogsRoute);
 
 // --- POST: Insert new cost entry ---
 app.post(
