@@ -1,11 +1,13 @@
 
 
+import crypto from "crypto"
 import { Router } from "express"
 import multer from "multer"
+import path from "path"
 
 import { pool } from "../../db"
 import { requireAppRole } from "../../middleware/auth"
-// import { uploadFileToS3, deleteFileFromS3 } from "../services/s3"
+import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services"
 
 const router = Router()
 
@@ -18,12 +20,31 @@ const upload = multer({
   },
 })
 
+const interviewFileKey = (workerUserId: string, fileName: string) => {
+  const extension = path.extname(fileName).toLowerCase().slice(0, 16)
+  return `worker-interviews/${workerUserId}/${crypto.randomBytes(16).toString("hex")}${extension}`
+}
+
+const withFileUrl = async (interview: Record<string, any>) => ({
+  ...interview,
+  file_url: interview.file_key
+    ? await getSignedUrlForKey(interview.file_key, {
+        expiresIn: 60 * 15,
+        responseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(
+          interview.original_file_name || "document",
+        )}`,
+      })
+    : null,
+})
+
 router.post(
   "/",
   hrLogsAccess,
   upload.single("file"),
   async (req, res) => {
     const client = await pool.connect()
+    let uploadedFileKey: string | null = null
+    let committed = false
 
     try {
       const hrUserId = req.user!.id
@@ -74,19 +95,13 @@ router.post(
       if (req.file) {
         originalFileName = req.file.originalname
 
-        /*
-        const uploadedFile = await uploadFileToS3({
+        uploadedFileKey = interviewFileKey(String(worker_user_id), req.file.originalname)
+        await uploadBufferToS3({
+          key: uploadedFileKey,
           buffer: req.file.buffer,
-          mimeType: req.file.mimetype,
-          fileName: req.file.originalname,
-          folder: `worker-interviews/${worker_user_id}`,
+          contentType: req.file.mimetype || "application/octet-stream",
         })
-
-        fileKey = uploadedFile.key
-        */
-
-        // Temporary until your S3 helper is connected
-        fileKey = null
+        fileKey = uploadedFileKey
       }
 
       const result = await client.query(
@@ -122,14 +137,23 @@ router.post(
         ],
       )
 
+      const interview = await withFileUrl(result.rows[0])
       await client.query("COMMIT")
+      committed = true
 
       return res.status(201).json({
         message: "Entretien enregistré",
-        interview: result.rows[0],
+        interview,
       })
     } catch (error) {
-      await client.query("ROLLBACK")
+      if (!committed) {
+        await client.query("ROLLBACK")
+        if (uploadedFileKey) {
+          await deleteObjectFromS3(uploadedFileKey).catch((cleanupError) =>
+            console.error("Error cleaning up worker interview file:", cleanupError),
+          )
+        }
+      }
 
       console.error("Error creating worker interview:", error)
 
@@ -186,7 +210,7 @@ router.get(
         `,
       )
 
-      return res.json(result.rows)
+      return res.json(await Promise.all(result.rows.map(withFileUrl)))
     } catch (error) {
       console.error("Error fetching worker interviews:", error)
 
@@ -250,7 +274,7 @@ router.get(
         })
       }
 
-      return res.json(result.rows[0])
+      return res.json(await withFileUrl(result.rows[0]))
     } catch (error) {
       console.error("Error fetching worker interview:", error)
 
@@ -268,6 +292,8 @@ router.patch(
   upload.single("file"),
   async (req, res) => {
     const client = await pool.connect()
+    let uploadedFileKey: string | null = null
+    let committed = false
 
     try {
       const { id } = req.params
@@ -305,23 +331,17 @@ router.patch(
       let originalFileName = existing.original_file_name
 
       if (req.file) {
-        /*
-        if (existing.file_key) {
-          await deleteFileFromS3(existing.file_key)
-        }
-
-        const uploadedFile = await uploadFileToS3({
+        uploadedFileKey = interviewFileKey(
+          String(worker_user_id || existing.worker_user_id),
+          req.file.originalname,
+        )
+        await uploadBufferToS3({
+          key: uploadedFileKey,
           buffer: req.file.buffer,
-          mimeType: req.file.mimetype,
-          fileName: req.file.originalname,
-          folder: `worker-interviews/${
-            worker_user_id || existing.worker_user_id
-          }`,
+          contentType: req.file.mimetype || "application/octet-stream",
         })
 
-        fileKey = uploadedFile.key
-        */
-
+        fileKey = uploadedFileKey
         originalFileName = req.file.originalname
       }
 
@@ -362,14 +382,29 @@ router.patch(
         ],
       )
 
+      const interview = await withFileUrl(result.rows[0])
       await client.query("COMMIT")
+      committed = true
+
+      if (uploadedFileKey && existing.file_key) {
+        await deleteObjectFromS3(existing.file_key).catch((cleanupError) =>
+          console.error("Error deleting replaced worker interview file:", cleanupError),
+        )
+      }
 
       return res.json({
         message: "Entretien mis à jour",
-        interview: result.rows[0],
+        interview,
       })
     } catch (error) {
-      await client.query("ROLLBACK")
+      if (!committed) {
+        await client.query("ROLLBACK")
+        if (uploadedFileKey) {
+          await deleteObjectFromS3(uploadedFileKey).catch((cleanupError) =>
+            console.error("Error cleaning up worker interview file:", cleanupError),
+          )
+        }
+      }
 
       console.error("Error updating worker interview:", error)
 
