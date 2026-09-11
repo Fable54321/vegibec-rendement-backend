@@ -417,4 +417,152 @@ router.patch(
   },
 )
 
+
+
+router.post(
+  "/draft",
+  hrLogsAccess,
+  async (req, res) => {
+    try {
+      const hrUserId = req.user!.id
+
+      const {
+        worker_user_id,
+        matricule,
+        interview_date,
+      } = req.body
+
+      const result = await pool.query(
+        `
+        INSERT INTO foreign_workers_schedule.worker_interviews (
+          hr_user_id,
+          worker_user_id,
+          matricule,
+          interview_date,
+          status
+        )
+        VALUES ($1, $2, $3, $4, 'draft')
+        RETURNING *
+        `,
+        [
+          hrUserId,
+          worker_user_id,
+          matricule,
+          interview_date,
+        ],
+      )
+
+      return res.status(201).json(result.rows[0])
+    } catch (error) {
+      console.error(error)
+
+      return res.status(500).json({
+        message: "Erreur lors de la création du brouillon",
+      })
+    }
+  },
+)
+
+
+
+router.patch(
+  "/:id/draft",
+  hrLogsAccess,
+  async (req, res) => {
+    try {
+      const hrUserId = req.user!.id
+      const { id } = req.params
+
+      const {
+        worker_user_id,
+        matricule,
+        interview_date,
+        notes_during_interview,
+        interview_summary,
+      } = req.body
+
+      const result = await pool.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interviews
+        SET
+          worker_user_id = COALESCE($1, worker_user_id),
+          matricule = COALESCE($2, matricule),
+          interview_date = COALESCE($3, interview_date),
+          notes_during_interview = COALESCE($4, notes_during_interview),
+          interview_summary = COALESCE($5, interview_summary),
+          updated_at = NOW()
+        WHERE id = $6
+          AND hr_user_id = $7
+          AND status = 'draft'
+        RETURNING *
+        `,
+        [
+          worker_user_id,
+          matricule,
+          interview_date,
+          notes_during_interview,
+          interview_summary,
+          id,
+          hrUserId,
+        ],
+      )
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          message: "Brouillon introuvable",
+        })
+      }
+
+      return res.json(result.rows[0])
+    } catch (error) {
+      console.error(error)
+
+      return res.status(500).json({
+        message: "Erreur lors de la sauvegarde du brouillon",
+      })
+    }
+  },
+)
+
+
+router.patch(
+  "/:id/complete",
+  hrLogsAccess,
+  async (req, res) => {
+    try {
+      const hrUserId = req.user!.id
+      const { id } = req.params
+
+      const result = await pool.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interviews
+        SET
+          status = 'completed',
+          completed_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+          AND hr_user_id = $2
+          AND status = 'draft'
+        RETURNING *
+        `,
+        [id, hrUserId],
+      )
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          message: "Brouillon introuvable",
+        })
+      }
+
+      return res.json(result.rows[0])
+    } catch (error) {
+      console.error(error)
+
+      return res.status(500).json({
+        message: "Erreur lors de la finalisation de l'entretien",
+      })
+    }
+  },
+)
+
 export default router
