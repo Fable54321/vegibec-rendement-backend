@@ -172,6 +172,8 @@ router.get(
   hrLogsAccess,
   async (req, res) => {
     try {
+      const hrUserId = req.user!.id
+
       const result = await pool.query(
         `
         SELECT
@@ -209,16 +211,37 @@ router.get(
         LEFT JOIN public.users hr
           ON hr.id = wi.hr_user_id
 
-        ORDER BY wi.created_at DESC
+        WHERE
+          wi.status = 'completed'
+          OR (
+            wi.status = 'draft'
+            AND wi.hr_user_id = $1
+          )
+
+        ORDER BY
+          CASE
+            WHEN wi.status = 'draft' THEN 0
+            ELSE 1
+          END,
+          wi.updated_at DESC
         `,
+        [hrUserId],
       )
 
-      return res.json(await Promise.all(result.rows.map(withFileUrl)))
+      return res.json(
+        await Promise.all(
+          result.rows.map(withFileUrl),
+        ),
+      )
     } catch (error) {
-      console.error("Error fetching worker interviews:", error)
+      console.error(
+        "Error fetching worker interviews:",
+        error,
+      )
 
       return res.status(500).json({
-        message: "Erreur lors du chargement des entretiens",
+        message:
+          "Erreur lors du chargement des entretiens",
       })
     }
   },
@@ -231,6 +254,7 @@ router.get(
   async (req, res) => {
     try {
       const { id } = req.params
+      const hrUserId = req.user!.id
 
       const result = await pool.query(
         `
@@ -270,8 +294,15 @@ router.get(
           ON hr.id = wi.hr_user_id
 
         WHERE wi.id = $1
+          AND (
+            wi.status = 'completed'
+            OR (
+              wi.status = 'draft'
+              AND wi.hr_user_id = $2
+            )
+          )
         `,
-        [id],
+        [id, hrUserId],
       )
 
       if (result.rowCount === 0) {
@@ -280,12 +311,18 @@ router.get(
         })
       }
 
-      return res.json(await withFileUrl(result.rows[0]))
+      return res.json(
+        await withFileUrl(result.rows[0]),
+      )
     } catch (error) {
-      console.error("Error fetching worker interview:", error)
+      console.error(
+        "Error fetching worker interview:",
+        error,
+      )
 
       return res.status(500).json({
-        message: "Erreur lors du chargement de l'entretien",
+        message:
+          "Erreur lors du chargement de l'entretien",
       })
     }
   },
