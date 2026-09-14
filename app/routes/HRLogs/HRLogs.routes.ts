@@ -293,14 +293,15 @@ router.get(
         LEFT JOIN public.users hr
           ON hr.id = wi.hr_user_id
 
-        WHERE wi.id = $1
-          AND (
-            wi.status = 'completed'
-            OR (
-              wi.status = 'draft'
-              AND wi.hr_user_id = $2
-            )
-          )
+       WHERE wi.id = $1
+  AND wi.deleted_at IS NULL
+  AND (
+    wi.status = 'completed'
+    OR (
+      wi.status = 'draft'
+      AND wi.hr_user_id = $2
+    )
+  )
         `,
         [id, hrUserId],
       )
@@ -537,6 +538,7 @@ router.patch(
         WHERE id = $6
           AND hr_user_id = $7
           AND status = 'draft'
+          AND deleted_at IS NULL
         RETURNING *
         `,
         [
@@ -586,6 +588,7 @@ router.patch(
         WHERE id = $1
           AND hr_user_id = $2
           AND status = 'draft'
+          AND deleted_at IS NULL
         RETURNING *
         `,
         [id, hrUserId],
@@ -603,6 +606,100 @@ router.patch(
 
       return res.status(500).json({
         message: "Erreur lors de la finalisation de l'entretien",
+      })
+    }
+  },
+)
+
+router.delete(
+  "/:id/draft",
+  hrLogsAccess,
+  async (req, res) => {
+    try {
+      const hrUserId = req.user!.id
+      const { id } = req.params
+
+      const result = await pool.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interviews
+        SET
+          deleted_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+          AND hr_user_id = $2
+          AND status = 'draft'
+          AND deleted_at IS NULL
+        RETURNING *
+        `,
+        [id, hrUserId],
+      )
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          message: "Brouillon introuvable",
+        })
+      }
+
+      return res.json({
+        message: "Brouillon supprimé",
+        interview: result.rows[0],
+      })
+    } catch (error) {
+      console.error(
+        "Error soft deleting worker interview draft:",
+        error,
+      )
+
+      return res.status(500).json({
+        message:
+          "Erreur lors de la suppression du brouillon",
+      })
+    }
+  },
+)
+
+router.patch(
+  "/:id/draft/restore",
+  hrLogsAccess,
+  async (req, res) => {
+    try {
+      const hrUserId = req.user!.id
+      const { id } = req.params
+
+      const result = await pool.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interviews
+        SET
+          deleted_at = NULL,
+          updated_at = NOW()
+        WHERE id = $1
+          AND hr_user_id = $2
+          AND status = 'draft'
+          AND deleted_at IS NOT NULL
+        RETURNING *
+        `,
+        [id, hrUserId],
+      )
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          message: "Brouillon supprimé introuvable",
+        })
+      }
+
+      return res.json({
+        message: "Brouillon restauré",
+        interview: result.rows[0],
+      })
+    } catch (error) {
+      console.error(
+        "Error restoring worker interview draft:",
+        error,
+      )
+
+      return res.status(500).json({
+        message:
+          "Erreur lors de la restauration du brouillon",
       })
     }
   },
