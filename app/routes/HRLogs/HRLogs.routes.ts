@@ -187,6 +187,8 @@ router.get(
           wi.file_key,
           wi.original_file_name,
           wi.status,
+          wi.category,
+          wi.other_category,
           wi.completed_at,
           wi.created_at,
           wi.updated_at,
