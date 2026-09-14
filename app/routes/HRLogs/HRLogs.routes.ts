@@ -1,5 +1,3 @@
-
-
 import crypto from "crypto"
 import { Router } from "express"
 import multer from "multer"
@@ -7,7 +5,11 @@ import path from "path"
 
 import { pool } from "../../db"
 import { requireAppRole } from "../../middleware/auth"
-import { deleteObjectFromS3, getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services"
+import {
+  deleteObjectFromS3,
+  getSignedUrlForKey,
+  uploadBufferToS3,
+} from "../../services/s3.services"
 
 const router = Router()
 
@@ -16,26 +18,75 @@ const hrLogsAccess = requireAppRole("main", ["admin"])
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10 MB
+    fileSize: 10 * 1024 * 1024,
   },
 })
 
-const interviewFileKey = (workerUserId: string, fileName: string) => {
-  const extension = path.extname(fileName).toLowerCase().slice(0, 16)
-  return `worker-interviews/${workerUserId}/${crypto.randomBytes(16).toString("hex")}${extension}`
+const interviewFileKey = (
+  workerUserId: string,
+  fileName: string,
+) => {
+  const extension = path
+    .extname(fileName)
+    .toLowerCase()
+    .slice(0, 16)
+
+  return `worker-interviews/${workerUserId}/${crypto
+    .randomBytes(16)
+    .toString("hex")}${extension}`
 }
 
-const withFileUrl = async (interview: Record<string, any>) => ({
-  ...interview,
-  file_url: interview.file_key
-    ? await getSignedUrlForKey(interview.file_key, {
-        expiresIn: 60 * 15,
-        responseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(
-          interview.original_file_name || "document",
-        )}`,
-      })
-    : null,
-})
+const withFileUrls = async (
+  interview: Record<string, any>,
+) => {
+  if (!interview.file_key) {
+    return {
+      ...interview,
+      preview_url: null,
+      download_url: null,
+    }
+  }
+
+  const fileName =
+    interview.original_file_name || "document"
+
+  const [previewUrl, downloadUrl] =
+    await Promise.all([
+      getSignedUrlForKey(
+        interview.file_key,
+        {
+          expiresIn: 60 * 15,
+
+          responseContentDisposition:
+            `inline; filename*=UTF-8''${encodeURIComponent(
+              fileName,
+            )}`,
+        },
+      ),
+
+      getSignedUrlForKey(
+        interview.file_key,
+        {
+          expiresIn: 60 * 15,
+
+          responseContentDisposition:
+            `attachment; filename*=UTF-8''${encodeURIComponent(
+              fileName,
+            )}`,
+        },
+      ),
+    ])
+
+  return {
+    ...interview,
+    preview_url: previewUrl,
+    download_url: downloadUrl,
+  }
+}
+
+/* =========================================================
+   CREATE COMPLETED INTERVIEW
+========================================================= */
 
 router.post(
   "/",
@@ -43,6 +94,7 @@ router.post(
   upload.single("file"),
   async (req, res) => {
     const client = await pool.connect()
+
     let uploadedFileKey: string | null = null
     let committed = false
 
@@ -52,8 +104,11 @@ router.post(
       const {
         worker_user_id,
         matricule,
+        interview_date,
         notes_during_interview,
         interview_summary,
+        category,
+        other_category,
       } = req.body
 
       if (!worker_user_id) {
@@ -68,10 +123,31 @@ router.post(
         })
       }
 
+      if (!interview_date) {
+        return res.status(400).json({
+          message:
+            "La date de l'entretien est requise",
+        })
+      }
+
+      if (!category?.trim()) {
+        return res.status(400).json({
+          message: "La catégorie est requise",
+        })
+      }
+
+      if (
+        category === "other" &&
+        !other_category?.trim()
+      ) {
+        return res.status(400).json({
+          message:
+            "Veuillez préciser la catégorie",
+        })
+      }
+
       await client.query("BEGIN")
 
-      // Optional but recommended:
-      // verify worker exists before inserting
       const workerResult = await client.query(
         `
         SELECT id
@@ -90,17 +166,27 @@ router.post(
       }
 
       let fileKey: string | null = null
-      let originalFileName: string | null = null
+      let originalFileName: string | null =
+        null
 
       if (req.file) {
-        originalFileName = req.file.originalname
+        originalFileName =
+          req.file.originalname
 
-        uploadedFileKey = interviewFileKey(String(worker_user_id), req.file.originalname)
+        uploadedFileKey =
+          interviewFileKey(
+            String(worker_user_id),
+            req.file.originalname,
+          )
+
         await uploadBufferToS3({
           key: uploadedFileKey,
           buffer: req.file.buffer,
-          contentType: req.file.mimetype || "application/octet-stream",
+          contentType:
+            req.file.mimetype ||
+            "application/octet-stream",
         })
+
         fileKey = uploadedFileKey
       }
 
@@ -110,10 +196,15 @@ router.post(
           hr_user_id,
           worker_user_id,
           matricule,
+          interview_date,
           notes_during_interview,
           interview_summary,
+          category,
+          other_category,
           file_key,
-          original_file_name
+          original_file_name,
+          status,
+          completed_at
         )
         VALUES (
           $1,
@@ -122,7 +213,12 @@ router.post(
           $4,
           $5,
           $6,
-          $7
+          $7,
+          $8,
+          $9,
+          $10,
+          'completed',
+          NOW()
         )
         RETURNING *
         `,
@@ -130,16 +226,26 @@ router.post(
           hrUserId,
           worker_user_id,
           matricule.trim(),
-          notes_during_interview?.trim() || null,
+          interview_date,
+          notes_during_interview?.trim() ||
+            null,
           interview_summary?.trim() || null,
+          category.trim(),
+          category === "other"
+            ? other_category?.trim() || null
+            : null,
           fileKey,
           originalFileName,
         ],
       )
 
-      const interview = await withFileUrl(result.rows[0])
       await client.query("COMMIT")
       committed = true
+
+      const interview =
+        await withFileUrls(
+          result.rows[0],
+        )
 
       return res.status(201).json({
         message: "Entretien enregistré",
@@ -147,18 +253,30 @@ router.post(
       })
     } catch (error) {
       if (!committed) {
-        await client.query("ROLLBACK")
+        await client
+          .query("ROLLBACK")
+          .catch(() => undefined)
+
         if (uploadedFileKey) {
-          await deleteObjectFromS3(uploadedFileKey).catch((cleanupError) =>
-            console.error("Error cleaning up worker interview file:", cleanupError),
+          await deleteObjectFromS3(
+            uploadedFileKey,
+          ).catch((cleanupError) =>
+            console.error(
+              "Error cleaning up worker interview file:",
+              cleanupError,
+            ),
           )
         }
       }
 
-      console.error("Error creating worker interview:", error)
+      console.error(
+        "Error creating worker interview:",
+        error,
+      )
 
       return res.status(500).json({
-        message: "Erreur lors de l'enregistrement de l'entretien",
+        message:
+          "Erreur lors de l'enregistrement de l'entretien",
       })
     } finally {
       client.release()
@@ -166,6 +284,18 @@ router.post(
   },
 )
 
+/* =========================================================
+   GET INTERVIEWS
+
+   Completed:
+   visible to all HR users.
+
+   Drafts:
+   only visible to their creator.
+
+   Soft-deleted rows:
+   hidden.
+========================================================= */
 
 router.get(
   "/",
@@ -190,6 +320,7 @@ router.get(
           wi.category,
           wi.other_category,
           wi.completed_at,
+          wi.deleted_at,
           wi.created_at,
           wi.updated_at,
 
@@ -214,28 +345,34 @@ router.get(
           ON hr.id = wi.hr_user_id
 
         WHERE
-          wi.status = 'completed'
-          OR (
-            wi.status = 'draft'
-            AND wi.hr_user_id = $1
+          wi.deleted_at IS NULL
+          AND (
+            wi.status = 'completed'
+
+            OR (
+              wi.status = 'draft'
+              AND wi.hr_user_id = $1
+            )
           )
-          AND wi.deleted_at IS NULL
 
         ORDER BY
           CASE
-            WHEN wi.status = 'draft' THEN 0
+            WHEN wi.status = 'draft'
+              THEN 0
             ELSE 1
           END,
+
           wi.updated_at DESC
         `,
         [hrUserId],
       )
 
-      return res.json(
+      const interviews =
         await Promise.all(
-          result.rows.map(withFileUrl),
-        ),
-      )
+          result.rows.map(withFileUrls),
+        )
+
+      return res.json(interviews)
     } catch (error) {
       console.error(
         "Error fetching worker interviews:",
@@ -250,6 +387,9 @@ router.get(
   },
 )
 
+/* =========================================================
+   GET ONE INTERVIEW
+========================================================= */
 
 router.get(
   "/:id",
@@ -272,7 +412,10 @@ router.get(
           wi.file_key,
           wi.original_file_name,
           wi.status,
+          wi.category,
+          wi.other_category,
           wi.completed_at,
+          wi.deleted_at,
           wi.created_at,
           wi.updated_at,
 
@@ -291,20 +434,24 @@ router.get(
         FROM foreign_workers_schedule.worker_interviews wi
 
         LEFT JOIN public.users worker
-          ON worker.id = wi.worker_user_id
+          ON worker.id =
+            wi.worker_user_id
 
         LEFT JOIN public.users hr
-          ON hr.id = wi.hr_user_id
+          ON hr.id =
+            wi.hr_user_id
 
-       WHERE wi.id = $1
-  AND wi.deleted_at IS NULL
-  AND (
-    wi.status = 'completed'
-    OR (
-      wi.status = 'draft'
-      AND wi.hr_user_id = $2
-    )
-  )
+        WHERE wi.id = $1
+          AND wi.deleted_at IS NULL
+
+          AND (
+            wi.status = 'completed'
+
+            OR (
+              wi.status = 'draft'
+              AND wi.hr_user_id = $2
+            )
+          )
         `,
         [id, hrUserId],
       )
@@ -315,9 +462,12 @@ router.get(
         })
       }
 
-      return res.json(
-        await withFileUrl(result.rows[0]),
-      )
+      const interview =
+        await withFileUrls(
+          result.rows[0],
+        )
+
+      return res.json(interview)
     } catch (error) {
       console.error(
         "Error fetching worker interview:",
@@ -332,6 +482,9 @@ router.get(
   },
 )
 
+/* =========================================================
+   UPDATE INTERVIEW / ATTACH FILE
+========================================================= */
 
 router.patch(
   "/:id",
@@ -339,32 +492,54 @@ router.patch(
   upload.single("file"),
   async (req, res) => {
     const client = await pool.connect()
-    let uploadedFileKey: string | null = null
+
+    let uploadedFileKey: string | null =
+      null
+
     let committed = false
 
     try {
       const { id } = req.params
+      const hrUserId = req.user!.id
 
       const {
         worker_user_id,
         matricule,
+        interview_date,
         notes_during_interview,
         interview_summary,
+        category,
+        other_category,
       } = req.body
 
       await client.query("BEGIN")
 
-      const existingResult = await client.query(
-        `
-        SELECT *
-        FROM foreign_workers_schedule.worker_interviews
-        WHERE id = $1
-        FOR UPDATE
-        `,
-        [id],
-      )
+      const existingResult =
+        await client.query(
+          `
+          SELECT *
+          FROM foreign_workers_schedule.worker_interviews
 
-      if (existingResult.rowCount === 0) {
+          WHERE id = $1
+            AND deleted_at IS NULL
+
+            AND (
+              status = 'completed'
+
+              OR (
+                status = 'draft'
+                AND hr_user_id = $2
+              )
+            )
+
+          FOR UPDATE
+          `,
+          [id, hrUserId],
+        )
+
+      if (
+        existingResult.rowCount === 0
+      ) {
         await client.query("ROLLBACK")
 
         return res.status(404).json({
@@ -372,24 +547,68 @@ router.patch(
         })
       }
 
-      const existing = existingResult.rows[0]
+      const existing =
+        existingResult.rows[0]
 
-      let fileKey = existing.file_key
-      let originalFileName = existing.original_file_name
+      let fileKey =
+        existing.file_key
+
+      let originalFileName =
+        existing.original_file_name
 
       if (req.file) {
-        uploadedFileKey = interviewFileKey(
-          String(worker_user_id || existing.worker_user_id),
-          req.file.originalname,
-        )
+        uploadedFileKey =
+          interviewFileKey(
+            String(
+              worker_user_id ||
+                existing.worker_user_id,
+            ),
+            req.file.originalname,
+          )
+
         await uploadBufferToS3({
           key: uploadedFileKey,
           buffer: req.file.buffer,
-          contentType: req.file.mimetype || "application/octet-stream",
+
+          contentType:
+            req.file.mimetype ||
+            "application/octet-stream",
         })
 
         fileKey = uploadedFileKey
-        originalFileName = req.file.originalname
+
+        originalFileName =
+          req.file.originalname
+      }
+
+      const nextCategory =
+        category !== undefined
+          ? category.trim() || null
+          : existing.category
+
+      const nextOtherCategory =
+        nextCategory === "other"
+          ? other_category !== undefined
+            ? other_category.trim() || null
+            : existing.other_category
+          : null
+
+      if (
+        nextCategory === "other" &&
+        !nextOtherCategory
+      ) {
+        await client.query("ROLLBACK")
+
+        if (uploadedFileKey) {
+          await deleteObjectFromS3(
+            uploadedFileKey,
+          ).catch(() => undefined)
+        }
+
+        return res.status(400).json({
+          message:
+            "Veuillez préciser la catégorie",
+        })
       }
 
       const result = await client.query(
@@ -397,47 +616,92 @@ router.patch(
         UPDATE foreign_workers_schedule.worker_interviews
 
         SET
-          worker_user_id = COALESCE($1, worker_user_id),
+          worker_user_id =
+            COALESCE(
+              $1,
+              worker_user_id
+            ),
 
-          matricule = COALESCE(
-            NULLIF($2, ''),
-            matricule
-          ),
+          matricule =
+            COALESCE(
+              NULLIF($2, ''),
+              matricule
+            ),
 
-          notes_during_interview = $3,
+          interview_date =
+            COALESCE(
+              $3,
+              interview_date
+            ),
 
-          interview_summary = $4,
+          notes_during_interview =
+            COALESCE(
+              $4,
+              notes_during_interview
+            ),
 
-          file_key = $5,
+          interview_summary =
+            COALESCE(
+              $5,
+              interview_summary
+            ),
 
-          original_file_name = $6,
+          category = $6,
+
+          other_category = $7,
+
+          file_key = $8,
+
+          original_file_name = $9,
 
           updated_at = NOW()
 
-        WHERE id = $7
+        WHERE id = $10
 
         RETURNING *
         `,
         [
           worker_user_id || null,
           matricule?.trim() || null,
-          notes_during_interview ?? existing.notes_during_interview,
-          interview_summary ?? existing.interview_summary,
+          interview_date || null,
+
+          notes_during_interview ??
+            existing.notes_during_interview,
+
+          interview_summary ??
+            existing.interview_summary,
+
+          nextCategory,
+          nextOtherCategory,
+
           fileKey,
           originalFileName,
+
           id,
         ],
       )
 
-      const interview = await withFileUrl(result.rows[0])
       await client.query("COMMIT")
       committed = true
 
-      if (uploadedFileKey && existing.file_key) {
-        await deleteObjectFromS3(existing.file_key).catch((cleanupError) =>
-          console.error("Error deleting replaced worker interview file:", cleanupError),
+      if (
+        uploadedFileKey &&
+        existing.file_key
+      ) {
+        await deleteObjectFromS3(
+          existing.file_key,
+        ).catch((cleanupError) =>
+          console.error(
+            "Error deleting replaced worker interview file:",
+            cleanupError,
+          ),
         )
       }
+
+      const interview =
+        await withFileUrls(
+          result.rows[0],
+        )
 
       return res.json({
         message: "Entretien mis à jour",
@@ -445,18 +709,30 @@ router.patch(
       })
     } catch (error) {
       if (!committed) {
-        await client.query("ROLLBACK")
+        await client
+          .query("ROLLBACK")
+          .catch(() => undefined)
+
         if (uploadedFileKey) {
-          await deleteObjectFromS3(uploadedFileKey).catch((cleanupError) =>
-            console.error("Error cleaning up worker interview file:", cleanupError),
+          await deleteObjectFromS3(
+            uploadedFileKey,
+          ).catch((cleanupError) =>
+            console.error(
+              "Error cleaning up worker interview file:",
+              cleanupError,
+            ),
           )
         }
       }
 
-      console.error("Error updating worker interview:", error)
+      console.error(
+        "Error updating worker interview:",
+        error,
+      )
 
       return res.status(500).json({
-        message: "Erreur lors de la mise à jour de l'entretien",
+        message:
+          "Erreur lors de la mise à jour de l'entretien",
       })
     } finally {
       client.release()
@@ -464,7 +740,9 @@ router.patch(
   },
 )
 
-
+/* =========================================================
+   CREATE DRAFT
+========================================================= */
 
 router.post(
   "/draft",
@@ -477,7 +755,23 @@ router.post(
         worker_user_id,
         matricule,
         interview_date,
+        category,
+        other_category,
       } = req.body
+
+      if (!worker_user_id) {
+        return res.status(400).json({
+          message:
+            "worker_user_id est requis",
+        })
+      }
+
+      if (!matricule?.trim()) {
+        return res.status(400).json({
+          message:
+            "Le matricule est requis",
+        })
+      }
 
       const result = await pool.query(
         `
@@ -486,31 +780,59 @@ router.post(
           worker_user_id,
           matricule,
           interview_date,
+          category,
+          other_category,
           status
         )
-        VALUES ($1, $2, $3, $4, 'draft')
+
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          'draft'
+        )
+
         RETURNING *
         `,
         [
           hrUserId,
           worker_user_id,
-          matricule,
-          interview_date,
+          matricule.trim(),
+          interview_date || null,
+          category?.trim() || null,
+
+          category === "other"
+            ? other_category?.trim() ||
+              null
+            : null,
         ],
       )
 
-      return res.status(201).json(result.rows[0])
+      return res.status(201).json(
+        await withFileUrls(
+          result.rows[0],
+        ),
+      )
     } catch (error) {
-      console.error(error)
+      console.error(
+        "Error creating worker interview draft:",
+        error,
+      )
 
       return res.status(500).json({
-        message: "Erreur lors de la création du brouillon",
+        message:
+          "Erreur lors de la création du brouillon",
       })
     }
   },
 )
 
-
+/* =========================================================
+   SAVE DRAFT
+========================================================= */
 
 router.patch(
   "/:id/draft",
@@ -526,30 +848,88 @@ router.patch(
         interview_date,
         notes_during_interview,
         interview_summary,
+        category,
+        other_category,
       } = req.body
 
       const result = await pool.query(
         `
         UPDATE foreign_workers_schedule.worker_interviews
+
         SET
-          worker_user_id = COALESCE($1, worker_user_id),
-          matricule = COALESCE($2, matricule),
-          interview_date = COALESCE($3, interview_date),
-          notes_during_interview = COALESCE($4, notes_during_interview),
-          interview_summary = COALESCE($5, interview_summary),
+          worker_user_id =
+            COALESCE(
+              $1,
+              worker_user_id
+            ),
+
+          matricule =
+            COALESCE(
+              $2,
+              matricule
+            ),
+
+          interview_date =
+            COALESCE(
+              $3,
+              interview_date
+            ),
+
+          notes_during_interview =
+            COALESCE(
+              $4,
+              notes_during_interview
+            ),
+
+          interview_summary =
+            COALESCE(
+              $5,
+              interview_summary
+            ),
+
+          category =
+            COALESCE(
+              $6,
+              category
+            ),
+
+          other_category =
+            CASE
+              WHEN COALESCE(
+                $6,
+                category
+              ) = 'other'
+              THEN COALESCE(
+                $7,
+                other_category
+              )
+
+              ELSE NULL
+            END,
+
           updated_at = NOW()
-        WHERE id = $6
-          AND hr_user_id = $7
+
+        WHERE id = $8
+          AND hr_user_id = $9
           AND status = 'draft'
           AND deleted_at IS NULL
+
         RETURNING *
         `,
         [
-          worker_user_id,
-          matricule,
-          interview_date,
-          notes_during_interview,
-          interview_summary,
+          worker_user_id ?? null,
+          matricule ?? null,
+          interview_date ?? null,
+
+          notes_during_interview ??
+            null,
+
+          interview_summary ??
+            null,
+
+          category ?? null,
+          other_category ?? null,
+
           id,
           hrUserId,
         ],
@@ -557,21 +937,33 @@ router.patch(
 
       if (result.rowCount === 0) {
         return res.status(404).json({
-          message: "Brouillon introuvable",
+          message:
+            "Brouillon introuvable",
         })
       }
 
-      return res.json(result.rows[0])
+      return res.json(
+        await withFileUrls(
+          result.rows[0],
+        ),
+      )
     } catch (error) {
-      console.error(error)
+      console.error(
+        "Error saving worker interview draft:",
+        error,
+      )
 
       return res.status(500).json({
-        message: "Erreur lors de la sauvegarde du brouillon",
+        message:
+          "Erreur lors de la sauvegarde du brouillon",
       })
     }
   },
 )
 
+/* =========================================================
+   COMPLETE DRAFT
+========================================================= */
 
 router.patch(
   "/:id/complete",
@@ -581,38 +973,122 @@ router.patch(
       const hrUserId = req.user!.id
       const { id } = req.params
 
+      /*
+       * I validate the final record here rather than
+       * trusting that the UI already did it.
+       */
+
+      const existingResult =
+        await pool.query(
+          `
+          SELECT *
+          FROM foreign_workers_schedule.worker_interviews
+
+          WHERE id = $1
+            AND hr_user_id = $2
+            AND status = 'draft'
+            AND deleted_at IS NULL
+          `,
+          [id, hrUserId],
+        )
+
+      if (
+        existingResult.rowCount === 0
+      ) {
+        return res.status(404).json({
+          message:
+            "Brouillon introuvable",
+        })
+      }
+
+      const existing =
+        existingResult.rows[0]
+
+      if (!existing.worker_user_id) {
+        return res.status(400).json({
+          message:
+            "Un travailleur doit être sélectionné",
+        })
+      }
+
+      if (!existing.matricule) {
+        return res.status(400).json({
+          message:
+            "Le matricule est requis",
+        })
+      }
+
+      if (!existing.interview_date) {
+        return res.status(400).json({
+          message:
+            "La date de l'entretien est requise",
+        })
+      }
+
+      if (!existing.category) {
+        return res.status(400).json({
+          message:
+            "La catégorie est requise",
+        })
+      }
+
+      if (
+        existing.category === "other" &&
+        !existing.other_category
+      ) {
+        return res.status(400).json({
+          message:
+            "Veuillez préciser la catégorie",
+        })
+      }
+
       const result = await pool.query(
         `
         UPDATE foreign_workers_schedule.worker_interviews
+
         SET
           status = 'completed',
           completed_at = NOW(),
           updated_at = NOW()
+
         WHERE id = $1
           AND hr_user_id = $2
           AND status = 'draft'
           AND deleted_at IS NULL
+
         RETURNING *
         `,
         [id, hrUserId],
       )
 
-      if (result.rowCount === 0) {
-        return res.status(404).json({
-          message: "Brouillon introuvable",
-        })
-      }
+      const interview =
+        await withFileUrls(
+          result.rows[0],
+        )
 
-      return res.json(result.rows[0])
+      return res.json({
+        message:
+          "Entretien finalisé",
+
+        interview,
+      })
     } catch (error) {
-      console.error(error)
+      console.error(
+        "Error completing worker interview:",
+        error,
+      )
 
       return res.status(500).json({
-        message: "Erreur lors de la finalisation de l'entretien",
+        message:
+          "Erreur lors de la finalisation de l'entretien",
       })
     }
   },
 )
+
+/* =========================================================
+   SOFT DELETE DRAFT
+========================================================= */
 
 router.delete(
   "/:id/draft",
@@ -625,13 +1101,16 @@ router.delete(
       const result = await pool.query(
         `
         UPDATE foreign_workers_schedule.worker_interviews
+
         SET
           deleted_at = NOW(),
           updated_at = NOW()
+
         WHERE id = $1
           AND hr_user_id = $2
           AND status = 'draft'
           AND deleted_at IS NULL
+
         RETURNING *
         `,
         [id, hrUserId],
@@ -639,13 +1118,17 @@ router.delete(
 
       if (result.rowCount === 0) {
         return res.status(404).json({
-          message: "Brouillon introuvable",
+          message:
+            "Brouillon introuvable",
         })
       }
 
       return res.json({
-        message: "Brouillon supprimé",
-        interview: result.rows[0],
+        message:
+          "Brouillon supprimé",
+
+        interview:
+          result.rows[0],
       })
     } catch (error) {
       console.error(
@@ -661,6 +1144,10 @@ router.delete(
   },
 )
 
+/* =========================================================
+   RESTORE DRAFT
+========================================================= */
+
 router.patch(
   "/:id/draft/restore",
   hrLogsAccess,
@@ -672,13 +1159,16 @@ router.patch(
       const result = await pool.query(
         `
         UPDATE foreign_workers_schedule.worker_interviews
+
         SET
           deleted_at = NULL,
           updated_at = NOW()
+
         WHERE id = $1
           AND hr_user_id = $2
           AND status = 'draft'
           AND deleted_at IS NOT NULL
+
         RETURNING *
         `,
         [id, hrUserId],
@@ -686,13 +1176,17 @@ router.patch(
 
       if (result.rowCount === 0) {
         return res.status(404).json({
-          message: "Brouillon supprimé introuvable",
+          message:
+            "Brouillon supprimé introuvable",
         })
       }
 
       return res.json({
-        message: "Brouillon restauré",
-        interview: result.rows[0],
+        message:
+          "Brouillon restauré",
+
+        interview:
+          result.rows[0],
       })
     } catch (error) {
       console.error(
