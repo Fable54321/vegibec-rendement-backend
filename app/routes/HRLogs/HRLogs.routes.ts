@@ -217,6 +217,7 @@ router.get(
             wi.status = 'draft'
             AND wi.hr_user_id = $1
           )
+          AND wi.deleted_at IS NULL
 
         ORDER BY
           CASE
