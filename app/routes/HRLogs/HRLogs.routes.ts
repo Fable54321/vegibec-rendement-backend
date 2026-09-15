@@ -110,7 +110,6 @@ router.post(
         category,
         other_category,
         needs_agreement,
-        agreement_terms,
       } = req.body
 
       if (!worker_user_id) {
@@ -208,7 +207,7 @@ router.post(
           status,
           completed_at,
           needs_agreement,
-          agreement_terms
+          
         )
         VALUES (
           $1,
@@ -224,7 +223,7 @@ router.post(
           'completed',
           NOW(),
           $11,
-          $12
+          
         )
         RETURNING *
         `,
@@ -243,7 +242,6 @@ router.post(
           fileKey,
           originalFileName,
           needs_agreement,
-          agreement_terms,
         ],
       )
 
@@ -333,7 +331,7 @@ router.get(
           wi.updated_at,
 
           wi.needs_agreement,
-          wi.agreement_terms,
+      
 
           CONCAT(
             COALESCE(worker.surname, ''),
@@ -431,7 +429,7 @@ router.get(
           wi.updated_at,
 
           wi.needs_agreement,
-          wi.agreement_terms,
+        
 
           CONCAT(
             COALESCE(worker.surname, ''),
