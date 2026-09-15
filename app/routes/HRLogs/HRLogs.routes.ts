@@ -22,6 +22,60 @@ const upload = multer({
   },
 })
 
+const withAgreementData = async (
+  row: Record<string, any>,
+) => {
+  const interview = await withFileUrls(row)
+
+  let signatureUrl: string | null = null
+
+  if (row.agreement_signature_s3_key) {
+    signatureUrl = await getSignedUrlForKey(
+      row.agreement_signature_s3_key,
+      {
+        expiresIn: 60 * 15,
+        responseContentDisposition:
+          `inline; filename="signature.png"`,
+      },
+    )
+  }
+
+  return {
+    ...interview,
+
+    agreement: row.agreement_id
+      ? {
+          id: row.agreement_id,
+          interview_id: row.id,
+
+          agreement_terms:
+            row.agreement_terms,
+
+          status:
+            row.agreement_status,
+
+          signature_s3_key:
+            row.agreement_signature_s3_key,
+
+          signature_url:
+            signatureUrl,
+
+          signed_at:
+            row.agreement_signed_at,
+
+          has_accepted_terms:
+            row.agreement_has_accepted_terms,
+
+          created_at:
+            row.agreement_created_at,
+
+          updated_at:
+            row.agreement_updated_at,
+        }
+      : null,
+  }
+}
+
 const interviewFileKey = (
   workerUserId: string,
   fileName: string,
@@ -376,18 +430,20 @@ router.get(
           wi.interview_date,
           wi.notes_during_interview,
           wi.interview_summary,
+
           wi.file_key,
           wi.original_file_name,
+
           wi.status,
           wi.category,
           wi.other_category,
+
+          wi.needs_agreement,
+
           wi.completed_at,
           wi.deleted_at,
           wi.created_at,
           wi.updated_at,
-
-          wi.needs_agreement,
-      
 
           CONCAT(
             COALESCE(worker.surname, ''),
@@ -399,7 +455,31 @@ router.get(
             COALESCE(hr.surname, ''),
             ' ',
             COALESCE(hr.name, '')
-          ) AS hr_name
+          ) AS hr_name,
+
+          agreement.id
+            AS agreement_id,
+
+          agreement.agreement_terms
+            AS agreement_terms,
+
+          agreement.status
+            AS agreement_status,
+
+          agreement.signature_s3_key
+            AS agreement_signature_s3_key,
+
+          agreement.signed_at
+            AS agreement_signed_at,
+
+          agreement.has_accepted_terms
+            AS agreement_has_accepted_terms,
+
+          agreement.created_at
+            AS agreement_created_at,
+
+          agreement.updated_at
+            AS agreement_updated_at
 
         FROM foreign_workers_schedule.worker_interviews wi
 
@@ -408,6 +488,9 @@ router.get(
 
         LEFT JOIN public.users hr
           ON hr.id = wi.hr_user_id
+
+        LEFT JOIN foreign_workers_schedule.worker_interview_agreements agreement
+          ON agreement.interview_id = wi.id
 
         WHERE
           wi.deleted_at IS NULL
@@ -434,7 +517,9 @@ router.get(
 
       const interviews =
         await Promise.all(
-          result.rows.map(withFileUrls),
+          result.rows.map(
+            withAgreementData,
+          ),
         )
 
       return res.json(interviews)
@@ -474,18 +559,20 @@ router.get(
           wi.interview_date,
           wi.notes_during_interview,
           wi.interview_summary,
+
           wi.file_key,
           wi.original_file_name,
+
           wi.status,
           wi.category,
           wi.other_category,
+
+          wi.needs_agreement,
+
           wi.completed_at,
           wi.deleted_at,
           wi.created_at,
           wi.updated_at,
-
-          wi.needs_agreement,
-        
 
           CONCAT(
             COALESCE(worker.surname, ''),
@@ -497,7 +584,31 @@ router.get(
             COALESCE(hr.surname, ''),
             ' ',
             COALESCE(hr.name, '')
-          ) AS hr_name
+          ) AS hr_name,
+
+          agreement.id
+            AS agreement_id,
+
+          agreement.agreement_terms
+            AS agreement_terms,
+
+          agreement.status
+            AS agreement_status,
+
+          agreement.signature_s3_key
+            AS agreement_signature_s3_key,
+
+          agreement.signed_at
+            AS agreement_signed_at,
+
+          agreement.has_accepted_terms
+            AS agreement_has_accepted_terms,
+
+          agreement.created_at
+            AS agreement_created_at,
+
+          agreement.updated_at
+            AS agreement_updated_at
 
         FROM foreign_workers_schedule.worker_interviews wi
 
@@ -509,9 +620,11 @@ router.get(
           ON hr.id =
             wi.hr_user_id
 
+        LEFT JOIN foreign_workers_schedule.worker_interview_agreements agreement
+          ON agreement.interview_id = wi.id
+
         WHERE wi.id = $1
           AND wi.deleted_at IS NULL
-
           AND (
             wi.status = 'completed'
 
@@ -526,12 +639,13 @@ router.get(
 
       if (result.rowCount === 0) {
         return res.status(404).json({
-          message: "Entretien introuvable",
+          message:
+            "Entretien introuvable",
         })
       }
 
       const interview =
-        await withFileUrls(
+        await withAgreementData(
           result.rows[0],
         )
 
