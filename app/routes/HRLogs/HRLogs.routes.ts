@@ -109,6 +109,8 @@ router.post(
         interview_summary,
         category,
         other_category,
+        needs_agreement,
+        agreement_terms,
       } = req.body
 
       if (!worker_user_id) {
@@ -204,7 +206,9 @@ router.post(
           file_key,
           original_file_name,
           status,
-          completed_at
+          completed_at,
+          needs_agreement,
+          agreement_terms
         )
         VALUES (
           $1,
@@ -218,7 +222,9 @@ router.post(
           $9,
           $10,
           'completed',
-          NOW()
+          NOW(),
+          $11,
+          $12
         )
         RETURNING *
         `,
@@ -236,6 +242,8 @@ router.post(
             : null,
           fileKey,
           originalFileName,
+          needs_agreement,
+          agreement_terms,
         ],
       )
 
@@ -323,6 +331,9 @@ router.get(
           wi.deleted_at,
           wi.created_at,
           wi.updated_at,
+
+          wi.needs_agreement,
+          wi.agreement_terms,
 
           CONCAT(
             COALESCE(worker.surname, ''),
@@ -418,6 +429,9 @@ router.get(
           wi.deleted_at,
           wi.created_at,
           wi.updated_at,
+
+          wi.needs_agreement,
+          wi.agreement_terms,
 
           CONCAT(
             COALESCE(worker.surname, ''),
