@@ -109,7 +109,9 @@ router.post(
         interview_summary,
         category,
         other_category,
+
         needs_agreement,
+        agreement_terms,
       } = req.body
 
       if (!worker_user_id) {
@@ -126,8 +128,7 @@ router.post(
 
       if (!interview_date) {
         return res.status(400).json({
-          message:
-            "La date de l'entretien est requise",
+          message: "La date de l'entretien est requise",
         })
       }
 
@@ -142,8 +143,21 @@ router.post(
         !other_category?.trim()
       ) {
         return res.status(400).json({
+          message: "Veuillez préciser la catégorie",
+        })
+      }
+
+      const needsAgreement =
+        needs_agreement === true ||
+        needs_agreement === "true"
+
+      if (
+        needsAgreement &&
+        !agreement_terms?.trim()
+      ) {
+        return res.status(400).json({
           message:
-            "Veuillez préciser la catégorie",
+            "Les termes de l'entente sont requis",
         })
       }
 
@@ -167,8 +181,7 @@ router.post(
       }
 
       let fileKey: string | null = null
-      let originalFileName: string | null =
-        null
+      let originalFileName: string | null = null
 
       if (req.file) {
         originalFileName =
@@ -191,71 +204,114 @@ router.post(
         fileKey = uploadedFileKey
       }
 
-      const result = await client.query(
-        `
-        INSERT INTO foreign_workers_schedule.worker_interviews (
-          hr_user_id,
-          worker_user_id,
-          matricule,
-          interview_date,
-          notes_during_interview,
-          interview_summary,
-          category,
-          other_category,
-          file_key,
-          original_file_name,
-          status,
-          completed_at,
-          needs_agreement,
-          
+      const interviewResult =
+        await client.query(
+          `
+          INSERT INTO foreign_workers_schedule.worker_interviews (
+            hr_user_id,
+            worker_user_id,
+            matricule,
+            interview_date,
+            notes_during_interview,
+            interview_summary,
+            category,
+            other_category,
+            file_key,
+            original_file_name,
+            status,
+            completed_at,
+            needs_agreement
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8,
+            $9,
+            $10,
+            'completed',
+            NOW(),
+            $11
+          )
+          RETURNING *
+          `,
+          [
+            hrUserId,
+            worker_user_id,
+            matricule.trim(),
+            interview_date,
+
+            notes_during_interview?.trim() ||
+              null,
+
+            interview_summary?.trim() ||
+              null,
+
+            category.trim(),
+
+            category === "other"
+              ? other_category?.trim() || null
+              : null,
+
+            fileKey,
+            originalFileName,
+            needsAgreement,
+          ],
         )
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          $7,
-          $8,
-          $9,
-          $10,
-          'completed',
-          NOW(),
-          $11,
-          
-        )
-        RETURNING *
-        `,
-        [
-          hrUserId,
-          worker_user_id,
-          matricule.trim(),
-          interview_date,
-          notes_during_interview?.trim() ||
-            null,
-          interview_summary?.trim() || null,
-          category.trim(),
-          category === "other"
-            ? other_category?.trim() || null
-            : null,
-          fileKey,
-          originalFileName,
-          needs_agreement,
-        ],
-      )
+
+      const interview =
+        interviewResult.rows[0]
+
+      let agreement = null
+
+      if (needsAgreement) {
+        const agreementResult =
+          await client.query(
+            `
+            INSERT INTO foreign_workers_schedule.worker_interview_agreements (
+              interview_id,
+              agreement_terms,
+              status,
+              signature_s3_key,
+              signed_at,
+              has_accepted_terms
+            )
+            VALUES (
+              $1,
+              $2,
+              'pending_signature',
+              NULL,
+              NULL,
+              FALSE
+            )
+            RETURNING *
+            `,
+            [
+              interview.id,
+              agreement_terms.trim(),
+            ],
+          )
+
+        agreement =
+          agreementResult.rows[0]
+      }
 
       await client.query("COMMIT")
       committed = true
 
-      const interview =
+      const interviewWithUrls =
         await withFileUrls(
-          result.rows[0],
+          interview,
         )
 
       return res.status(201).json({
         message: "Entretien enregistré",
-        interview,
+        interview: interviewWithUrls,
+        agreement,
       })
     } catch (error) {
       if (!committed) {
