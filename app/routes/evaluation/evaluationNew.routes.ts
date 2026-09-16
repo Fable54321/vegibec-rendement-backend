@@ -1215,4 +1215,34 @@ router.get("/variation-alerts/:id", async (req, res) => {
   }
 });
 
+router.get("/questions/monthly", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        question_key,
+        question_number,
+        question_text,
+        category,
+        is_negative,
+        is_active
+      FROM evaluation.monthly_evaluation_questions
+      WHERE is_active = TRUE
+      ORDER BY question_number ASC, id ASC
+      `,
+    );
+
+    return res.json(result.rows);
+  } catch (error) {
+    console.error(
+      "Error fetching monthly evaluation questions:",
+      error,
+    );
+
+    return res.status(500).json({
+      error: "Error al cargar las preguntas de evaluación.",
+    });
+  }
+});
+
 export default router;
