@@ -3,10 +3,7 @@ import { pool } from "../../db"; // adjust this import if your pool lives elsewh
 
 const router = Router();
 
-const QUESTION_COUNT = 30;
-const VALID_QUESTION_IDS = new Set(
-  Array.from({ length: QUESTION_COUNT }, (_, index) => `question_${index + 1}`),
-);
+
 
 type AlertType = "red" | "yellow" | "positive";
 
@@ -81,6 +78,8 @@ const VALID_ACTIONS = new Set<LeaderAction>([
   "active_follow_up",
 ]);
 
+
+
 type MonthlyAnswers = Record<string, number>;
 
 type CreateEvaluationBody = {
@@ -91,11 +90,15 @@ type CreateEvaluationBody = {
   answers: MonthlyAnswers;
 };
 
-function validateAnswers(answers: unknown): {
+function validateAnswerValues(answers: unknown): {
   valid: boolean;
   message?: string;
 } {
-  if (!answers || typeof answers !== "object" || Array.isArray(answers)) {
+  if (
+    !answers ||
+    typeof answers !== "object" ||
+    Array.isArray(answers)
+  ) {
     return {
       valid: false,
       message: "answers must be an object.",
@@ -104,18 +107,18 @@ function validateAnswers(answers: unknown): {
 
   const entries = Object.entries(answers);
 
-  if (entries.length !== QUESTION_COUNT) {
+  if (entries.length === 0) {
     return {
       valid: false,
-      message: `Exactly ${QUESTION_COUNT} answers are required.`,
+      message: "Debe incluir al menos una respuesta.",
     };
   }
 
   for (const [questionId, answer] of entries) {
-    if (!VALID_QUESTION_IDS.has(questionId)) {
+    if (!questionId.trim()) {
       return {
         valid: false,
-        message: `Invalid question id: ${questionId}`,
+        message: "ID de pregunta inválido.",
       };
     }
 
@@ -127,16 +130,9 @@ function validateAnswers(answers: unknown): {
     ) {
       return {
         valid: false,
-        message: `Invalid answer for ${questionId}. Answer must be an integer between 1 and 5.`,
-      };
-    }
-  }
-
-  for (const questionId of VALID_QUESTION_IDS) {
-    if (!(questionId in answers)) {
-      return {
-        valid: false,
-        message: `Missing answer for ${questionId}.`,
+        message:
+          `Invalid answer for ${questionId}. ` +
+          "Answer must be an integer between 1 and 5.",
       };
     }
   }
@@ -149,49 +145,56 @@ router.post("/", async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const evaluatorUserId = req.user?.id;
-
-    if (!evaluatorUserId) {
+    if (!req.user?.id) {
       return res.status(401).json({
         error: "Usuario no autenticado.",
       });
     }
 
- const {
-  worker_user_id,
-  evaluator_user_id,
-  evaluation_date,
-  comments,
-  answers,
-}: CreateEvaluationBody = req.body;
-
-if (
-  !evaluator_user_id ||
-  typeof evaluator_user_id !== "number" ||
-  !Number.isInteger(evaluator_user_id)
-) {
-  return res.status(400).json({
-    error: "evaluator_user_id es requerido.",
-  });
-}
+    const {
+      worker_user_id,
+      evaluator_user_id,
+      evaluation_date,
+      comments,
+      answers,
+    }: CreateEvaluationBody = req.body;
 
     if (
-      !worker_user_id ||
-      typeof worker_user_id !== "number" ||
-      !Number.isInteger(worker_user_id)
+      !Number.isInteger(evaluator_user_id) ||
+      evaluator_user_id <= 0
+    ) {
+      return res.status(400).json({
+        error: "evaluator_user_id es requerido.",
+      });
+    }
+
+    if (
+      !Number.isInteger(worker_user_id) ||
+      worker_user_id <= 0
     ) {
       return res.status(400).json({
         error: "worker_user_id es requerido.",
       });
     }
 
-    if (comments && comments.length > 3000) {
+    if (
+      comments !== undefined &&
+      typeof comments !== "string"
+    ) {
       return res.status(400).json({
-        error: "Los comentarios no pueden superar 3000 caracteres.",
+        error: "comments debe ser texto.",
       });
     }
 
-    const answerValidation = validateAnswers(answers);
+    if (comments && comments.length > 3000) {
+      return res.status(400).json({
+        error:
+          "Los comentarios no pueden superar 3000 caracteres.",
+      });
+    }
+
+    const answerValidation =
+      validateAnswerValues(answers);
 
     if (!answerValidation.valid) {
       return res.status(400).json({
@@ -202,19 +205,22 @@ if (
     await client.query("BEGIN");
 
     /*
-     * Confirm that the evaluated worker exists.
+     * Validate both people.
      */
-    const workerResult = await client.query(
+    const usersResult = await client.query(
       `
       SELECT id
       FROM public.users
-      WHERE id = $1
-      LIMIT 1
+      WHERE id = ANY($1::bigint[])
       `,
-      [worker_user_id],
+      [[worker_user_id, evaluator_user_id]],
     );
 
-    if (workerResult.rowCount === 0) {
+    const existingUserIds = new Set(
+      usersResult.rows.map((row) => Number(row.id)),
+    );
+
+    if (!existingUserIds.has(worker_user_id)) {
       await client.query("ROLLBACK");
 
       return res.status(404).json({
@@ -222,67 +228,201 @@ if (
       });
     }
 
+    if (!existingUserIds.has(evaluator_user_id)) {
+      await client.query("ROLLBACK");
+
+      return res.status(404).json({
+        error: "El evaluador seleccionado no existe.",
+      });
+    }
+
     /*
-     * Create the evaluation header.
+     * The questions table is now the source of truth.
+     *
+     * Only active questions are expected in a new evaluation.
      */
-    const evaluationResult = await client.query(
+    const questionsResult = await client.query(
       `
-      INSERT INTO evaluation.monthly_evaluations (
-        worker_user_id,
-        evaluator_user_id,
-        evaluation_date,
-        comments,
-        status,
-        completed_at
-      )
-      VALUES (
-        $1,
-        $2,
-        COALESCE($3::date, CURRENT_DATE),
-        NULLIF(TRIM($4), ''),
-        'completed',
-        NOW()
-      )
-      RETURNING
-        id,
-        worker_user_id,
-        evaluator_user_id,
-        evaluation_date,
-        comments,
-        status,
-        completed_at,
-        created_at,
-        updated_at
+      SELECT
+        question_key,
+        question_number,
+        is_negative
+      FROM evaluation.monthly_evaluation_questions
+      WHERE is_active = TRUE
+      ORDER BY question_number ASC, id ASC
       `,
-   [
-  worker_user_id,
-  evaluator_user_id,
-  evaluation_date || null,
-  comments || "",
-]
     );
 
-    const evaluation = evaluationResult.rows[0];
+    const questions = questionsResult.rows as Array<{
+      question_key: string;
+      question_number: number;
+      is_negative: boolean;
+    }>;
+
+    if (questions.length === 0) {
+      throw new Error(
+        "No active monthly evaluation questions are configured.",
+      );
+    }
+
+    const submittedQuestionIds =
+      Object.keys(answers);
+
+    const activeQuestionIds = new Set(
+      questions.map(
+        (question) => question.question_key,
+      ),
+    );
 
     /*
-     * Insert all answers.
+     * Reject answers that don't correspond to an active question.
+     */
+    const unknownQuestionIds =
+      submittedQuestionIds.filter(
+        (questionId) =>
+          !activeQuestionIds.has(questionId),
+      );
+
+    if (unknownQuestionIds.length > 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(400).json({
+        error:
+          `Preguntas inválidas o inactivas: ` +
+          unknownQuestionIds.join(", "),
+      });
+    }
+
+    /*
+     * Require every active question.
+     */
+    const missingQuestionIds =
+      questions
+        .map((question) => question.question_key)
+        .filter(
+          (questionId) =>
+            answers[questionId] === undefined,
+        );
+
+    if (missingQuestionIds.length > 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(400).json({
+        error:
+          `Faltan respuestas para: ` +
+          missingQuestionIds.join(", "),
+      });
+    }
+
+    /*
+     * Calculate the effective score.
      *
-     * We explicitly insert them in question order instead of relying
-     * on the order of Object.entries().
+     * Positive:
+     *   1 -> 1
+     *   5 -> 5
+     *
+     * Negative:
+     *   1 -> 5
+     *   5 -> 1
+     */
+    let adjustedTotal = 0;
+
+    for (const question of questions) {
+      const answer =
+        answers[question.question_key];
+
+      const effectiveAnswer =
+        question.is_negative
+          ? 6 - answer
+          : answer;
+
+      adjustedTotal += effectiveAnswer;
+    }
+
+    /*
+     * Convert the effective 1–5 average to a true 0–100 scale.
+     *
+     * All 1s => 0
+     * All 3s => 50
+     * All 5s => 100
+     */
+    const questionCount = questions.length;
+
+    const minimumPossible =
+      questionCount;
+
+    const maximumPossible =
+      questionCount * 5;
+
+    const score = Math.round(
+      ((adjustedTotal - minimumPossible) /
+        (maximumPossible - minimumPossible)) *
+        100,
+    );
+
+    /*
+     * Create evaluation header.
+     */
+    const evaluationResult =
+      await client.query(
+        `
+        INSERT INTO evaluation.monthly_evaluations (
+          worker_user_id,
+          evaluator_user_id,
+          evaluation_date,
+          comments,
+          score,
+          status,
+          completed_at
+        )
+        VALUES (
+          $1,
+          $2,
+          COALESCE($3::date, CURRENT_DATE),
+          NULLIF(TRIM($4), ''),
+          $5,
+          'completed',
+          NOW()
+        )
+        RETURNING
+          id,
+          worker_user_id,
+          evaluator_user_id,
+          evaluation_date,
+          comments,
+          score,
+          status,
+          completed_at,
+          created_at,
+          updated_at
+        `,
+        [
+          worker_user_id,
+          evaluator_user_id,
+          evaluation_date || null,
+          comments || "",
+          score,
+        ],
+      );
+
+    const evaluation =
+      evaluationResult.rows[0];
+
+    /*
+     * Insert answers according to the DB question list,
+     * NOT according to question_1...question_30.
      */
     const answerValues: unknown[] = [];
     const answerPlaceholders: string[] = [];
 
-    for (let index = 1; index <= QUESTION_COUNT; index++) {
-      const questionId = `question_${index}`;
-      const answer = answers[questionId];
-
-      const offset = answerValues.length;
+    for (const question of questions) {
+      const offset =
+        answerValues.length;
 
       answerValues.push(
         evaluation.id,
-        questionId,
-        answer,
+        question.question_key,
+        answers[question.question_key],
       );
 
       answerPlaceholders.push(
@@ -306,13 +446,17 @@ if (
     await client.query("COMMIT");
 
     return res.status(201).json({
-      message: "Evaluación guardada correctamente.",
+      message:
+        "Evaluación guardada correctamente.",
       evaluation,
     });
   } catch (error) {
     await client.query("ROLLBACK");
 
-    console.error("Error creating monthly evaluation:", error);
+    console.error(
+      "Error creating monthly evaluation:",
+      error,
+    );
 
     return res.status(500).json({
       error: "Error al guardar la evaluación.",
@@ -369,6 +513,7 @@ router.get("/", async (req, res) => {
         me.evaluator_user_id,
         me.evaluation_date,
         me.comments,
+        me.score,
         me.status,
         me.completed_at,
         me.created_at,
@@ -442,6 +587,7 @@ router.get("/:id", async (req, res) => {
         me.evaluator_user_id,
         me.evaluation_date,
         me.comments,
+        me.score,
         me.status,
         me.completed_at,
         me.created_at,
@@ -480,21 +626,24 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    const answersResult = await pool.query(
-      `
-      SELECT
-        question_id,
-        answer
-      FROM evaluation.monthly_evaluation_answers
-      WHERE evaluation_id = $1
-      ORDER BY
-        CAST(
-          REPLACE(question_id, 'question_', '')
-          AS INTEGER
-        )
-      `,
-      [evaluationId],
-    );
+ const answersResult = await pool.query(
+  `
+  SELECT
+    a.question_id,
+    a.answer
+  FROM evaluation.monthly_evaluation_answers a
+
+  JOIN evaluation.monthly_evaluation_questions q
+    ON q.question_key = a.question_id
+
+  WHERE a.evaluation_id = $1
+
+  ORDER BY
+    q.question_number ASC,
+    q.id ASC
+  `,
+  [evaluationId],
+);
 
     const answers = answersResult.rows.reduce<Record<string, number>>(
       (accumulator, row) => {
