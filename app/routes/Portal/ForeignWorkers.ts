@@ -331,11 +331,10 @@ router.get(
         return res.status(400).json({ error: "contractId invalide" });
       }
 
-      const contract = await getContractAccessDetails(contractId);
-
-      if (contract.userId !== userId) {
-        return res.status(404).json({ error: "Contrat introuvable pour ce travailleur" });
-      }
+      const contract = await getContractAccessDetails(contractId, {
+        expectedUserId: userId,
+        allowMissingPdf: true,
+      });
 
       const pdfKey = contract.finalPdfKey || contract.draftPdfKey;
 
@@ -351,6 +350,7 @@ router.get(
         final_pdf_key: contract.finalPdfKey,
         pdf_key: pdfKey,
         url: contract.accessUrl,
+        pdf_available: contract.pdfAvailable,
       });
     } catch (err) {
       if (

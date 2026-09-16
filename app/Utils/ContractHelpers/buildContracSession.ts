@@ -51,12 +51,18 @@ type ContractAccessDetails = {
   slug: string;
   status: WorkerContractStatus;
   templateVersion: string;
-  accessUrl: string;
+  accessUrl: string | null;
+  pdfAvailable: boolean;
   draftPdfKey: string | null;
   finalPdfKey: string | null;
   createdAt?: string | Date;
   updatedAt?: string | Date;
   signedAt?: string | Date | null;
+};
+
+type ContractAccessOptions = {
+  expectedUserId?: number;
+  allowMissingPdf?: boolean;
 };
 
 type Queryable = Pick<typeof pool, "query">;
@@ -185,7 +191,14 @@ async function createDraftContractRecord({
   return result.rows[0];
 }
 
-async function getStoredContractById(contractId: number) {
+async function getStoredContractById(
+  contractId: number,
+  expectedUserId?: number
+) {
+  const userFilter = expectedUserId === undefined ? "" : "AND user_id = $2";
+  const queryParams =
+    expectedUserId === undefined ? [contractId] : [contractId, expectedUserId];
+
   const result = await pool.query<ContractRow>(
     `
     SELECT
@@ -203,9 +216,10 @@ async function getStoredContractById(contractId: number) {
       employer_snapshot
     FROM worker_contracts
     WHERE id = $1
+      ${userFilter}
     LIMIT 1
     `,
-    [contractId]
+    queryParams
   );
 
   return result.rows[0] ?? null;
@@ -265,12 +279,35 @@ async function materializeDraftPdf(
 }
 
 export async function getContractAccessDetails(
-  contractId: number
+  contractId: number,
+  options: ContractAccessOptions = {}
 ): Promise<ContractAccessDetails> {
-  const contract = await getStoredContractById(contractId);
+  const contract = await getStoredContractById(
+    contractId,
+    options.expectedUserId
+  );
 
   if (!contract) {
     throw new Error("Contrat introuvable");
+  }
+
+  const storedKey = getStorageKeyForContract(contract);
+
+  if (!storedKey && contract.status === "signed" && options.allowMissingPdf) {
+    return {
+      contractId: contract.id,
+      userId: contract.user_id,
+      slug: contract.contract_slug,
+      status: contract.status,
+      templateVersion: contract.template_version,
+      accessUrl: null,
+      pdfAvailable: false,
+      draftPdfKey: contract.draft_pdf_key,
+      finalPdfKey: contract.final_pdf_key,
+      createdAt: contract.created_at,
+      updatedAt: contract.updated_at,
+      signedAt: contract.signed_at,
+    };
   }
 
   const readyContract = await materializeDraftPdf(contract);
@@ -287,6 +324,7 @@ export async function getContractAccessDetails(
     status: readyContract.status,
     templateVersion: readyContract.template_version,
     accessUrl: await getSignedUrlForKey(storageKey),
+    pdfAvailable: true,
     draftPdfKey: readyContract.draft_pdf_key,
     finalPdfKey: readyContract.final_pdf_key,
     createdAt: readyContract.created_at,
@@ -307,6 +345,11 @@ export async function getAccessUrlForPreparedContract(contract: {
   }
 
   const accessDetails = await getContractAccessDetails(contract.contractId);
+
+  if (!accessDetails.accessUrl) {
+    throw new Error("Aucun PDF trouve pour ce contrat");
+  }
+
   return accessDetails.accessUrl;
 }
 
