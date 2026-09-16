@@ -33,6 +33,7 @@ type LeaderAction =
   | "active_follow_up";
 
 type CreateVariationAlertBody = {
+  client_submission_id?: string;
   leader_user_id: number;
   worker_user_id: number;
 
@@ -45,6 +46,9 @@ type CreateVariationAlertBody = {
   other_reason?: string;
   comments?: string;
 };
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const VALID_ALERT_TYPES = new Set<AlertType>([
   "red",
@@ -524,6 +528,7 @@ router.post("/variation-alerts", async (req, res) => {
     }
 
     const {
+      client_submission_id,
       leader_user_id,
       worker_user_id,
       alert_type,
@@ -533,6 +538,16 @@ router.post("/variation-alerts", async (req, res) => {
       other_reason,
       comments,
     }: CreateVariationAlertBody = req.body;
+
+    if (
+      client_submission_id !== undefined &&
+      (typeof client_submission_id !== "string" ||
+        !UUID_PATTERN.test(client_submission_id))
+    ) {
+      return res.status(400).json({
+        error: "client_submission_id debe ser un UUID válido.",
+      });
+    }
 
     if (
       !Number.isInteger(leader_user_id) ||
@@ -626,6 +641,7 @@ router.post("/variation-alerts", async (req, res) => {
     const alertResult = await client.query(
       `
       INSERT INTO evaluation.performance_variation_alerts (
+        client_submission_id,
         leader_user_id,
         worker_user_id,
         alert_type,
@@ -635,16 +651,19 @@ router.post("/variation-alerts", async (req, res) => {
         created_by_user_id
       )
       VALUES (
-        $1,
+        $1::uuid,
         $2,
         $3,
         $4,
-        NULLIF(TRIM($5), ''),
+        $5,
         NULLIF(TRIM($6), ''),
-        $7
+        NULLIF(TRIM($7), ''),
+        $8
       )
+      ON CONFLICT (client_submission_id) DO NOTHING
       RETURNING
         id,
+        client_submission_id,
         leader_user_id,
         worker_user_id,
         alert_type,
@@ -656,6 +675,7 @@ router.post("/variation-alerts", async (req, res) => {
         updated_at
       `,
       [
+        client_submission_id || null,
         leader_user_id,
         worker_user_id,
         alert_type,
@@ -668,9 +688,39 @@ router.post("/variation-alerts", async (req, res) => {
       ],
     );
 
-    const alert = alertResult.rows[0];
+    let alert = alertResult.rows[0];
+    const deduplicated = !alert;
 
-    if (uniqueReasons.length > 0) {
+    if (deduplicated) {
+      const existingAlertResult = await client.query(
+        `
+        SELECT
+          id,
+          client_submission_id,
+          leader_user_id,
+          worker_user_id,
+          alert_type,
+          since_when,
+          other_reason,
+          comments,
+          created_by_user_id,
+          created_at,
+          updated_at
+        FROM evaluation.performance_variation_alerts
+        WHERE client_submission_id = $1::uuid
+        LIMIT 1
+        `,
+        [client_submission_id],
+      );
+
+      alert = existingAlertResult.rows[0];
+
+      if (!alert) {
+        throw new Error("Idempotent variation alert could not be retrieved.");
+      }
+    }
+
+    if (!deduplicated && uniqueReasons.length > 0) {
       const values: unknown[] = [];
       const placeholders: string[] = [];
 
@@ -697,7 +747,7 @@ router.post("/variation-alerts", async (req, res) => {
       );
     }
 
-    if (uniqueActions.length > 0) {
+    if (!deduplicated && uniqueActions.length > 0) {
       const values: unknown[] = [];
       const placeholders: string[] = [];
 
@@ -724,14 +774,46 @@ router.post("/variation-alerts", async (req, res) => {
       );
     }
 
+    let responseReasons = uniqueReasons;
+    let responseActions = uniqueActions;
+
+    if (deduplicated) {
+      const [reasonsResult, actionsResult] = await Promise.all([
+        client.query(
+          `
+          SELECT reason
+          FROM evaluation.performance_variation_alert_reasons
+          WHERE alert_id = $1
+          ORDER BY id
+          `,
+          [alert.id],
+        ),
+        client.query(
+          `
+          SELECT action
+          FROM evaluation.performance_variation_alert_actions
+          WHERE alert_id = $1
+          ORDER BY id
+          `,
+          [alert.id],
+        ),
+      ]);
+
+      responseReasons = reasonsResult.rows.map((row) => row.reason as AlertReason);
+      responseActions = actionsResult.rows.map((row) => row.action as LeaderAction);
+    }
+
     await client.query("COMMIT");
 
-    return res.status(201).json({
-      message: "Alerta guardada correctamente.",
+    return res.status(deduplicated ? 200 : 201).json({
+      message: deduplicated
+        ? "La alerta ya había sido guardada."
+        : "Alerta guardada correctamente.",
+      deduplicated,
       alert: {
         ...alert,
-        reasons: uniqueReasons,
-        actions: uniqueActions,
+        reasons: responseReasons,
+        actions: responseActions,
       },
     });
   } catch (error) {
