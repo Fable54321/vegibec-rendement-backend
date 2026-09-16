@@ -569,102 +569,7 @@ router.get("/", async (req, res) => {
 });
 
 
-router.get("/:id", async (req, res) => {
-  try {
-    const evaluationId = Number(req.params.id);
 
-    if (!Number.isInteger(evaluationId)) {
-      return res.status(400).json({
-        error: "ID de evaluación inválido.",
-      });
-    }
-
-    const evaluationResult = await pool.query(
-      `
-      SELECT
-        me.id,
-        me.worker_user_id,
-        me.evaluator_user_id,
-        me.evaluation_date,
-        me.comments,
-        me.score,
-        me.status,
-        me.completed_at,
-        me.created_at,
-        me.updated_at,
-
-        CONCAT(
-          COALESCE(worker.surname, ''),
-          ' ',
-          COALESCE(worker.name, '')
-        ) AS worker_name,
-
-        CONCAT(
-          COALESCE(evaluator.surname, ''),
-          ' ',
-          COALESCE(evaluator.name, '')
-        ) AS evaluator_name
-
-      FROM evaluation.monthly_evaluations me
-
-      LEFT JOIN public.users worker
-        ON worker.id = me.worker_user_id
-
-      LEFT JOIN public.users evaluator
-        ON evaluator.id = me.evaluator_user_id
-
-      WHERE me.id = $1
-
-      LIMIT 1
-      `,
-      [evaluationId],
-    );
-
-    if (evaluationResult.rowCount === 0) {
-      return res.status(404).json({
-        error: "Evaluación no encontrada.",
-      });
-    }
-
- const answersResult = await pool.query(
-  `
-  SELECT
-    a.question_id,
-    a.answer
-  FROM evaluation.monthly_evaluation_answers a
-
-  JOIN evaluation.monthly_evaluation_questions q
-    ON q.question_key = a.question_id
-
-  WHERE a.evaluation_id = $1
-
-  ORDER BY
-    q.question_number ASC,
-    q.id ASC
-  `,
-  [evaluationId],
-);
-
-    const answers = answersResult.rows.reduce<Record<string, number>>(
-      (accumulator, row) => {
-        accumulator[row.question_id] = row.answer;
-        return accumulator;
-      },
-      {},
-    );
-
-    return res.json({
-      ...evaluationResult.rows[0],
-      answers,
-    });
-  } catch (error) {
-    console.error("Error fetching monthly evaluation:", error);
-
-    return res.status(500).json({
-      error: "Error al cargar la evaluación.",
-    });
-  }
-});
 
 router.post("/variation-alerts", async (req, res) => {
   const client = await pool.connect();
@@ -1241,6 +1146,103 @@ router.get("/questions/monthly", async (_req, res) => {
 
     return res.status(500).json({
       error: "Error al cargar las preguntas de evaluación.",
+    });
+  }
+});
+
+router.get("/:id", async (req, res) => {
+  try {
+    const evaluationId = Number(req.params.id);
+
+    if (!Number.isInteger(evaluationId)) {
+      return res.status(400).json({
+        error: "ID de evaluación inválido.",
+      });
+    }
+
+    const evaluationResult = await pool.query(
+      `
+      SELECT
+        me.id,
+        me.worker_user_id,
+        me.evaluator_user_id,
+        me.evaluation_date,
+        me.comments,
+        me.score,
+        me.status,
+        me.completed_at,
+        me.created_at,
+        me.updated_at,
+
+        CONCAT(
+          COALESCE(worker.surname, ''),
+          ' ',
+          COALESCE(worker.name, '')
+        ) AS worker_name,
+
+        CONCAT(
+          COALESCE(evaluator.surname, ''),
+          ' ',
+          COALESCE(evaluator.name, '')
+        ) AS evaluator_name
+
+      FROM evaluation.monthly_evaluations me
+
+      LEFT JOIN public.users worker
+        ON worker.id = me.worker_user_id
+
+      LEFT JOIN public.users evaluator
+        ON evaluator.id = me.evaluator_user_id
+
+      WHERE me.id = $1
+
+      LIMIT 1
+      `,
+      [evaluationId],
+    );
+
+    if (evaluationResult.rowCount === 0) {
+      return res.status(404).json({
+        error: "Evaluación no encontrada.",
+      });
+    }
+
+ const answersResult = await pool.query(
+  `
+  SELECT
+    a.question_id,
+    a.answer
+  FROM evaluation.monthly_evaluation_answers a
+
+  JOIN evaluation.monthly_evaluation_questions q
+    ON q.question_key = a.question_id
+
+  WHERE a.evaluation_id = $1
+
+  ORDER BY
+    q.question_number ASC,
+    q.id ASC
+  `,
+  [evaluationId],
+);
+
+    const answers = answersResult.rows.reduce<Record<string, number>>(
+      (accumulator, row) => {
+        accumulator[row.question_id] = row.answer;
+        return accumulator;
+      },
+      {},
+    );
+
+    return res.json({
+      ...evaluationResult.rows[0],
+      answers,
+    });
+  } catch (error) {
+    console.error("Error fetching monthly evaluation:", error);
+
+    return res.status(500).json({
+      error: "Error al cargar la evaluación.",
     });
   }
 });
