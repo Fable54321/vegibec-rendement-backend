@@ -71,6 +71,7 @@ import transportRoute from "./routes/Transports/transport.routes";
 import evaluationRoute from "./routes/evaluation/evaluation.routes";
 import temperaturesRoute from "./routes/Temperatures/temperatures";
 import hrLogsRoute from "./routes/HRLogs/HRLogs.routes";
+import evaluationNewRouter from "./routes/evaluation/evaluationNew.routes";
 
 
 
@@ -1025,6 +1026,8 @@ app.use("/portal", portalRoute);
 app.use("/portal/foreign-workers", foreignWorkersRoute);
 
 app.use("/evaluation", evaluationRoute);
+
+app.use("/evaluation-new", evaluationNewRouter);
 
 app.use("/warehouse", warehouseProductsRoute);
 
