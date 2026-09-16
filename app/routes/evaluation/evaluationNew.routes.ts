@@ -71,23 +71,7 @@ function validateAnswers(answers: unknown): {
   return { valid: true };
 }
 
-/**
- * POST /
- *
- * Creates a completed monthly evaluation.
- *
- * Body:
- * {
- *   worker_user_id: number,
- *   evaluation_date?: string,
- *   comments?: string,
- *   answers: {
- *     question_1: 1-5,
- *     ...
- *     question_30: 1-5
- *   }
- * }
- */
+
 router.post("/", async (req, res) => {
   const client = await pool.connect();
 
@@ -265,15 +249,7 @@ if (
   }
 });
 
-/**
- * GET /
- *
- * Returns monthly evaluations.
- *
- * Optional query params:
- * ?worker_user_id=123
- * ?evaluator_user_id=456
- */
+
 router.get("/", async (req, res) => {
   try {
     const { worker_user_id, evaluator_user_id } = req.query;
@@ -374,11 +350,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-/**
- * GET /:id
- *
- * Returns one evaluation with all 30 answers.
- */
+
 router.get("/:id", async (req, res) => {
   try {
     const evaluationId = Number(req.params.id);
