@@ -12,6 +12,7 @@ type MonthlyAnswers = Record<string, number>;
 
 type CreateEvaluationBody = {
   worker_user_id: number;
+  evaluator_user_id: number;
   evaluation_date?: string;
   comments?: string;
   answers: MonthlyAnswers;
@@ -99,12 +100,23 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const {
-      worker_user_id,
-      evaluation_date,
-      comments,
-      answers,
-    }: CreateEvaluationBody = req.body;
+ const {
+  worker_user_id,
+  evaluator_user_id,
+  evaluation_date,
+  comments,
+  answers,
+}: CreateEvaluationBody = req.body;
+
+if (
+  !evaluator_user_id ||
+  typeof evaluator_user_id !== "number" ||
+  !Number.isInteger(evaluator_user_id)
+) {
+  return res.status(400).json({
+    error: "evaluator_user_id es requerido.",
+  });
+}
 
     if (
       !worker_user_id ||
@@ -185,12 +197,12 @@ router.post("/", async (req, res) => {
         created_at,
         updated_at
       `,
-      [
-        worker_user_id,
-        evaluatorUserId,
-        evaluation_date || null,
-        comments || "",
-      ],
+   [
+  worker_user_id,
+  evaluator_user_id,
+  evaluation_date || null,
+  comments || "",
+]
     );
 
     const evaluation = evaluationResult.rows[0];
