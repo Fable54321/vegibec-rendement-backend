@@ -39,6 +39,8 @@ router.get(
           u.self_reported_not_returning,
           u.self_reported_not_returning_at,
           u.self_reported_return_year,
+          u.company_decided_not_returning,
+          u.company_decided_not_returning_at,
 
           fwi.matricula,
           fwi.pin,
@@ -250,6 +252,8 @@ router.get(
           u.self_reported_not_returning,
           u.self_reported_not_returning_at,
           u.self_reported_return_year,
+          u.company_decided_not_returning,
+          u.company_decided_not_returning_at,
 
           fwi.birth_date,
           fwi.residence_country,
@@ -415,7 +419,7 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
       return res.status(400).json({ error: "ID invalide" });
     }
 
-   const allowedUserFields = [
+const allowedUserFields = [
   "name",
   "surname",
   "username",
@@ -427,6 +431,7 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
   "is_temporary_worker",
   "self_reported_not_returning",
   "self_reported_return_year",
+  "company_decided_not_returning",
 ] as const;
 
     const allowedFwiFields = [
@@ -500,6 +505,12 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
     "self_reported_not_returning"
   );
 
+  const companyDecidedNotReturningWasProvided =
+  Object.prototype.hasOwnProperty.call(
+    req.body,
+    "company_decided_not_returning"
+  );
+
     await client.query("BEGIN");
 
     const existingWorker = await client.query(
@@ -550,6 +561,20 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
         END
     `);
   }
+
+  if (
+  companyDecidedNotReturningWasProvided &&
+  req.body.company_decided_not_returning === true
+) {
+  userSetClauses.push(`
+    company_decided_not_returning_at =
+      CASE
+        WHEN company_decided_not_returning IS DISTINCT FROM TRUE
+        THEN NOW()
+        ELSE company_decided_not_returning_at
+      END
+  `);
+}
 
   userSetClauses.push(`updated_at = NOW()`);
 
