@@ -19,40 +19,58 @@ const upload = multer({
 const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
 
 
-router.get("/foreign-workers", requireAnyAppRole([
-  { appSlug: "main", allowedRoles: ["admin", "user", "guest"] },
-  { appSlug: "evaluacion", allowedRoles: ["admin", "user"] },
-]), async (_req, res) => {
-  try {
-    const result = await pool.query(
-      `
-      SELECT
-        u.id,
-        u.name,
-        u.surname,
-        u.username,
-        fwi.matricula,
-        fwi.pin,
-        fwi.contract_type,
-        fwi.residence_country,
-        fwi.debut_date,
-        fwd.job_id_1,
-        fwd.job_id_2
-      FROM users u
-      INNER JOIN foreign_workers_info fwi
-        ON fwi.user_id = u.id
-      LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
-        ON fwd.user_id = u.id
-      ORDER BY u.surname ASC, u.name ASC
-      `
-    );
+router.get(
+  "/foreign-workers",
+  requireAnyAppRole([
+    { appSlug: "main", allowedRoles: ["admin", "user", "guest"] },
+    { appSlug: "evaluacion", allowedRoles: ["admin", "user"] },
+  ]),
+  async (_req, res) => {
+    try {
+      const result = await pool.query(
+        `
+        SELECT
+          u.id,
+          u.name,
+          u.surname,
+          u.username,
+          u.is_active,
+          u.is_temporary_worker,
+          u.self_reported_not_returning,
+          u.self_reported_not_returning_at,
+          u.self_reported_return_year,
 
-    return res.status(200).json(result.rows);
-  } catch (err) {
-    console.error("Error fetching foreign workers:", err);
-    return res.status(500).json({ error: "Erreur lors de la récupération des travailleurs" });
+          fwi.matricula,
+          fwi.pin,
+          fwi.contract_type,
+          fwi.residence_country,
+          fwi.debut_date,
+
+          fwd.job_id_1,
+          fwd.job_id_2
+
+        FROM public.users u
+
+        INNER JOIN public.foreign_workers_info fwi
+          ON fwi.user_id = u.id
+
+        LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
+          ON fwd.user_id = u.id
+
+        ORDER BY u.surname ASC, u.name ASC
+        `
+      );
+
+      return res.status(200).json(result.rows);
+    } catch (err) {
+      console.error("Error fetching foreign workers:", err);
+
+      return res.status(500).json({
+        error: "Erreur lors de la récupération des travailleurs",
+      });
+    }
   }
-});
+);
 
 
 router.get("/foreign-workers/contracts/:id", requireAppRole("main", ["admin"]), async (req, res) => {
@@ -205,115 +223,134 @@ router.patch(
 
 //Get all info from foreign_workers_info + picture url
 
-router.get("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
+router.get(
+  "/foreign-workers/:id",
+  requireAppRole("main", ["admin"]),
+  async (req, res) => {
+    try {
+      const userId = Number(req.params.id);
 
-    if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ error: "ID invalide" });
-    }
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ error: "ID invalide" });
+      }
 
-    const result = await pool.query(
-      `
-      SELECT
-        u.id,
-        u.name,
-        u.surname,
-        u.username,
-        u.email,
-        u.role,
-        u.uses_worksheet,
+      const result = await pool.query(
+        `
+        SELECT
+          u.id,
+          u.name,
+          u.surname,
+          u.username,
+          u.email,
+          u.role,
+          u.uses_worksheet,
 
-        fwi.birth_date,
-        fwi.residence_country,
-        fwi.phone_number,
-        fwi.job_title,
-        fwi.job_description,
-        fwi.hourly_wage,
-        fwi.overtime_hourly_wage,
-        fwi.daily_hours_for_overtime,
-        fwi.weekly_hours_for_overtime,
-        fwi.contingent_applicable,
-        fwi.contingent_details,
-        fwi.debut_date,
-        fwi.job_duration,
-        fwi.approximative_daily_hours,
-        fwi.approximative_weekly_hours,
-        fwi.is_full_time,
-        fwi.no_full_time_details,
-        fwi.holidays,
-        fwi.no_holidays_compensation,
-        fwi.invalid_insurance,
-        fwi.dentist_insurance,
-        fwi.pension_scheme,
-        fwi.healthcare,
-        fwi.other,
-        fwi.other_details,
-        fwi.accommodation_type,
-        fwi.on_site_accommodation,
-        fwi.off_site_accommodation_under_30,
-        fwi.off_site_accommodation_custom,
-        fwi.weekly_amount_deducted,
-        fwi.monthly_amount_deducted,
-        fwi.low_wage,
-        fwi.accommodation_provided,
-        fwi.high_wage,
-        fwi.more_info_ptet,
-        fwi.pin,
-        fwi.is_connected,
-        fwi.holiday_duration,
-        fwi.matricula,
-        fwi.contract_type,
-        fwi.nas,
-        fwi.ramq,
-        fwi.folio_number,
+          u.is_active,
+          u.is_temporary_worker,
+          u.self_reported_not_returning,
+          u.self_reported_not_returning_at,
+          u.self_reported_return_year,
 
-        fwd.id AS foreign_workers_details_id,
-fwd.has_license,
-fwd.personal_picture_key,
-fwd.day_off,
-fwd.job_id_1,
-fwd.job_id_2,
-fwd.job_notes,
-fwd.casa_id,
-casa.name AS casa_name,
-fwd.cuartos_id,
-cuarto.name AS cuarto_name
+          fwi.birth_date,
+          fwi.residence_country,
+          fwi.phone_number,
+          fwi.job_title,
+          fwi.job_description,
+          fwi.hourly_wage,
+          fwi.overtime_hourly_wage,
+          fwi.daily_hours_for_overtime,
+          fwi.weekly_hours_for_overtime,
+          fwi.contingent_applicable,
+          fwi.contingent_details,
+          fwi.debut_date,
+          fwi.job_duration,
+          fwi.approximative_daily_hours,
+          fwi.approximative_weekly_hours,
+          fwi.is_full_time,
+          fwi.no_full_time_details,
+          fwi.holidays,
+          fwi.no_holidays_compensation,
+          fwi.invalid_insurance,
+          fwi.dentist_insurance,
+          fwi.pension_scheme,
+          fwi.healthcare,
+          fwi.other,
+          fwi.other_details,
+          fwi.accommodation_type,
+          fwi.on_site_accommodation,
+          fwi.off_site_accommodation_under_30,
+          fwi.off_site_accommodation_custom,
+          fwi.weekly_amount_deducted,
+          fwi.monthly_amount_deducted,
+          fwi.low_wage,
+          fwi.accommodation_provided,
+          fwi.high_wage,
+          fwi.more_info_ptet,
+          fwi.pin,
+          fwi.is_connected,
+          fwi.holiday_duration,
+          fwi.matricula,
+          fwi.contract_type,
+          fwi.nas,
+          fwi.ramq,
+          fwi.folio_number,
 
-      FROM users u
-      INNER JOIN foreign_workers_info fwi
-        ON fwi.user_id = u.id
+          fwd.id AS foreign_workers_details_id,
+          fwd.has_license,
+          fwd.personal_picture_key,
+          fwd.day_off,
+          fwd.job_id_1,
+          fwd.job_id_2,
+          fwd.job_notes,
+          fwd.casa_id,
+          casa.name AS casa_name,
+          fwd.cuartos_id,
+          cuarto.name AS cuarto_name
+
+        FROM public.users u
+
+        INNER JOIN public.foreign_workers_info fwi
+          ON fwi.user_id = u.id
+
         LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
-  ON fwd.user_id = u.id
+          ON fwd.user_id = u.id
+
         LEFT JOIN foreign_workers_schedule.cuartos cuarto
-  ON cuarto.id = fwd.cuartos_id
+          ON cuarto.id = fwd.cuartos_id
+
         LEFT JOIN foreign_workers_schedule.casas casa
-  ON casa.id = fwd.casa_id
-      WHERE u.id = $1
-      `,
-      [userId]
-    );
+          ON casa.id = fwd.casa_id
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Travailleur introuvable" });
+        WHERE u.id = $1
+        `,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          error: "Travailleur introuvable",
+        });
+      }
+
+      const worker = result.rows[0];
+
+      const personalPictureUrl = worker.personal_picture_key
+        ? await getSignedUrlForKey(worker.personal_picture_key)
+        : null;
+
+      return res.status(200).json({
+        ...worker,
+        personal_picture_url: personalPictureUrl,
+      });
+    } catch (err) {
+      console.error("Error fetching foreign worker:", err);
+
+      return res.status(500).json({
+        error: "Erreur lors de la récupération du travailleur",
+      });
     }
-
-    const worker = result.rows[0];
-
-const personalPictureUrl = worker.personal_picture_key
-  ? await getSignedUrlForKey(worker.personal_picture_key)
-  : null;
-
-return res.status(200).json({
-  ...worker,
-  personal_picture_url: personalPictureUrl,
-});
-
-  } catch (err) {
-    console.error("Error fetching foreign worker:", err);
-    return res.status(500).json({ error: "Erreur lors de la récupération du travailleur" });
   }
-});
+);
 
 router.get(
   "/foreign-workers/:userId/contracts/:contractId",
