@@ -415,14 +415,19 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
       return res.status(400).json({ error: "ID invalide" });
     }
 
-    const allowedUserFields = [
-      "name",
-      "surname",
-      "username",
-      "email",
-      "role",
-      "uses_worksheet",
-    ] as const;
+   const allowedUserFields = [
+  "name",
+  "surname",
+  "username",
+  "email",
+  "role",
+  "uses_worksheet",
+
+  "is_active",
+  "is_temporary_worker",
+  "self_reported_not_returning",
+  "self_reported_return_year",
+] as const;
 
     const allowedFwiFields = [
       "birth_date",
@@ -489,6 +494,12 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
       return res.status(400).json({ error: "Aucune donnée à modifier" });
     }
 
+    const selfReportedNotReturningWasProvided =
+  Object.prototype.hasOwnProperty.call(
+    req.body,
+    "self_reported_not_returning"
+  );
+
     await client.query("BEGIN");
 
     const existingWorker = await client.query(
@@ -507,30 +518,52 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
       return res.status(404).json({ error: "Travailleur introuvable" });
     }
 
-    if (Object.keys(userUpdates).length > 0) {
-      const userSetClauses: string[] = [];
-      const userValues: unknown[] = [];
-      let paramIndex = 1;
+ if (Object.keys(userUpdates).length > 0) {
+  const userSetClauses: string[] = [];
+  const userValues: unknown[] = [];
+  let paramIndex = 1;
 
-      for (const [key, value] of Object.entries(userUpdates)) {
-        userSetClauses.push(`${key} = $${paramIndex}`);
-        userValues.push(value);
-        paramIndex++;
-      }
+  for (const [key, value] of Object.entries(userUpdates)) {
+    userSetClauses.push(`${key} = $${paramIndex}`);
+    userValues.push(value);
+    paramIndex++;
+  }
 
-      userSetClauses.push(`updated_at = NOW()`);
+  /*
+   * If HR explicitly marks the worker as "not returning",
+   * record when that information was entered.
+   *
+   * We only set it when changing to TRUE.
+   * We do NOT erase the timestamp if the value later becomes false,
+   * so there is still a historical indication that they once reported it.
+   */
+  if (
+    selfReportedNotReturningWasProvided &&
+    req.body.self_reported_not_returning === true
+  ) {
+    userSetClauses.push(`
+      self_reported_not_returning_at =
+        CASE
+          WHEN self_reported_not_returning IS DISTINCT FROM TRUE
+          THEN NOW()
+          ELSE self_reported_not_returning_at
+        END
+    `);
+  }
 
-      userValues.push(userId);
+  userSetClauses.push(`updated_at = NOW()`);
 
-      await client.query(
-        `
-        UPDATE users
-        SET ${userSetClauses.join(", ")}
-        WHERE id = $${paramIndex}
-        `,
-        userValues
-      );
-    }
+  userValues.push(userId);
+
+  await client.query(
+    `
+    UPDATE public.users
+    SET ${userSetClauses.join(", ")}
+    WHERE id = $${paramIndex}
+    `,
+    userValues
+  );
+}
 
     if (Object.keys(fwiUpdates).length > 0) {
       const fwiSetClauses: string[] = [];
@@ -565,6 +598,12 @@ router.patch("/foreign-workers/:id", requireAppRole("main", ["admin"]), async (r
         u.email,
         u.role,
         u.uses_worksheet,
+
+        u.is_active,
+u.is_temporary_worker,
+u.self_reported_not_returning,
+u.self_reported_not_returning_at,
+u.self_reported_return_year,
 
         fwi.birth_date,
         fwi.residence_country,
