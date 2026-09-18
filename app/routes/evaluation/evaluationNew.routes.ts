@@ -1020,105 +1020,136 @@ router.get("/variation-alerts", async (req, res) => {
   }
 });
 
-router.get("/variation-alerts/:id", async (req, res) => {
-  try {
-    const alertId = Number(req.params.id);
+router.get(
+  "/variation-alerts/:id",
+  async (req, res) => {
+    try {
+      const alertId =
+        Number(req.params.id)
 
-    if (!Number.isInteger(alertId)) {
-      return res.status(400).json({
-        error: "ID de alerta inválido.",
-      });
+      if (
+        !Number.isInteger(alertId) ||
+        alertId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            "ID de alerta inválido.",
+        })
+      }
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            pva.id,
+            pva.client_submission_id,
+
+            pva.leader_user_id,
+            pva.worker_user_id,
+
+            pva.alert_type,
+            pva.since_when,
+
+            pva.other_reason,
+            pva.comments,
+
+            pva.created_by_user_id,
+
+            pva.created_at,
+            pva.updated_at,
+
+            CONCAT(
+              COALESCE(leader.surname, ''),
+              ' ',
+              COALESCE(leader.name, '')
+            ) AS leader_name,
+
+            CONCAT(
+              COALESCE(worker.surname, ''),
+              ' ',
+              COALESCE(worker.name, '')
+            ) AS worker_name,
+
+            CONCAT(
+              COALESCE(created_by.surname, ''),
+              ' ',
+              COALESCE(created_by.name, '')
+            ) AS created_by_name,
+
+            COALESCE(
+              (
+                SELECT json_agg(
+                  pvar.reason
+                  ORDER BY pvar.id
+                )
+
+                FROM evaluation.performance_variation_alert_reasons pvar
+
+                WHERE pvar.alert_id =
+                  pva.id
+              ),
+              '[]'::json
+            ) AS reasons,
+
+            COALESCE(
+              (
+                SELECT json_agg(
+                  pvaa.action
+                  ORDER BY pvaa.id
+                )
+
+                FROM evaluation.performance_variation_alert_actions pvaa
+
+                WHERE pvaa.alert_id =
+                  pva.id
+              ),
+              '[]'::json
+            ) AS actions
+
+          FROM evaluation.performance_variation_alerts pva
+
+          LEFT JOIN public.users leader
+            ON leader.id =
+              pva.leader_user_id
+
+          LEFT JOIN public.users worker
+            ON worker.id =
+              pva.worker_user_id
+
+          LEFT JOIN public.users created_by
+            ON created_by.id =
+              pva.created_by_user_id
+
+          WHERE pva.id = $1
+
+          LIMIT 1
+          `,
+          [alertId],
+        )
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          error:
+            "Alerta no encontrada.",
+        })
+      }
+
+      return res.json(
+        result.rows[0],
+      )
+    } catch (error) {
+      console.error(
+        "Error fetching performance variation alert:",
+        error,
+      )
+
+      return res.status(500).json({
+        error:
+          "Error al cargar la alerta.",
+      })
     }
-
-    const result = await pool.query(
-      `
-      SELECT
-        pva.id,
-        pva.leader_user_id,
-        pva.worker_user_id,
-        pva.alert_type,
-        pva.since_when,
-        pva.other_reason,
-        pva.comments,
-        pva.created_by_user_id,
-        pva.created_at,
-        pva.updated_at,
-
-        CONCAT(
-          COALESCE(leader.surname, ''),
-          ' ',
-          COALESCE(leader.name, '')
-        ) AS leader_name,
-
-        CONCAT(
-          COALESCE(worker.surname, ''),
-          ' ',
-          COALESCE(worker.name, '')
-        ) AS worker_name,
-
-        CONCAT(
-          COALESCE(created_by.surname, ''),
-          ' ',
-          COALESCE(created_by.name, '')
-        ) AS created_by_name,
-
-        COALESCE(
-          (
-            SELECT json_agg(
-              pvar.reason
-              ORDER BY pvar.id
-            )
-            FROM evaluation.performance_variation_alert_reasons pvar
-            WHERE pvar.alert_id = pva.id
-          ),
-          '[]'::json
-        ) AS reasons,
-
-        COALESCE(
-          (
-            SELECT json_agg(
-              pvaa.action
-              ORDER BY pvaa.id
-            )
-            FROM evaluation.performance_variation_alert_actions pvaa
-            WHERE pvaa.alert_id = pva.id
-          ),
-          '[]'::json
-        ) AS actions
-
-      FROM evaluation.performance_variation_alerts pva
-
-      LEFT JOIN public.users leader
-        ON leader.id = pva.leader_user_id
-
-      LEFT JOIN public.users worker
-        ON worker.id = pva.worker_user_id
-
-      LEFT JOIN public.users created_by
-        ON created_by.id = pva.created_by_user_id
-
-      WHERE pva.id = $1
-
-      LIMIT 1
-      `,
-      [alertId],
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        error: "Alerta no encontrada.",
-      });
-    }
-
-    return res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Error fetching performance variation alert:", error);
-
-    return res.status(500).json({
-      error: "Error al cargar la alerta.",
-    });
-  }
-});
+  },
+)
 
 router.get("/questions/monthly", async (_req, res) => {
   try {
@@ -1152,12 +1183,15 @@ router.get("/questions/monthly", async (_req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const evaluationId = Number(req.params.id);
+    const evaluationId = Number(req.params.id)
 
-    if (!Number.isInteger(evaluationId)) {
+    if (
+      !Number.isInteger(evaluationId) ||
+      evaluationId <= 0
+    ) {
       return res.status(400).json({
         error: "ID de evaluación inválido.",
-      });
+      })
     }
 
     const evaluationResult = await pool.query(
@@ -1199,52 +1233,55 @@ router.get("/:id", async (req, res) => {
       LIMIT 1
       `,
       [evaluationId],
-    );
+    )
 
     if (evaluationResult.rowCount === 0) {
       return res.status(404).json({
         error: "Evaluación no encontrada.",
-      });
+      })
     }
 
- const answersResult = await pool.query(
-  `
-  SELECT
-    a.question_id,
-    a.answer
-  FROM evaluation.monthly_evaluation_answers a
+    const answersResult = await pool.query(
+      `
+      SELECT
+        a.question_id,
+        a.answer,
 
-  JOIN evaluation.monthly_evaluation_questions q
-    ON q.question_key = a.question_id
+        q.question_number,
+        q.question_text,
+        q.category,
+        q.is_negative
 
-  WHERE a.evaluation_id = $1
+      FROM evaluation.monthly_evaluation_answers a
 
-  ORDER BY
-    q.question_number ASC,
-    q.id ASC
-  `,
-  [evaluationId],
-);
+      JOIN evaluation.monthly_evaluation_questions q
+        ON q.question_key = a.question_id
 
-    const answers = answersResult.rows.reduce<Record<string, number>>(
-      (accumulator, row) => {
-        accumulator[row.question_id] = row.answer;
-        return accumulator;
-      },
-      {},
-    );
+      WHERE a.evaluation_id = $1
+
+      ORDER BY
+        q.question_number ASC,
+        q.id ASC
+      `,
+      [evaluationId],
+    )
 
     return res.json({
       ...evaluationResult.rows[0],
-      answers,
-    });
+
+      answers: answersResult.rows,
+    })
   } catch (error) {
-    console.error("Error fetching monthly evaluation:", error);
+    console.error(
+      "Error fetching monthly evaluation:",
+      error,
+    )
 
     return res.status(500).json({
-      error: "Error al cargar la evaluación.",
-    });
+      error:
+        "Error al cargar la evaluación.",
+    })
   }
-});
+})
 
 export default router;
