@@ -59,7 +59,7 @@ const withAgreementData = async (
           interview_id: row.id,
 
           agreement_terms:
-            row.agreement_record_terms,
+            row.agreement_terms,
 
           status:
             row.agreement_status,
@@ -286,8 +286,7 @@ router.post(
             original_file_name,
             status,
             completed_at,
-            needs_agreement,
-            agreement_terms
+            needs_agreement
           )
           VALUES (
             $1,
@@ -302,8 +301,7 @@ router.post(
             $10,
             'completed',
             NOW(),
-            $11,
-            $12
+            $11
           )
           RETURNING *
           `,
@@ -328,10 +326,6 @@ router.post(
             fileKey,
             originalFileName,
             needsAgreement,
-
-            needsAgreement
-              ? normalizedAgreementTerms
-              : null,
           ],
         )
 
@@ -457,7 +451,6 @@ router.get(
           wi.other_category,
 
           wi.needs_agreement,
-          wi.agreement_terms,
 
           wi.completed_at,
           wi.deleted_at,
@@ -480,7 +473,7 @@ router.get(
             AS agreement_id,
 
           agreement.agreement_terms
-            AS agreement_record_terms,
+            AS agreement_terms,
 
           agreement.status
             AS agreement_status,
@@ -587,7 +580,6 @@ router.get(
           wi.other_category,
 
           wi.needs_agreement,
-          wi.agreement_terms,
 
           wi.completed_at,
           wi.deleted_at,
@@ -610,7 +602,7 @@ router.get(
             AS agreement_id,
 
           agreement.agreement_terms
-            AS agreement_record_terms,
+            AS agreement_terms,
 
           agreement.status
             AS agreement_status,
@@ -820,8 +812,7 @@ router.patch(
       const nextAgreementTerms =
         agreement_terms === undefined
           ? normalizeAgreementTerms(
-              existing.agreement_terms ??
-                existingAgreement?.agreement_terms,
+              existingAgreement?.agreement_terms,
             )
           : normalizeAgreementTerms(
               agreement_terms,
@@ -908,10 +899,9 @@ router.patch(
 
           updated_at = NOW(),
 
-          needs_agreement = $10,
-          agreement_terms = $11
+          needs_agreement = $10
 
-        WHERE id = $12
+        WHERE id = $11
 
         RETURNING *
         `,
@@ -933,14 +923,13 @@ router.patch(
           originalFileName,
 
           nextNeedsAgreement,
-          nextNeedsAgreement
-            ? nextAgreementTerms
-            : null,
           id,
         ],
       )
 
-      let agreement = existingAgreement
+      let agreement = nextNeedsAgreement
+        ? existingAgreement
+        : null
 
       if (
         nextNeedsAgreement &&
@@ -1061,6 +1050,9 @@ router.post(
   "/draft",
   hrLogsAccess,
   async (req, res) => {
+    const client = await pool.connect()
+    let committed = false
+
     try {
       const hrUserId = req.user!.id
 
@@ -1094,7 +1086,9 @@ router.post(
       const normalizedAgreementTerms =
         normalizeAgreementTerms(agreement_terms)
 
-      const result = await pool.query(
+      await client.query("BEGIN")
+
+      const result = await client.query(
         `
         INSERT INTO foreign_workers_schedule.worker_interviews (
           hr_user_id,
@@ -1104,7 +1098,6 @@ router.post(
           category,
           other_category,
           needs_agreement,
-          agreement_terms,
           status
         )
 
@@ -1116,7 +1109,6 @@ router.post(
           $5,
           $6,
           $7,
-          $8,
           'draft'
         )
 
@@ -1135,19 +1127,65 @@ router.post(
             : null,
 
           needsAgreement,
-
-          needsAgreement
-            ? normalizedAgreementTerms
-            : null,
         ],
       )
 
-      return res.status(201).json(
-        await withFileUrls(
-          result.rows[0],
-        ),
+      let agreement = null
+
+      if (
+        needsAgreement &&
+        normalizedAgreementTerms
+      ) {
+        const agreementResult =
+          await client.query(
+            `
+            INSERT INTO foreign_workers_schedule.worker_interview_agreements (
+              interview_id,
+              agreement_terms,
+              status,
+              signature_s3_key,
+              signed_at,
+              has_accepted_terms
+            )
+            VALUES (
+              $1,
+              $2,
+              'pending_signature',
+              NULL,
+              NULL,
+              FALSE
+            )
+            RETURNING *
+            `,
+            [
+              result.rows[0].id,
+              normalizedAgreementTerms,
+            ],
+          )
+
+        agreement = agreementResult.rows[0]
+      }
+
+      await client.query("COMMIT")
+      committed = true
+
+      const interview = await withFileUrls(
+        result.rows[0],
       )
+
+      return res.status(201).json({
+        ...interview,
+        agreement_terms:
+          agreement?.agreement_terms ?? null,
+        agreement,
+      })
     } catch (error) {
+      if (!committed) {
+        await client
+          .query("ROLLBACK")
+          .catch(() => undefined)
+      }
+
       console.error(
         "Error creating worker interview draft:",
         error,
@@ -1157,6 +1195,8 @@ router.post(
         message:
           "Erreur lors de la création du brouillon",
       })
+    } finally {
+      client.release()
     }
   },
 )
@@ -1169,6 +1209,9 @@ router.patch(
   "/:id/draft",
   hrLogsAccess,
   async (req, res) => {
+    const client = await pool.connect()
+    let committed = false
+
     try {
       const hrUserId = req.user!.id
       const { id } = req.params
@@ -1196,7 +1239,9 @@ router.patch(
       const nextAgreementTerms =
         normalizeAgreementTerms(agreement_terms)
 
-      const result = await pool.query(
+      await client.query("BEGIN")
+
+      const result = await client.query(
         `
         UPDATE foreign_workers_schedule.worker_interviews
 
@@ -1257,25 +1302,10 @@ router.patch(
               needs_agreement
             ),
 
-          agreement_terms =
-            CASE
-              WHEN COALESCE(
-                $8,
-                needs_agreement
-              )
-              THEN CASE
-                WHEN $9
-                THEN $10
-                ELSE agreement_terms
-              END
-
-              ELSE NULL
-            END,
-
           updated_at = NOW()
 
-        WHERE id = $11
-          AND hr_user_id = $12
+        WHERE id = $9
+          AND hr_user_id = $10
           AND status = 'draft'
           AND deleted_at IS NULL
 
@@ -1296,27 +1326,131 @@ router.patch(
           other_category ?? null,
 
           nextNeedsAgreement,
-          hasAgreementTerms,
-          nextAgreementTerms,
-
           id,
           hrUserId,
         ],
       )
 
       if (result.rowCount === 0) {
+        await client.query("ROLLBACK")
+
         return res.status(404).json({
           message:
             "Brouillon introuvable",
         })
       }
 
-      return res.json(
-        await withFileUrls(
-          result.rows[0],
-        ),
+      const existingAgreementResult =
+        await client.query(
+          `
+          SELECT *
+          FROM foreign_workers_schedule.worker_interview_agreements
+          WHERE interview_id = $1
+          FOR UPDATE
+          `,
+          [id],
+        )
+
+      const existingAgreement =
+        existingAgreementResult.rows[0] || null
+
+      const needsAgreement = Boolean(
+        result.rows[0].needs_agreement,
       )
+
+      const effectiveAgreementTerms =
+        hasAgreementTerms
+          ? nextAgreementTerms
+          : normalizeAgreementTerms(
+              existingAgreement?.agreement_terms,
+            )
+
+      let agreement = existingAgreement
+
+      if (
+        !needsAgreement ||
+        (hasAgreementTerms &&
+          !effectiveAgreementTerms)
+      ) {
+        if (existingAgreement) {
+          await client.query(
+            `
+            DELETE FROM foreign_workers_schedule.worker_interview_agreements
+            WHERE id = $1
+            `,
+            [existingAgreement.id],
+          )
+        }
+
+        agreement = null
+      } else if (effectiveAgreementTerms) {
+        if (existingAgreement) {
+          const agreementResult =
+            await client.query(
+              `
+              UPDATE foreign_workers_schedule.worker_interview_agreements
+              SET
+                agreement_terms = $1,
+                updated_at = NOW()
+              WHERE id = $2
+              RETURNING *
+              `,
+              [
+                effectiveAgreementTerms,
+                existingAgreement.id,
+              ],
+            )
+
+          agreement = agreementResult.rows[0]
+        } else {
+          const agreementResult =
+            await client.query(
+              `
+              INSERT INTO foreign_workers_schedule.worker_interview_agreements (
+                interview_id,
+                agreement_terms,
+                status,
+                signature_s3_key,
+                signed_at,
+                has_accepted_terms
+              )
+              VALUES (
+                $1,
+                $2,
+                'pending_signature',
+                NULL,
+                NULL,
+                FALSE
+              )
+              RETURNING *
+              `,
+              [id, effectiveAgreementTerms],
+            )
+
+          agreement = agreementResult.rows[0]
+        }
+      }
+
+      await client.query("COMMIT")
+      committed = true
+
+      const interview = await withFileUrls(
+        result.rows[0],
+      )
+
+      return res.json({
+        ...interview,
+        agreement_terms:
+          agreement?.agreement_terms ?? null,
+        agreement,
+      })
     } catch (error) {
+      if (!committed) {
+        await client
+          .query("ROLLBACK")
+          .catch(() => undefined)
+      }
+
       console.error(
         "Error saving worker interview draft:",
         error,
@@ -1326,6 +1460,8 @@ router.patch(
         message:
           "Erreur lors de la sauvegarde du brouillon",
       })
+    } finally {
+      client.release()
     }
   },
 )
@@ -1381,6 +1517,20 @@ router.patch(
       const existing =
         existingResult.rows[0]
 
+      const existingAgreementResult =
+        await client.query(
+          `
+          SELECT *
+          FROM foreign_workers_schedule.worker_interview_agreements
+          WHERE interview_id = $1
+          FOR UPDATE
+          `,
+          [id],
+        )
+
+      const existingAgreement =
+        existingAgreementResult.rows[0] || null
+
       if (!existing.worker_user_id) {
         await client.query("ROLLBACK")
 
@@ -1432,7 +1582,7 @@ router.patch(
       if (
         existing.needs_agreement &&
         !normalizeAgreementTerms(
-          existing.agreement_terms,
+          existingAgreement?.agreement_terms,
         )
       ) {
         await client.query("ROLLBACK")
@@ -1462,40 +1612,9 @@ router.patch(
         [id, hrUserId],
       )
 
-      let agreement = null
-
-      if (existing.needs_agreement) {
-        const agreementResult =
-          await client.query(
-            `
-            INSERT INTO foreign_workers_schedule.worker_interview_agreements (
-              interview_id,
-              agreement_terms,
-              status,
-              signature_s3_key,
-              signed_at,
-              has_accepted_terms
-            )
-            VALUES (
-              $1,
-              $2,
-              'pending_signature',
-              NULL,
-              NULL,
-              FALSE
-            )
-            RETURNING *
-            `,
-            [
-              id,
-              normalizeAgreementTerms(
-                existing.agreement_terms,
-              ),
-            ],
-          )
-
-        agreement = agreementResult.rows[0]
-      }
+      const agreement = existing.needs_agreement
+        ? existingAgreement
+        : null
 
       await client.query("COMMIT")
 
