@@ -22,6 +22,14 @@ const upload = multer({
   },
 })
 
+const parseNeedsAgreement = (value: unknown) =>
+  value === true || value === "true"
+
+const normalizeAgreementTerms = (value: unknown) =>
+  typeof value === "string"
+    ? value.trim() || null
+    : null
+
 const withAgreementData = async (
   row: Record<string, any>,
 ) => {
@@ -43,13 +51,15 @@ const withAgreementData = async (
   return {
     ...interview,
 
-    agreement: row.agreement_id
+    agreement:
+      row.needs_agreement &&
+      row.agreement_id
       ? {
           id: row.agreement_id,
           interview_id: row.id,
 
           agreement_terms:
-            row.agreement_terms,
+            row.agreement_record_terms,
 
           status:
             row.agreement_status,
@@ -202,12 +212,14 @@ router.post(
       }
 
       const needsAgreement =
-        needs_agreement === true ||
-        needs_agreement === "true"
+        parseNeedsAgreement(needs_agreement)
+
+      const normalizedAgreementTerms =
+        normalizeAgreementTerms(agreement_terms)
 
       if (
         needsAgreement &&
-        !agreement_terms?.trim()
+        !normalizedAgreementTerms
       ) {
         return res.status(400).json({
           message:
@@ -274,7 +286,8 @@ router.post(
             original_file_name,
             status,
             completed_at,
-            needs_agreement
+            needs_agreement,
+            agreement_terms
           )
           VALUES (
             $1,
@@ -289,7 +302,8 @@ router.post(
             $10,
             'completed',
             NOW(),
-            $11
+            $11,
+            $12
           )
           RETURNING *
           `,
@@ -314,6 +328,10 @@ router.post(
             fileKey,
             originalFileName,
             needsAgreement,
+
+            needsAgreement
+              ? normalizedAgreementTerms
+              : null,
           ],
         )
 
@@ -346,7 +364,7 @@ router.post(
             `,
             [
               interview.id,
-              agreement_terms.trim(),
+              normalizedAgreementTerms,
             ],
           )
 
@@ -439,6 +457,7 @@ router.get(
           wi.other_category,
 
           wi.needs_agreement,
+          wi.agreement_terms,
 
           wi.completed_at,
           wi.deleted_at,
@@ -461,7 +480,7 @@ router.get(
             AS agreement_id,
 
           agreement.agreement_terms
-            AS agreement_terms,
+            AS agreement_record_terms,
 
           agreement.status
             AS agreement_status,
@@ -568,6 +587,7 @@ router.get(
           wi.other_category,
 
           wi.needs_agreement,
+          wi.agreement_terms,
 
           wi.completed_at,
           wi.deleted_at,
@@ -590,7 +610,7 @@ router.get(
             AS agreement_id,
 
           agreement.agreement_terms
-            AS agreement_terms,
+            AS agreement_record_terms,
 
           agreement.status
             AS agreement_status,
@@ -692,6 +712,9 @@ router.patch(
         interview_summary,
         category,
         other_category,
+
+        needs_agreement,
+        agreement_terms,
       } = req.body
 
       await client.query("BEGIN")
@@ -731,6 +754,20 @@ router.patch(
 
       const existing =
         existingResult.rows[0]
+
+      const existingAgreementResult =
+        await client.query(
+          `
+          SELECT *
+          FROM foreign_workers_schedule.worker_interview_agreements
+          WHERE interview_id = $1
+          FOR UPDATE
+          `,
+          [id],
+        )
+
+      const existingAgreement =
+        existingAgreementResult.rows[0] || null
 
       let fileKey =
         existing.file_key
@@ -775,6 +812,21 @@ router.patch(
             : existing.other_category
           : null
 
+      const nextNeedsAgreement =
+        needs_agreement === undefined
+          ? Boolean(existing.needs_agreement)
+          : parseNeedsAgreement(needs_agreement)
+
+      const nextAgreementTerms =
+        agreement_terms === undefined
+          ? normalizeAgreementTerms(
+              existing.agreement_terms ??
+                existingAgreement?.agreement_terms,
+            )
+          : normalizeAgreementTerms(
+              agreement_terms,
+            )
+
       if (
         nextCategory === "other" &&
         !nextOtherCategory
@@ -790,6 +842,24 @@ router.patch(
         return res.status(400).json({
           message:
             "Veuillez préciser la catégorie",
+        })
+      }
+
+      if (
+        nextNeedsAgreement &&
+        !nextAgreementTerms
+      ) {
+        await client.query("ROLLBACK")
+
+        if (uploadedFileKey) {
+          await deleteObjectFromS3(
+            uploadedFileKey,
+          ).catch(() => undefined)
+        }
+
+        return res.status(400).json({
+          message:
+            "Les termes de l'entente sont requis",
         })
       }
 
@@ -836,9 +906,12 @@ router.patch(
 
           original_file_name = $9,
 
-          updated_at = NOW()
+          updated_at = NOW(),
 
-        WHERE id = $10
+          needs_agreement = $10,
+          agreement_terms = $11
+
+        WHERE id = $12
 
         RETURNING *
         `,
@@ -859,9 +932,66 @@ router.patch(
           fileKey,
           originalFileName,
 
+          nextNeedsAgreement,
+          nextNeedsAgreement
+            ? nextAgreementTerms
+            : null,
           id,
         ],
       )
+
+      let agreement = existingAgreement
+
+      if (
+        nextNeedsAgreement &&
+        existing.status === "completed"
+      ) {
+        if (existingAgreement) {
+          const agreementResult =
+            await client.query(
+              `
+              UPDATE foreign_workers_schedule.worker_interview_agreements
+              SET
+                agreement_terms = $1,
+                updated_at = NOW()
+              WHERE id = $2
+              RETURNING *
+              `,
+              [
+                nextAgreementTerms,
+                existingAgreement.id,
+              ],
+            )
+
+          agreement = agreementResult.rows[0]
+        } else {
+          const agreementResult =
+            await client.query(
+              `
+              INSERT INTO foreign_workers_schedule.worker_interview_agreements (
+                interview_id,
+                agreement_terms,
+                status,
+                signature_s3_key,
+                signed_at,
+                has_accepted_terms
+              )
+              VALUES (
+                $1,
+                $2,
+                'pending_signature',
+                NULL,
+                NULL,
+                FALSE
+              )
+              RETURNING *
+              `,
+              [id, nextAgreementTerms],
+            )
+
+          agreement = agreementResult.rows[0]
+        }
+      }
 
       await client.query("COMMIT")
       committed = true
@@ -888,6 +1018,7 @@ router.patch(
       return res.json({
         message: "Entretien mis à jour",
         interview,
+        agreement,
       })
     } catch (error) {
       if (!committed) {
@@ -939,6 +1070,8 @@ router.post(
         interview_date,
         category,
         other_category,
+        needs_agreement,
+        agreement_terms,
       } = req.body
 
       if (!worker_user_id) {
@@ -955,6 +1088,12 @@ router.post(
         })
       }
 
+      const needsAgreement =
+        parseNeedsAgreement(needs_agreement)
+
+      const normalizedAgreementTerms =
+        normalizeAgreementTerms(agreement_terms)
+
       const result = await pool.query(
         `
         INSERT INTO foreign_workers_schedule.worker_interviews (
@@ -964,6 +1103,8 @@ router.post(
           interview_date,
           category,
           other_category,
+          needs_agreement,
+          agreement_terms,
           status
         )
 
@@ -974,6 +1115,8 @@ router.post(
           $4,
           $5,
           $6,
+          $7,
+          $8,
           'draft'
         )
 
@@ -989,6 +1132,12 @@ router.post(
           category === "other"
             ? other_category?.trim() ||
               null
+            : null,
+
+          needsAgreement,
+
+          needsAgreement
+            ? normalizedAgreementTerms
             : null,
         ],
       )
@@ -1032,7 +1181,20 @@ router.patch(
         interview_summary,
         category,
         other_category,
+        needs_agreement,
+        agreement_terms,
       } = req.body
+
+      const nextNeedsAgreement =
+        needs_agreement === undefined
+          ? null
+          : parseNeedsAgreement(needs_agreement)
+
+      const hasAgreementTerms =
+        agreement_terms !== undefined
+
+      const nextAgreementTerms =
+        normalizeAgreementTerms(agreement_terms)
 
       const result = await pool.query(
         `
@@ -1089,10 +1251,31 @@ router.patch(
               ELSE NULL
             END,
 
+          needs_agreement =
+            COALESCE(
+              $8,
+              needs_agreement
+            ),
+
+          agreement_terms =
+            CASE
+              WHEN COALESCE(
+                $8,
+                needs_agreement
+              )
+              THEN CASE
+                WHEN $9
+                THEN $10
+                ELSE agreement_terms
+              END
+
+              ELSE NULL
+            END,
+
           updated_at = NOW()
 
-        WHERE id = $8
-          AND hr_user_id = $9
+        WHERE id = $11
+          AND hr_user_id = $12
           AND status = 'draft'
           AND deleted_at IS NULL
 
@@ -1111,6 +1294,10 @@ router.patch(
 
           category ?? null,
           other_category ?? null,
+
+          nextNeedsAgreement,
+          hasAgreementTerms,
+          nextAgreementTerms,
 
           id,
           hrUserId,
@@ -1151,9 +1338,13 @@ router.patch(
   "/:id/complete",
   hrLogsAccess,
   async (req, res) => {
+    const client = await pool.connect()
+
     try {
       const hrUserId = req.user!.id
       const { id } = req.params
+
+      await client.query("BEGIN")
 
       /*
        * I validate the final record here rather than
@@ -1161,7 +1352,7 @@ router.patch(
        */
 
       const existingResult =
-        await pool.query(
+        await client.query(
           `
           SELECT *
           FROM foreign_workers_schedule.worker_interviews
@@ -1170,6 +1361,8 @@ router.patch(
             AND hr_user_id = $2
             AND status = 'draft'
             AND deleted_at IS NULL
+
+          FOR UPDATE
           `,
           [id, hrUserId],
         )
@@ -1177,6 +1370,8 @@ router.patch(
       if (
         existingResult.rowCount === 0
       ) {
+        await client.query("ROLLBACK")
+
         return res.status(404).json({
           message:
             "Brouillon introuvable",
@@ -1187,6 +1382,8 @@ router.patch(
         existingResult.rows[0]
 
       if (!existing.worker_user_id) {
+        await client.query("ROLLBACK")
+
         return res.status(400).json({
           message:
             "Un travailleur doit être sélectionné",
@@ -1194,6 +1391,8 @@ router.patch(
       }
 
       if (!existing.matricule) {
+        await client.query("ROLLBACK")
+
         return res.status(400).json({
           message:
             "Le matricule est requis",
@@ -1201,6 +1400,8 @@ router.patch(
       }
 
       if (!existing.interview_date) {
+        await client.query("ROLLBACK")
+
         return res.status(400).json({
           message:
             "La date de l'entretien est requise",
@@ -1208,6 +1409,8 @@ router.patch(
       }
 
       if (!existing.category) {
+        await client.query("ROLLBACK")
+
         return res.status(400).json({
           message:
             "La catégorie est requise",
@@ -1218,13 +1421,29 @@ router.patch(
         existing.category === "other" &&
         !existing.other_category
       ) {
+        await client.query("ROLLBACK")
+
         return res.status(400).json({
           message:
             "Veuillez préciser la catégorie",
         })
       }
 
-      const result = await pool.query(
+      if (
+        existing.needs_agreement &&
+        !normalizeAgreementTerms(
+          existing.agreement_terms,
+        )
+      ) {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message:
+            "Les termes de l'entente sont requis",
+        })
+      }
+
+      const result = await client.query(
         `
         UPDATE foreign_workers_schedule.worker_interviews
 
@@ -1243,6 +1462,43 @@ router.patch(
         [id, hrUserId],
       )
 
+      let agreement = null
+
+      if (existing.needs_agreement) {
+        const agreementResult =
+          await client.query(
+            `
+            INSERT INTO foreign_workers_schedule.worker_interview_agreements (
+              interview_id,
+              agreement_terms,
+              status,
+              signature_s3_key,
+              signed_at,
+              has_accepted_terms
+            )
+            VALUES (
+              $1,
+              $2,
+              'pending_signature',
+              NULL,
+              NULL,
+              FALSE
+            )
+            RETURNING *
+            `,
+            [
+              id,
+              normalizeAgreementTerms(
+                existing.agreement_terms,
+              ),
+            ],
+          )
+
+        agreement = agreementResult.rows[0]
+      }
+
+      await client.query("COMMIT")
+
       const interview =
         await withFileUrls(
           result.rows[0],
@@ -1253,8 +1509,13 @@ router.patch(
           "Entretien finalisé",
 
         interview,
+        agreement,
       })
     } catch (error) {
+      await client
+        .query("ROLLBACK")
+        .catch(() => undefined)
+
       console.error(
         "Error completing worker interview:",
         error,
@@ -1264,6 +1525,8 @@ router.patch(
         message:
           "Erreur lors de la finalisation de l'entretien",
       })
+    } finally {
+      client.release()
     }
   },
 )
