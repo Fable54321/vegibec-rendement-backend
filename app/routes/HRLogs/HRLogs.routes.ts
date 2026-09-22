@@ -100,6 +100,21 @@ const interviewFileKey = (
     .toString("hex")}${extension}`
 }
 
+
+const agreementSignatureKey = (
+  workerUserId: string,
+  interviewId: string,
+  fileName: string,
+) => {
+  const extension =
+    path.extname(fileName).toLowerCase().slice(0, 16) ||
+    ".png"
+
+  return `worker-interview-agreements/${workerUserId}/${interviewId}/${crypto
+    .randomBytes(16)
+    .toString("hex")}${extension}`
+}
+
 const withFileUrls = async (
   interview: Record<string, any>,
 ) => {
@@ -1643,6 +1658,230 @@ router.patch(
       return res.status(500).json({
         message:
           "Erreur lors de la finalisation de l'entretien",
+      })
+    } finally {
+      client.release()
+    }
+  },
+)
+
+/* =========================================================
+   SIGN INTERVIEW AGREEMENT
+========================================================= */
+
+router.post(
+  "/:id/agreement/sign",
+  hrLogsAccess,
+  upload.single("signature"),
+  async (req, res) => {
+    const client = await pool.connect()
+
+    let uploadedSignatureKey: string | null = null
+    let committed = false
+
+    try {
+      const { id } = req.params
+
+      const hasAcceptedTerms =
+        req.body.has_accepted_terms === true ||
+        req.body.has_accepted_terms === "true"
+
+      if (!hasAcceptedTerms) {
+        return res.status(400).json({
+          message:
+            "Les termes de l'entente doivent être acceptés avant la signature",
+        })
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          message: "La signature est requise",
+        })
+      }
+
+      if (!req.file.mimetype.startsWith("image/")) {
+        return res.status(400).json({
+          message: "Le fichier de signature doit être une image",
+        })
+      }
+
+      await client.query("BEGIN")
+
+      /*
+       * Lock both the interview and its agreement so two
+       * simultaneous signature requests cannot overwrite
+       * each other unpredictably.
+       */
+      const result = await client.query(
+        `
+        SELECT
+          wi.id,
+          wi.worker_user_id,
+          wi.needs_agreement,
+          wi.status AS interview_status,
+
+          agreement.id AS agreement_id,
+          agreement.status AS agreement_status,
+          agreement.signature_s3_key,
+          agreement.signed_at,
+          agreement.has_accepted_terms
+
+        FROM foreign_workers_schedule.worker_interviews wi
+
+        LEFT JOIN foreign_workers_schedule.worker_interview_agreements agreement
+          ON agreement.interview_id = wi.id
+
+        WHERE wi.id = $1
+          AND wi.deleted_at IS NULL
+
+        FOR UPDATE OF wi, agreement
+        `,
+        [id],
+      )
+
+      if (result.rowCount === 0) {
+        await client.query("ROLLBACK")
+
+        return res.status(404).json({
+          message: "Entretien introuvable",
+        })
+      }
+
+      const interview = result.rows[0]
+
+      if (!interview.needs_agreement) {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message:
+            "Cet entretien ne nécessite aucune entente",
+        })
+      }
+
+      if (!interview.agreement_id) {
+        await client.query("ROLLBACK")
+
+        return res.status(404).json({
+          message:
+            "Aucune entente n'est associée à cet entretien",
+        })
+      }
+
+      if (interview.interview_status !== "completed") {
+        await client.query("ROLLBACK")
+
+        return res.status(400).json({
+          message:
+            "L'entretien doit être finalisé avant de signer l'entente",
+        })
+      }
+
+      const previousSignatureKey =
+        interview.signature_s3_key as string | null
+
+      uploadedSignatureKey =
+        agreementSignatureKey(
+          String(interview.worker_user_id),
+          String(interview.id),
+          req.file.originalname || "signature.png",
+        )
+
+      await uploadBufferToS3({
+        key: uploadedSignatureKey,
+        buffer: req.file.buffer,
+        contentType:
+          req.file.mimetype || "image/png",
+      })
+
+      const agreementResult = await client.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interview_agreements
+
+        SET
+          status = 'signed',
+          signature_s3_key = $1,
+          has_accepted_terms = TRUE,
+          signed_at = NOW(),
+          updated_at = NOW()
+
+        WHERE id = $2
+
+        RETURNING *
+        `,
+        [
+          uploadedSignatureKey,
+          interview.agreement_id,
+        ],
+      )
+
+      await client.query("COMMIT")
+      committed = true
+
+      /*
+       * Delete the previous signature only after the database
+       * transaction succeeds.
+       */
+      if (
+        previousSignatureKey &&
+        previousSignatureKey !== uploadedSignatureKey
+      ) {
+        await deleteObjectFromS3(
+          previousSignatureKey,
+        ).catch((cleanupError) =>
+          console.error(
+            "Error deleting replaced agreement signature:",
+            cleanupError,
+          ),
+        )
+      }
+
+      const agreement =
+        agreementResult.rows[0]
+
+      const signatureUrl =
+        await getSignedUrlForKey(
+          agreement.signature_s3_key,
+          {
+            expiresIn: 60 * 15,
+            responseContentDisposition:
+              `inline; filename="signature.png"`,
+          },
+        )
+
+      return res.json({
+        message: "Entente signée avec succès",
+
+        agreement: {
+          ...agreement,
+          signature_url: signatureUrl,
+        },
+      })
+    } catch (error) {
+      if (!committed) {
+        await client
+          .query("ROLLBACK")
+          .catch(() => undefined)
+
+        if (uploadedSignatureKey) {
+          await deleteObjectFromS3(
+            uploadedSignatureKey,
+          ).catch((cleanupError) =>
+            console.error(
+              "Error cleaning up agreement signature:",
+              cleanupError,
+            ),
+          )
+        }
+      }
+
+      console.error(
+        "Error signing worker interview agreement:",
+        error,
+      )
+
+      return res.status(500).json({
+        message:
+          "Erreur lors de la signature de l'entente",
       })
     } finally {
       client.release()
