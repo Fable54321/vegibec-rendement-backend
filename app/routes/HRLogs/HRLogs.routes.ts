@@ -1732,6 +1732,7 @@ router.post(
           ON agreement.interview_id = wi.id
 
         WHERE wi.id = $1
+          AND agreement.interview_id IS NOT NULL
           AND wi.deleted_at IS NULL
 
         FOR UPDATE OF wi, agreement
