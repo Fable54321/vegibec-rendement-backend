@@ -263,6 +263,7 @@ router.post("/", async (req, res) => {
       question_key: string;
       question_number: number;
       is_negative: boolean;
+      is_yes_or_no: boolean;
     }>;
 
     if (questions.length === 0) {
@@ -337,10 +338,15 @@ router.post("/", async (req, res) => {
       const answer =
         answers[question.question_key];
 
-      const effectiveAnswer =
-        question.is_negative
-          ? 6 - answer
-          : answer;
+      let effectiveAnswer;  
+
+      if(question.is_negative){
+        effectiveAnswer = 6 - answer
+      }else {
+         effectiveAnswer = answer
+      }
+
+      
 
       adjustedTotal += effectiveAnswer;
     }
@@ -1224,7 +1230,8 @@ router.get("/questions/monthly", async (_req, res) => {
         question_text,
         category,
         is_negative,
-        is_active
+        is_active,
+        is_yes_or_no,
       FROM evaluation.monthly_evaluation_questions
       WHERE is_active = TRUE
       ORDER BY question_number ASC, id ASC
@@ -1270,6 +1277,7 @@ router.get("/:id", async (req, res) => {
         me.completed_at,
         me.created_at,
         me.updated_at,
+        
 
         CONCAT(
           COALESCE(worker.surname, ''),
@@ -1313,7 +1321,8 @@ router.get("/:id", async (req, res) => {
         q.question_number,
         q.question_text,
         q.category,
-        q.is_negative
+        q.is_negative,
+        q.is_yes_or_no
 
       FROM evaluation.monthly_evaluation_answers a
 
