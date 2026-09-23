@@ -17,17 +17,19 @@ type AlertReason =
 
 type SinceWhen =
   | "today"
-  | "few_days"
   | "this_week"
   | "since_arrival"
-  | "observation_unclear";
+  | "other";
 
 type LeaderAction =
   | "direct_conversation"
   | "field_observation_and_notes"
   | "repeated_suggestions"
   | "clear_task_reminders"
-  | "active_follow_up";
+  | "active_follow_up"
+  | "spoke_with_him_several_times"
+  | "observing_him"
+  | "other";
 
 type CreateVariationAlertBody = {
   client_submission_id?: string;
@@ -36,9 +38,11 @@ type CreateVariationAlertBody = {
 
   alert_type: AlertType;
   since_when: SinceWhen;
+  other_since_when?: string;
 
   reasons: AlertReason[];
   actions: LeaderAction[];
+  other_action?: string;
 
   other_reason?: string;
   comments?: string;
@@ -55,10 +59,9 @@ const VALID_ALERT_TYPES = new Set<AlertType>([
 
 const VALID_SINCE_WHEN = new Set<SinceWhen>([
   "today",
-  "few_days",
   "this_week",
   "since_arrival",
-  "observation_unclear",
+  "other",
 ]);
 
 const VALID_REASONS = new Set<AlertReason>([
@@ -76,6 +79,9 @@ const VALID_ACTIONS = new Set<LeaderAction>([
   "repeated_suggestions",
   "clear_task_reminders",
   "active_follow_up",
+  "spoke_with_him_several_times",
+  "observing_him",
+  "other",
 ]);
 
 
@@ -587,8 +593,10 @@ router.post("/variation-alerts", async (req, res) => {
       worker_user_id,
       alert_type,
       since_when,
+      other_since_when,
       reasons,
       actions,
+      other_action,
       other_reason,
       comments,
     }: CreateVariationAlertBody = req.body;
@@ -624,6 +632,24 @@ router.post("/variation-alerts", async (req, res) => {
       });
     }
 
+    if (
+      since_when === "other" &&
+      (typeof other_since_when !== "string" || !other_since_when.trim())
+    ) {
+      return res.status(400).json({
+        error: "Especifique desde cuándo observa la situación.",
+      });
+    }
+
+    if (
+      other_since_when !== undefined &&
+      (typeof other_since_when !== "string" || other_since_when.length > 1000)
+    ) {
+      return res.status(400).json({
+        error: "other_since_when debe ser texto de máximo 1000 caracteres.",
+      });
+    }
+
     if (!Array.isArray(reasons) || reasons.length === 0) {
       return res.status(400).json({
         error: "Debe seleccionar al menos una razón.",
@@ -654,6 +680,25 @@ router.post("/variation-alerts", async (req, res) => {
 
     const uniqueReasons = [...new Set(reasons)];
     const uniqueActions = [...new Set(actions)];
+
+
+    if (
+      uniqueActions.includes("other") &&
+      (typeof other_action !== "string" || !other_action.trim())
+    ) {
+      return res.status(400).json({
+        error: "Describa qué más intentó como jefe.",
+      });
+    }
+
+    if (
+      other_action !== undefined &&
+      (typeof other_action !== "string" || other_action.length > 1000)
+    ) {
+      return res.status(400).json({
+        error: "other_action debe ser texto de máximo 1000 caracteres.",
+      });
+    }
 
     if (uniqueReasons.includes("other") && !other_reason?.trim()) {
       return res.status(400).json({
@@ -700,7 +745,9 @@ router.post("/variation-alerts", async (req, res) => {
         worker_user_id,
         alert_type,
         since_when,
+        other_since_when,
         other_reason,
+        other_action,
         comments,
         created_by_user_id
       )
@@ -712,7 +759,9 @@ router.post("/variation-alerts", async (req, res) => {
         $5,
         NULLIF(TRIM($6), ''),
         NULLIF(TRIM($7), ''),
-        $8
+        NULLIF(TRIM($8), ''),
+        NULLIF(TRIM($9), ''),
+        $10
       )
       ON CONFLICT (client_submission_id) DO NOTHING
       RETURNING
@@ -722,7 +771,9 @@ router.post("/variation-alerts", async (req, res) => {
         worker_user_id,
         alert_type,
         since_when,
+        other_since_when,
         other_reason,
+        other_action,
         comments,
         created_by_user_id,
         created_at,
@@ -734,8 +785,14 @@ router.post("/variation-alerts", async (req, res) => {
         worker_user_id,
         alert_type,
         since_when,
+        since_when === "other"
+          ? other_since_when?.trim() || ""
+          : "",
         uniqueReasons.includes("other")
           ? other_reason?.trim() || ""
+          : "",
+        uniqueActions.includes("other")
+          ? other_action?.trim() || ""
           : "",
         comments?.trim() || "",
         req.user.id,
@@ -755,7 +812,9 @@ router.post("/variation-alerts", async (req, res) => {
           worker_user_id,
           alert_type,
           since_when,
+          other_since_when,
           other_reason,
+          other_action,
           comments,
           created_by_user_id,
           created_at,
@@ -953,7 +1012,9 @@ router.get("/variation-alerts", async (req, res) => {
         pva.worker_user_id,
         pva.alert_type,
         pva.since_when,
+        pva.other_since_when,
         pva.other_reason,
+        pva.other_action,
         pva.comments,
         pva.created_by_user_id,
         pva.created_at,
@@ -1050,7 +1111,9 @@ router.get(
             pva.alert_type,
             pva.since_when,
 
+            pva.other_since_when,
             pva.other_reason,
+            pva.other_action,
             pva.comments,
 
             pva.created_by_user_id,
