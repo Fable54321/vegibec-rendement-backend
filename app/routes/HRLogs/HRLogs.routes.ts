@@ -1718,7 +1718,6 @@ router.post(
           wi.id,
           wi.worker_user_id,
           wi.needs_agreement,
-          wi.status AS interview_status,
 
           agreement.id AS agreement_id,
           agreement.status AS agreement_status,
@@ -1765,15 +1764,6 @@ router.post(
         return res.status(404).json({
           message:
             "Aucune entente n'est associée à cet entretien",
-        })
-      }
-
-      if (interview.interview_status !== "completed") {
-        await client.query("ROLLBACK")
-
-        return res.status(400).json({
-          message:
-            "L'entretien doit être finalisé avant de signer l'entente",
         })
       }
 
