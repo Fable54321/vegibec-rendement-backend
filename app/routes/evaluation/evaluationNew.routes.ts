@@ -1231,7 +1231,7 @@ router.get("/questions/monthly", async (_req, res) => {
         category,
         is_negative,
         is_active,
-        is_yes_or_no,
+        is_yes_or_no
       FROM evaluation.monthly_evaluation_questions
       WHERE is_active = TRUE
       ORDER BY question_number ASC, id ASC
