@@ -2,7 +2,6 @@ import crypto from "crypto"
 import { Router } from "express"
 import multer from "multer"
 import path from "path"
-import type { PoolClient } from "pg"
 
 import { pool } from "../../db"
 import { requireAppRole } from "../../middleware/auth"
@@ -30,72 +29,6 @@ const normalizeAgreementTerms = (value: unknown) =>
   typeof value === "string"
     ? value.trim() || null
     : null
-
-const logReferenceTimeZone = "America/Toronto"
-
-const createLogReferenceNumber = async (
-  client: PoolClient,
-) => {
-  /*
-   * Serialize reference generation inside the current transaction so
-   * simultaneous creates cannot receive the same monthly sequence.
-   */
-  await client.query(
-    `
-    SELECT pg_advisory_xact_lock(
-      hashtext(
-        'foreign_workers_schedule.worker_interviews.reference_number'
-      )
-    )
-    `,
-  )
-
-  const result = await client.query<{
-    reference_number: string
-  }>(
-    `
-    WITH current_period AS (
-      SELECT to_char(
-        CURRENT_TIMESTAMP AT TIME ZONE $1,
-        'YY-MM'
-      ) AS value
-    )
-
-    SELECT CONCAT(
-      'log-',
-      current_period.value,
-      '-',
-      LPAD(
-        (
-          COALESCE(
-            MAX(
-              substring(
-                wi.reference_number
-                FROM '([0-9]+)$'
-              )::integer
-            ),
-            0
-          ) + 1
-        )::text,
-        3,
-        '0'
-      )
-    ) AS reference_number
-
-    FROM current_period
-
-    LEFT JOIN foreign_workers_schedule.worker_interviews wi
-      ON wi.reference_number ~ (
-        '^log-' || current_period.value || '-[0-9]+$'
-      )
-
-    GROUP BY current_period.value
-    `,
-    [logReferenceTimeZone],
-  )
-
-  return result.rows[0].reference_number
-}
 
 const withAgreementData = async (
   row: Record<string, any>,
@@ -352,9 +285,6 @@ router.post(
         fileKey = uploadedFileKey
       }
 
-      const referenceNumber =
-        await createLogReferenceNumber(client)
-
       const interviewResult =
         await client.query(
           `
@@ -371,8 +301,7 @@ router.post(
             original_file_name,
             status,
             completed_at,
-            needs_agreement,
-            reference_number
+            needs_agreement
           )
           VALUES (
             $1,
@@ -387,8 +316,7 @@ router.post(
             $10,
             'completed',
             NOW(),
-            $11,
-            $12
+            $11
           )
           RETURNING *
           `,
@@ -413,7 +341,6 @@ router.post(
             fileKey,
             originalFileName,
             needsAgreement,
-            referenceNumber,
           ],
         )
 
@@ -524,7 +451,6 @@ router.get(
         `
         SELECT
           wi.id,
-          wi.reference_number,
           wi.hr_user_id,
           wi.worker_user_id,
           wi.matricule,
@@ -654,7 +580,6 @@ router.get(
         `
         SELECT
           wi.id,
-          wi.reference_number,
           wi.hr_user_id,
           wi.worker_user_id,
           wi.matricule,
@@ -1178,9 +1103,6 @@ router.post(
 
       await client.query("BEGIN")
 
-      const referenceNumber =
-        await createLogReferenceNumber(client)
-
       const result = await client.query(
         `
         INSERT INTO foreign_workers_schedule.worker_interviews (
@@ -1191,8 +1113,7 @@ router.post(
           category,
           other_category,
           needs_agreement,
-          status,
-          reference_number
+          status
         )
 
         VALUES (
@@ -1203,8 +1124,7 @@ router.post(
           $5,
           $6,
           $7,
-          'draft',
-          $8
+          'draft'
         )
 
         RETURNING *
@@ -1222,7 +1142,6 @@ router.post(
             : null,
 
           needsAgreement,
-          referenceNumber,
         ],
       )
 
