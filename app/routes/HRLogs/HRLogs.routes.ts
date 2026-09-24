@@ -1058,6 +1058,120 @@ router.patch(
 )
 
 /* =========================================================
+   DELETE INTERVIEW FILE
+========================================================= */
+
+router.delete(
+  "/:id/file",
+  hrLogsAccess,
+  async (req, res) => {
+    const client = await pool.connect()
+    let committed = false
+
+    try {
+      const { id } = req.params
+      const hrUserId = req.user!.id
+
+      await client.query("BEGIN")
+
+      const existingResult =
+        await client.query(
+          `
+          SELECT *
+          FROM foreign_workers_schedule.worker_interviews
+
+          WHERE id = $1
+            AND deleted_at IS NULL
+
+            AND (
+              status = 'completed'
+
+              OR (
+                status = 'draft'
+                AND hr_user_id = $2
+              )
+            )
+
+          FOR UPDATE
+          `,
+          [id, hrUserId],
+        )
+
+      if (existingResult.rowCount === 0) {
+        await client.query("ROLLBACK")
+
+        return res.status(404).json({
+          message: "Entretien introuvable",
+        })
+      }
+
+      const existing =
+        existingResult.rows[0]
+
+      if (!existing.file_key) {
+        await client.query("ROLLBACK")
+
+        return res.status(404).json({
+          message:
+            "Aucun fichier n'est associé à cet entretien",
+        })
+      }
+
+      await deleteObjectFromS3(
+        existing.file_key,
+      )
+
+      const result = await client.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interviews
+
+        SET
+          file_key = NULL,
+          original_file_name = NULL,
+          updated_at = NOW()
+
+        WHERE id = $1
+
+        RETURNING *
+        `,
+        [id],
+      )
+
+      await client.query("COMMIT")
+      committed = true
+
+      const interview =
+        await withFileUrls(
+          result.rows[0],
+        )
+
+      return res.json({
+        message: "Fichier supprimé",
+        interview,
+      })
+    } catch (error) {
+      if (!committed) {
+        await client
+          .query("ROLLBACK")
+          .catch(() => undefined)
+      }
+
+      console.error(
+        "Error deleting worker interview file:",
+        error,
+      )
+
+      return res.status(500).json({
+        message:
+          "Erreur lors de la suppression du fichier",
+      })
+    } finally {
+      client.release()
+    }
+  },
+)
+
+/* =========================================================
    CREATE DRAFT
 ========================================================= */
 
