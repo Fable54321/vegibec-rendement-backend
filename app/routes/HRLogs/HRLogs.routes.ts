@@ -118,48 +118,49 @@ const agreementSignatureKey = (
 const withFileUrls = async (
   interview: Record<string, any>,
 ) => {
-  if (!interview.file_key) {
-    return {
-      ...interview,
-      preview_url: null,
-      download_url: null,
-    }
-  }
+  const result = await pool.query(
+    `
+    SELECT id, file_key, original_file_name, mime_type, file_size, created_at
+    FROM foreign_workers_schedule.worker_interview_files
+    WHERE interview_id = $1
+    ORDER BY created_at ASC, id ASC
+    `,
+    [interview.id],
+  )
 
-  const fileName =
-    interview.original_file_name || "document"
-
-  const [previewUrl, downloadUrl] =
-    await Promise.all([
-      getSignedUrlForKey(
-        interview.file_key,
-        {
+  const files = await Promise.all(
+    result.rows.map(async (file) => {
+      const fileName = file.original_file_name || "document"
+      const [previewUrl, downloadUrl] = await Promise.all([
+        getSignedUrlForKey(file.file_key, {
           expiresIn: 60 * 15,
-
           responseContentDisposition:
-            `inline; filename*=UTF-8''${encodeURIComponent(
-              fileName,
-            )}`,
-        },
-      ),
-
-      getSignedUrlForKey(
-        interview.file_key,
-        {
+            `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+        }),
+        getSignedUrlForKey(file.file_key, {
           expiresIn: 60 * 15,
-
           responseContentDisposition:
-            `attachment; filename*=UTF-8''${encodeURIComponent(
-              fileName,
-            )}`,
-        },
-      ),
-    ])
+            `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+        }),
+      ])
+
+      return {
+        ...file,
+        preview_url: previewUrl,
+        download_url: downloadUrl,
+      }
+    }),
+  )
+
+  const primaryFile = files[0] || null
 
   return {
     ...interview,
-    preview_url: previewUrl,
-    download_url: downloadUrl,
+    files,
+    file_key: primaryFile?.file_key ?? null,
+    original_file_name: primaryFile?.original_file_name ?? null,
+    preview_url: primaryFile?.preview_url ?? null,
+    download_url: primaryFile?.download_url ?? null,
   }
 }
 
@@ -1058,6 +1059,239 @@ router.patch(
 )
 
 /* =========================================================
+   ADD INTERVIEW FILES
+========================================================= */
+
+router.post(
+  "/:id/files",
+  hrLogsAccess,
+  upload.array("files", 10),
+  async (req, res) => {
+    const client = await pool.connect()
+    const uploadedKeys: string[] = []
+    let committed = false
+
+    try {
+      const { id } = req.params
+      const hrUserId = req.user!.id
+      const files = (req.files || []) as Express.Multer.File[]
+
+      if (files.length === 0) {
+        return res.status(400).json({
+          message: "Au moins un fichier est requis",
+        })
+      }
+
+      await client.query("BEGIN")
+
+      const existingResult = await client.query(
+        `
+        SELECT *
+        FROM foreign_workers_schedule.worker_interviews
+        WHERE id = $1
+          AND deleted_at IS NULL
+          AND (
+            status = 'completed'
+            OR (status = 'draft' AND hr_user_id = $2)
+          )
+        FOR UPDATE
+        `,
+        [id, hrUserId],
+      )
+
+      if (existingResult.rowCount === 0) {
+        await client.query("ROLLBACK")
+        return res.status(404).json({ message: "Entretien introuvable" })
+      }
+
+      const existing = existingResult.rows[0]
+
+      for (const file of files) {
+        const fileKey = interviewFileKey(
+          String(existing.worker_user_id),
+          file.originalname,
+        )
+
+        await uploadBufferToS3({
+          key: fileKey,
+          buffer: file.buffer,
+          contentType: file.mimetype || "application/octet-stream",
+        })
+        uploadedKeys.push(fileKey)
+
+        await client.query(
+          `
+          INSERT INTO foreign_workers_schedule.worker_interview_files (
+            interview_id,
+            file_key,
+            original_file_name,
+            mime_type,
+            file_size
+          )
+          VALUES ($1, $2, $3, $4, $5)
+          `,
+          [
+            id,
+            fileKey,
+            file.originalname,
+            file.mimetype || "application/octet-stream",
+            file.size,
+          ],
+        )
+      }
+
+      if (!existing.file_key) {
+        await client.query(
+          `
+          UPDATE foreign_workers_schedule.worker_interviews
+          SET file_key = $1, original_file_name = $2, updated_at = NOW()
+          WHERE id = $3
+          `,
+          [uploadedKeys[0], files[0].originalname, id],
+        )
+      } else {
+        await client.query(
+          `
+          UPDATE foreign_workers_schedule.worker_interviews
+          SET updated_at = NOW()
+          WHERE id = $1
+          `,
+          [id],
+        )
+      }
+
+      await client.query("COMMIT")
+      committed = true
+
+      const updatedResult = await pool.query(
+        `SELECT * FROM foreign_workers_schedule.worker_interviews WHERE id = $1`,
+        [id],
+      )
+      const interview = await withFileUrls(updatedResult.rows[0])
+
+      return res.status(201).json({
+        message: files.length === 1 ? "Fichier ajouté" : "Fichiers ajoutés",
+        interview,
+      })
+    } catch (error) {
+      if (!committed) {
+        await client.query("ROLLBACK").catch(() => undefined)
+        await Promise.allSettled(uploadedKeys.map(deleteObjectFromS3))
+      }
+
+      console.error("Error adding worker interview files:", error)
+      return res.status(500).json({
+        message: "Erreur lors de l'ajout des fichiers",
+      })
+    } finally {
+      client.release()
+    }
+  },
+)
+
+/* =========================================================
+   DELETE ONE INTERVIEW FILE
+========================================================= */
+
+router.delete(
+  "/:id/files/:fileId",
+  hrLogsAccess,
+  async (req, res) => {
+    const client = await pool.connect()
+    let committed = false
+
+    try {
+      const { id, fileId } = req.params
+      const hrUserId = req.user!.id
+
+      await client.query("BEGIN")
+
+      const interviewResult = await client.query(
+        `
+        SELECT *
+        FROM foreign_workers_schedule.worker_interviews
+        WHERE id = $1
+          AND deleted_at IS NULL
+          AND (
+            status = 'completed'
+            OR (status = 'draft' AND hr_user_id = $2)
+          )
+        FOR UPDATE
+        `,
+        [id, hrUserId],
+      )
+
+      if (interviewResult.rowCount === 0) {
+        await client.query("ROLLBACK")
+        return res.status(404).json({ message: "Entretien introuvable" })
+      }
+
+      const fileResult = await client.query(
+        `
+        DELETE FROM foreign_workers_schedule.worker_interview_files
+        WHERE id = $1 AND interview_id = $2
+        RETURNING *
+        `,
+        [fileId, id],
+      )
+
+      if (fileResult.rowCount === 0) {
+        await client.query("ROLLBACK")
+        return res.status(404).json({ message: "Fichier introuvable" })
+      }
+
+      const deletedFile = fileResult.rows[0]
+      const nextFileResult = await client.query(
+        `
+        SELECT file_key, original_file_name
+        FROM foreign_workers_schedule.worker_interview_files
+        WHERE interview_id = $1
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+        `,
+        [id],
+      )
+      const nextFile = nextFileResult.rows[0] || null
+
+      await client.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interviews
+        SET file_key = $1, original_file_name = $2, updated_at = NOW()
+        WHERE id = $3
+        `,
+        [nextFile?.file_key ?? null, nextFile?.original_file_name ?? null, id],
+      )
+
+      await client.query("COMMIT")
+      committed = true
+
+      await deleteObjectFromS3(deletedFile.file_key).catch((cleanupError) =>
+        console.error("Error deleting worker interview file from S3:", cleanupError),
+      )
+
+      const updatedResult = await pool.query(
+        `SELECT * FROM foreign_workers_schedule.worker_interviews WHERE id = $1`,
+        [id],
+      )
+      const interview = await withFileUrls(updatedResult.rows[0])
+
+      return res.json({ message: "Fichier supprimé", interview })
+    } catch (error) {
+      if (!committed) {
+        await client.query("ROLLBACK").catch(() => undefined)
+      }
+
+      console.error("Error deleting worker interview file:", error)
+      return res.status(500).json({
+        message: "Erreur lors de la suppression du fichier",
+      })
+    } finally {
+      client.release()
+    }
+  },
+)
+
+/* =========================================================
    DELETE INTERVIEW FILE
 ========================================================= */
 
@@ -1105,10 +1339,16 @@ router.delete(
         })
       }
 
-      const existing =
-        existingResult.rows[0]
+      const filesResult = await client.query(
+        `
+        DELETE FROM foreign_workers_schedule.worker_interview_files
+        WHERE interview_id = $1
+        RETURNING file_key
+        `,
+        [id],
+      )
 
-      if (!existing.file_key) {
+      if (filesResult.rowCount === 0) {
         await client.query("ROLLBACK")
 
         return res.status(404).json({
@@ -1116,10 +1356,6 @@ router.delete(
             "Aucun fichier n'est associé à cet entretien",
         })
       }
-
-      await deleteObjectFromS3(
-        existing.file_key,
-      )
 
       const result = await client.query(
         `
@@ -1139,6 +1375,10 @@ router.delete(
 
       await client.query("COMMIT")
       committed = true
+
+      await Promise.allSettled(
+        filesResult.rows.map((file) => deleteObjectFromS3(file.file_key)),
+      )
 
       const interview =
         await withFileUrls(
