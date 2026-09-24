@@ -7,7 +7,9 @@ const router = Router();
 
 type VisitDetailsRow = {
   arrival_signature_key?: string | null;
+  departure_time?: string | Date | null;
   departure_signature_key?: string | null;
+  departure_auto_closed?: boolean | null;
   [key: string]: unknown;
 };
 
@@ -35,6 +37,11 @@ router.get("/", requireAppRole("main", ["admin"]), async (_req, res) => {
 
         return {
           ...visit,
+          // The 18-hour timestamp closes the session operationally; it is not
+          // an actual visitor-reported departure and must not be displayed as one.
+          departure_time: visit.departure_auto_closed
+            ? null
+            : visit.departure_time,
           arrival_signature_url: arrivalSignatureUrl,
           departure_signature_url: departureSignatureUrl,
         };

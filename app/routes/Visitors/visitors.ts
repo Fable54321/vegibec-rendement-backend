@@ -187,7 +187,8 @@ router.post("/end", async (req, res) => {
       UPDATE visitors.visits_details
       SET
         departure_time = $1,
-        departure_signature_key = $2
+        departure_signature_key = $2,
+        departure_auto_closed = false
       WHERE id = $3
         AND departure_time IS NULL
       RETURNING *
