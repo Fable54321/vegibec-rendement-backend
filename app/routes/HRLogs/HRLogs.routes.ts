@@ -10,6 +10,11 @@ import {
   getSignedUrlForKey,
   uploadBufferToS3,
 } from "../../services/s3.services"
+import {
+  AgreementSigningSessionError,
+  createAgreementSigningSession,
+  revokeAgreementSigningSessions,
+} from "./agreementSigningSessions"
 
 const router = Router()
 
@@ -2015,6 +2020,67 @@ router.patch(
       })
     } finally {
       client.release()
+    }
+  },
+)
+
+/* =========================================================
+   TEMPORARY AGREEMENT SIGNING SESSION
+========================================================= */
+
+router.post(
+  "/:id/agreement/signing-session",
+  hrLogsAccess,
+  async (req, res) => {
+    const interviewId = Number(req.params.id)
+
+    if (!Number.isSafeInteger(interviewId) || interviewId < 1) {
+      return res.status(400).json({ message: "Identifiant d'entretien invalide" })
+    }
+
+    try {
+      const session = await createAgreementSigningSession(
+        interviewId,
+        req.user!.id,
+      )
+
+      res.set("Cache-Control", "no-store")
+      return res.status(201).json(session)
+    } catch (error) {
+      if (error instanceof AgreementSigningSessionError) {
+        return res.status(error.status).json({ message: error.message })
+      }
+
+      console.error("Error creating agreement signing session:", error)
+      return res.status(500).json({
+        message: "Erreur lors de la création de la session de signature",
+      })
+    }
+  },
+)
+
+router.delete(
+  "/:id/agreement/signing-session",
+  hrLogsAccess,
+  async (req, res) => {
+    const interviewId = Number(req.params.id)
+
+    if (!Number.isSafeInteger(interviewId) || interviewId < 1) {
+      return res.status(400).json({ message: "Identifiant d'entretien invalide" })
+    }
+
+    try {
+      await revokeAgreementSigningSessions(interviewId, req.user!.id)
+      return res.status(204).send()
+    } catch (error) {
+      if (error instanceof AgreementSigningSessionError) {
+        return res.status(error.status).json({ message: error.message })
+      }
+
+      console.error("Error revoking agreement signing session:", error)
+      return res.status(500).json({
+        message: "Erreur lors de la fermeture de la session de signature",
+      })
     }
   },
 )

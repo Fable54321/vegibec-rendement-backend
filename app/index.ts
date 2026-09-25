@@ -71,6 +71,7 @@ import transportRoute from "./routes/Transports/transport.routes";
 import evaluationRoute from "./routes/evaluation/evaluation.routes";
 import temperaturesRoute from "./routes/Temperatures/temperatures";
 import hrLogsRoute from "./routes/HRLogs/HRLogs.routes";
+import publicAgreementSigningRoute from "./routes/HRLogs/PublicAgreementSigning.routes";
 import evaluationNewRouter from "./routes/evaluation/evaluationNew.routes";
 
 
@@ -203,6 +204,8 @@ app.use("/suppliers", suppliersRoute);
 app.use("/sales", salesClientsRoute);
 
 app.use("/portal-unprotected", portalUnprotectedRoute);
+
+app.use("/hr-agreement-signing", publicAgreementSigningRoute);
 
 app.use("/facebook", publicFacebookRouter);
 
