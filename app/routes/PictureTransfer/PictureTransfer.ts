@@ -182,7 +182,7 @@ const getSignedPictureUrl = async ({
   });
 };
 
-/* Disabled: this bulk upload route was created for a one-time operation.
+
 router.post("/", uploadPictures, async (req, res) => {
   const files = req.files as Express.Multer.File[] | undefined;
 
@@ -262,8 +262,8 @@ router.post("/", uploadPictures, async (req, res) => {
     console.error("Error uploading pictures:", error);
     return res.status(500).json({ error: "Failed to upload pictures" });
   }
-});
-*/
+})
+
 
 router.get("/", async (req, res) => {
   try {
