@@ -302,7 +302,6 @@ router.post("/orders", writeRoles, async (req, res) => {
           updated.rows[0].sold_qty,
           product.balance_qty,
           updated.rows[0].balance_qty,
-          req.user?.id ?? null,
         ],
       );
       product.sold_qty = updated.rows[0].sold_qty;
@@ -310,7 +309,7 @@ router.post("/orders", writeRoles, async (req, res) => {
     }
     await db.query(
       `INSERT INTO sales.order_status_history (order_id,to_status,note,changed_by_user_id) VALUES ($1,$2,'Création de la vente',$3)`,
-      [order.rows[0].id, status, req.user?.id ?? null],
+      [order.rows[0].id, status, ],
     );
     await db.query("COMMIT");
     return res.status(201).json({ ...order.rows[0], items: savedItems });
