@@ -80,10 +80,13 @@ router.post("/orders", writeRoles, async (req, res) => {
     const status = cleanText(req.body?.status) ?? "a-faire";
     const soldBy = cleanText(req.body?.soldBy);
     const soldTo = cleanText(req.body?.soldTo) ?? "CAN";
-    const sellerName = cleanText(req.body?.sellerName);
-    const soldByUserId = req.body?.soldByUserId
-      ? positiveId(req.body.soldByUserId)
-      : null;
+    const sellerName =
+      cleanText(req.body?.sellerName) ?? cleanText(req.body?.seller);
+    const soldByUserIdValue = req.body?.soldByUserId;
+    const soldByUserId =
+      soldByUserIdValue === "" || soldByUserIdValue == null
+        ? null
+        : positiveId(soldByUserIdValue);
     const orderedDate = cleanText(req.body?.orderedDate);
     const loadedDate = cleanText(req.body?.loadedDate);
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -103,6 +106,9 @@ router.post("/orders", writeRoles, async (req, res) => {
           message:
             "Vendu au, client, date de commande, date chargée, vendu par, statut et produits sont requis.",
         });
+    }
+    if (soldByUserIdValue !== "" && soldByUserIdValue != null && !soldByUserId) {
+      return res.status(400).json({ message: "Le vendeur sélectionné est invalide." });
     }
 
     const parsedItems: ParsedItem[] = items.map((item: any) => ({
@@ -165,6 +171,43 @@ router.post("/orders", writeRoles, async (req, res) => {
     if (!client.rowCount) {
       await db.query("ROLLBACK");
       return res.status(404).json({ message: "Client introuvable." });
+    }
+
+    let resolvedSellerName = sellerName;
+    let resolvedSoldByUserId = soldByUserId;
+    if (soldByUserId) {
+      const seller = await db.query(
+        `SELECT id, name, surname FROM public.users WHERE id = $1 AND is_active = true`,
+        [soldByUserId],
+      );
+      if (!seller.rowCount) {
+        await db.query("ROLLBACK");
+        return res.status(400).json({ message: "Le vendeur sélectionné est introuvable." });
+      }
+      resolvedSellerName = [seller.rows[0].surname, seller.rows[0].name]
+        .filter(Boolean)
+        .join(" ");
+    } else if (sellerName) {
+      const seller = await db.query(
+        `
+        SELECT id, name, surname
+        FROM public.users
+        WHERE is_active = true
+          AND (
+            regexp_replace(lower(concat(surname, name)), '[[:space:]]+', '', 'g') = regexp_replace(lower($1), '[[:space:]]+', '', 'g')
+            OR regexp_replace(lower(concat(name, surname)), '[[:space:]]+', '', 'g') = regexp_replace(lower($1), '[[:space:]]+', '', 'g')
+          )
+        ORDER BY id
+        LIMIT 1
+        `,
+        [sellerName],
+      );
+      if (seller.rowCount) {
+        resolvedSoldByUserId = Number(seller.rows[0].id);
+        resolvedSellerName = [seller.rows[0].surname, seller.rows[0].name]
+          .filter(Boolean)
+          .join(" ");
+      }
     }
 
     const productIds = parsedItems.map((item) => item.productId);
@@ -232,7 +275,7 @@ router.post("/orders", writeRoles, async (req, res) => {
         addressId,
         c.name,
         c.client_number,
-        c.representative,
+        cleanText(req.body?.contact) ?? c.representative,
         c.shipping_address,
         status,
         soldBy,
@@ -255,8 +298,8 @@ router.post("/orders", writeRoles, async (req, res) => {
         subtotal,
         subtotal - total,
         total,
-        sellerName,
-        soldByUserId,
+        resolvedSellerName,
+        resolvedSoldByUserId,
       ],
     );
 
@@ -292,7 +335,7 @@ router.post("/orders", writeRoles, async (req, res) => {
         [item.productId, item.quantity],
       );
       await db.query(
-        `INSERT INTO sales.inventory_movements (order_id,order_item_id,finished_product_id,quantity,sold_qty_before,sold_qty_after,balance_qty_before,balance_qty_after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO sales.inventory_movements (order_id,order_item_id,finished_product_id,quantity,sold_qty_before,sold_qty_after,balance_qty_before,balance_qty_after,created_by_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           order.rows[0].id,
           saved.rows[0].id,
@@ -302,6 +345,7 @@ router.post("/orders", writeRoles, async (req, res) => {
           updated.rows[0].sold_qty,
           product.balance_qty,
           updated.rows[0].balance_qty,
+          req.user?.id ?? null,
         ],
       );
       product.sold_qty = updated.rows[0].sold_qty;
@@ -309,7 +353,7 @@ router.post("/orders", writeRoles, async (req, res) => {
     }
     await db.query(
       `INSERT INTO sales.order_status_history (order_id,to_status,note,changed_by_user_id) VALUES ($1,$2,'Création de la vente',$3)`,
-      [order.rows[0].id, status, ],
+      [order.rows[0].id, status, req.user?.id ?? null],
     );
     await db.query("COMMIT");
     return res.status(201).json({ ...order.rows[0], items: savedItems });
