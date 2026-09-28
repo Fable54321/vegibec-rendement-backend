@@ -6,7 +6,7 @@ const router = Router();
 router.get("/list", async (_req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, username, email, name, surname, role, created_at, updated_at, is_office
+      SELECT id, username, email, name, surname, role, uses_worksheets, created_at, updated_at, is_office, is_active
       FROM users
       ORDER BY id ASC;
     `);
