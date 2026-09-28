@@ -257,7 +257,6 @@ router.post("/orders", writeRoles, async (req, res) => {
         total,
         sellerName,
         soldByUserId,
-        req.user?.id ?? null,
       ],
     );
 
