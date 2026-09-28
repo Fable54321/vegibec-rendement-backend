@@ -15,8 +15,21 @@ import {
   createAgreementSigningSession,
   revokeAgreementSigningSessions,
 } from "./agreementSigningSessions"
+import { ensureAgreementSignatureSchema } from "./agreementSignatureSchema"
 
 const router = Router()
+
+router.use(async (_req, res, next) => {
+  try {
+    await ensureAgreementSignatureSchema()
+    next()
+  } catch (error) {
+    console.error("Error preparing agreement signature schema:", error)
+    res.status(500).json({
+      message: "Erreur lors de la préparation des signatures d'entente",
+    })
+  }
+})
 
 const hrLogsAccess = requireAppRole("main", ["admin"])
 
@@ -41,6 +54,7 @@ const withAgreementData = async (
   const interview = await withFileUrls(row)
 
   let signatureUrl: string | null = null
+  let hrSignatureUrl: string | null = null
 
   if (row.agreement_signature_s3_key) {
     signatureUrl = await getSignedUrlForKey(
@@ -49,6 +63,16 @@ const withAgreementData = async (
         expiresIn: 60 * 15,
         responseContentDisposition:
           `inline; filename="signature.png"`,
+      },
+    )
+  }
+
+  if (row.agreement_hr_signature_s3_key) {
+    hrSignatureUrl = await getSignedUrlForKey(
+      row.agreement_hr_signature_s3_key,
+      {
+        expiresIn: 60 * 15,
+        responseContentDisposition: `inline; filename="signature-rh.png"`,
       },
     )
   }
@@ -74,6 +98,21 @@ const withAgreementData = async (
 
           signature_url:
             signatureUrl,
+
+          hr_signature_s3_key:
+            row.agreement_hr_signature_s3_key,
+
+          hr_signature_url:
+            hrSignatureUrl,
+
+          hr_signed_at:
+            row.agreement_hr_signed_at,
+
+          hr_signer_user_id:
+            row.agreement_hr_signer_user_id,
+
+          hr_signer_name:
+            row.agreement_hr_signer_name,
 
           signed_at:
             row.agreement_signed_at,
@@ -502,6 +541,25 @@ router.get(
           agreement.signature_s3_key
             AS agreement_signature_s3_key,
 
+          agreement.hr_signature_s3_key
+            AS agreement_hr_signature_s3_key,
+
+          agreement.hr_signed_at
+            AS agreement_hr_signed_at,
+
+          agreement.hr_signer_user_id
+            AS agreement_hr_signer_user_id,
+
+          (
+            SELECT NULLIF(TRIM(CONCAT(
+              COALESCE(hr_signer.surname, ''),
+              ' ',
+              COALESCE(hr_signer.name, '')
+            )), '')
+            FROM public.users hr_signer
+            WHERE hr_signer.id = agreement.hr_signer_user_id
+          ) AS agreement_hr_signer_name,
+
           agreement.signed_at
             AS agreement_signed_at,
 
@@ -630,6 +688,25 @@ router.get(
 
           agreement.signature_s3_key
             AS agreement_signature_s3_key,
+
+          agreement.hr_signature_s3_key
+            AS agreement_hr_signature_s3_key,
+
+          agreement.hr_signed_at
+            AS agreement_hr_signed_at,
+
+          agreement.hr_signer_user_id
+            AS agreement_hr_signer_user_id,
+
+          (
+            SELECT NULLIF(TRIM(CONCAT(
+              COALESCE(hr_signer.surname, ''),
+              ' ',
+              COALESCE(hr_signer.name, '')
+            )), '')
+            FROM public.users hr_signer
+            WHERE hr_signer.id = agreement.hr_signer_user_id
+          ) AS agreement_hr_signer_name,
 
           agreement.signed_at
             AS agreement_signed_at,
@@ -963,6 +1040,35 @@ router.patch(
               UPDATE foreign_workers_schedule.worker_interview_agreements
               SET
                 agreement_terms = $1,
+                status = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1
+                    THEN 'pending_signature'
+                  ELSE status
+                END,
+                signature_s3_key = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE signature_s3_key
+                END,
+                signed_at = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE signed_at
+                END,
+                has_accepted_terms = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN FALSE
+                  ELSE has_accepted_terms
+                END,
+                hr_signature_s3_key = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE hr_signature_s3_key
+                END,
+                hr_signed_at = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE hr_signed_at
+                END,
+                hr_signer_user_id = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE hr_signer_user_id
+                END,
                 updated_at = NOW()
               WHERE id = $2
               RETURNING *
@@ -1005,6 +1111,28 @@ router.patch(
 
       await client.query("COMMIT")
       committed = true
+
+      if (
+        existingAgreement &&
+        nextNeedsAgreement &&
+        existing.status === "completed" &&
+        normalizeAgreementTerms(existingAgreement.agreement_terms) !==
+          nextAgreementTerms
+      ) {
+        for (const signatureKey of [
+          existingAgreement.signature_s3_key,
+          existingAgreement.hr_signature_s3_key,
+        ]) {
+          if (signatureKey) {
+            await deleteObjectFromS3(signatureKey).catch((cleanupError) =>
+              console.error(
+                "Error deleting invalidated agreement signature:",
+                cleanupError,
+              ),
+            )
+          }
+        }
+      }
 
       if (
         uploadedFileKey &&
@@ -1765,6 +1893,35 @@ router.patch(
               UPDATE foreign_workers_schedule.worker_interview_agreements
               SET
                 agreement_terms = $1,
+                status = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1
+                    THEN 'pending_signature'
+                  ELSE status
+                END,
+                signature_s3_key = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE signature_s3_key
+                END,
+                signed_at = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE signed_at
+                END,
+                has_accepted_terms = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN FALSE
+                  ELSE has_accepted_terms
+                END,
+                hr_signature_s3_key = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE hr_signature_s3_key
+                END,
+                hr_signed_at = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE hr_signed_at
+                END,
+                hr_signer_user_id = CASE
+                  WHEN agreement_terms IS DISTINCT FROM $1 THEN NULL
+                  ELSE hr_signer_user_id
+                END,
                 updated_at = NOW()
               WHERE id = $2
               RETURNING *
@@ -1807,6 +1964,27 @@ router.patch(
 
       await client.query("COMMIT")
       committed = true
+
+      if (
+        existingAgreement &&
+        effectiveAgreementTerms &&
+        normalizeAgreementTerms(existingAgreement.agreement_terms) !==
+          effectiveAgreementTerms
+      ) {
+        for (const signatureKey of [
+          existingAgreement.signature_s3_key,
+          existingAgreement.hr_signature_s3_key,
+        ]) {
+          if (signatureKey) {
+            await deleteObjectFromS3(signatureKey).catch((cleanupError) =>
+              console.error(
+                "Error deleting invalidated agreement signature:",
+                cleanupError,
+              ),
+            )
+          }
+        }
+      }
 
       const interview = await withFileUrls(
         result.rows[0],
@@ -2142,6 +2320,7 @@ router.post(
           agreement.id AS agreement_id,
           agreement.status AS agreement_status,
           agreement.signature_s3_key,
+          agreement.hr_signature_s3_key,
           agreement.signed_at,
           agreement.has_accepted_terms
 
@@ -2184,6 +2363,15 @@ router.post(
         return res.status(404).json({
           message:
             "Aucune entente n'est associée à cet entretien",
+        })
+      }
+
+      if (!interview.hr_signature_s3_key) {
+        await client.query("ROLLBACK")
+
+        return res.status(409).json({
+          message:
+            "La représentante ou le représentant RH doit signer en premier",
         })
       }
 

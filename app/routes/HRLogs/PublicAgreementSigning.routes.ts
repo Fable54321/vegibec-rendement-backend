@@ -13,6 +13,7 @@ import {
   hashAgreementSigningToken,
   readAgreementSigningToken,
 } from "./agreementSigningSessions"
+import { ensureAgreementSignatureSchema } from "./agreementSignatureSchema"
 
 const router = Router()
 
@@ -50,9 +51,10 @@ const signatureUpload = multer({
 })
 
 const signatureKey = (
-  workerUserId: string,
+  signerId: string,
   interviewId: string,
   mimeType: string,
+  signer: "hr" | "worker",
 ) => {
   const extension =
     mimeType === "image/jpeg"
@@ -61,7 +63,7 @@ const signatureKey = (
         ? ".webp"
         : ".png"
 
-  return `worker-interview-agreements/${workerUserId}/${interviewId}/${crypto
+  return `worker-interview-agreements/${signerId}/${interviewId}/${signer}-${crypto
     .randomBytes(16)
     .toString("hex")}${extension}`
 }
@@ -91,6 +93,18 @@ router.use((_request, response, next) => {
   next()
 })
 
+router.use(async (_request, response, next) => {
+  try {
+    await ensureAgreementSignatureSchema()
+    next()
+  } catch (error) {
+    console.error("Error preparing agreement signature schema:", error)
+    response.status(500).json({
+      message: "Erreur lors de la préparation des signatures d'entente",
+    })
+  }
+})
+
 router.get("/session", readLimiter, requireSigningToken, async (_req, res) => {
   try {
     await ensureAgreementSigningSessionTable()
@@ -104,11 +118,17 @@ router.get("/session", readLimiter, requireSigningToken, async (_req, res) => {
         session.revoked_at,
         agreement.status,
         agreement.agreement_terms,
+        agreement.hr_signed_at,
         CONCAT(
           COALESCE(worker.surname, ''),
           ' ',
           COALESCE(worker.name, '')
-        ) AS worker_name
+        ) AS worker_name,
+        NULLIF(TRIM(CONCAT(
+          COALESCE(hr.surname, ''),
+          ' ',
+          COALESCE(hr.name, '')
+        )), '') AS hr_name
       FROM foreign_workers_schedule.worker_interview_agreement_signing_sessions session
       JOIN foreign_workers_schedule.worker_interview_agreements agreement
         ON agreement.id = session.agreement_id
@@ -116,6 +136,11 @@ router.get("/session", readLimiter, requireSigningToken, async (_req, res) => {
         ON interview.id = agreement.interview_id
       LEFT JOIN public.users worker
         ON worker.id = interview.worker_user_id
+      LEFT JOIN public.users hr
+        ON hr.id = COALESCE(
+          agreement.hr_signer_user_id,
+          session.created_by_user_id
+        )
       WHERE session.token_hash = $1
         AND interview.deleted_at IS NULL
       LIMIT 1
@@ -142,6 +167,8 @@ router.get("/session", readLimiter, requireSigningToken, async (_req, res) => {
 
     return res.json({
       worker_name: session.worker_name?.trim() || null,
+      hr_name: session.hr_name || null,
+      hr_signed_at: session.hr_signed_at,
       agreement_terms: session.agreement_terms,
       expires_at: session.expires_at,
     })
@@ -152,6 +179,143 @@ router.get("/session", readLimiter, requireSigningToken, async (_req, res) => {
     })
   }
 })
+
+router.post(
+  "/session/hr-sign",
+  signLimiter,
+  requireSigningToken,
+  signatureUpload.single("signature"),
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ message: "La signature RH est requise" })
+    }
+
+    await ensureAgreementSigningSessionTable()
+
+    const client = await pool.connect()
+    let uploadedSignatureKey: string | null = null
+    let committed = false
+
+    try {
+      await client.query("BEGIN")
+
+      const result = await client.query(
+        `
+        SELECT
+          session.expires_at <= NOW() AS expired,
+          session.used_at,
+          session.revoked_at,
+          session.created_by_user_id,
+          agreement.id AS agreement_id,
+          agreement.status AS agreement_status,
+          agreement.hr_signature_s3_key,
+          interview.id AS interview_id
+        FROM foreign_workers_schedule.worker_interview_agreement_signing_sessions session
+        JOIN foreign_workers_schedule.worker_interview_agreements agreement
+          ON agreement.id = session.agreement_id
+        JOIN foreign_workers_schedule.worker_interviews interview
+          ON interview.id = agreement.interview_id
+        WHERE session.token_hash = $1
+          AND interview.deleted_at IS NULL
+        FOR UPDATE OF session, agreement, interview
+        `,
+        [res.locals.signingTokenHash],
+      )
+
+      if (result.rowCount === 0) {
+        await client.query("ROLLBACK")
+        return res.status(404).json({ message: "Session de signature invalide" })
+      }
+
+      const session = result.rows[0]
+      const unavailable =
+        session.used_at ||
+        session.revoked_at ||
+        session.agreement_status === "signed" ||
+        session.expired
+
+      if (unavailable) {
+        await client.query("ROLLBACK")
+        return res.status(410).json({
+          message: "Cette session de signature a expiré ou a déjà été utilisée",
+        })
+      }
+
+      const previousSignatureKey =
+        session.hr_signature_s3_key as string | null
+      uploadedSignatureKey = signatureKey(
+        String(session.created_by_user_id),
+        String(session.interview_id),
+        req.file.mimetype,
+        "hr",
+      )
+
+      await uploadBufferToS3({
+        key: uploadedSignatureKey,
+        buffer: req.file.buffer,
+        contentType: req.file.mimetype,
+      })
+
+      const agreementResult = await client.query(
+        `
+        UPDATE foreign_workers_schedule.worker_interview_agreements
+        SET
+          hr_signature_s3_key = $1,
+          hr_signed_at = NOW(),
+          hr_signer_user_id = $2,
+          updated_at = NOW()
+        WHERE id = $3
+          AND status = 'pending_signature'
+        RETURNING hr_signed_at
+        `,
+        [
+          uploadedSignatureKey,
+          session.created_by_user_id,
+          session.agreement_id,
+        ],
+      )
+
+      if (agreementResult.rowCount === 0) {
+        throw new Error("Agreement was no longer available for HR signing")
+      }
+
+      await client.query("COMMIT")
+      committed = true
+
+      if (
+        previousSignatureKey &&
+        previousSignatureKey !== uploadedSignatureKey
+      ) {
+        await deleteObjectFromS3(previousSignatureKey).catch((cleanupError) =>
+          console.error("Error deleting replaced HR signature:", cleanupError),
+        )
+      }
+
+      return res.json({
+        message: "Signature RH enregistrée avec succès",
+        hr_signed_at: agreementResult.rows[0].hr_signed_at,
+      })
+    } catch (error) {
+      if (!committed) {
+        await client.query("ROLLBACK").catch(() => undefined)
+
+        if (uploadedSignatureKey) {
+          await deleteObjectFromS3(uploadedSignatureKey).catch(
+            (cleanupError) =>
+              console.error("Error cleaning up HR signature:", cleanupError),
+          )
+        }
+      }
+
+      console.error("Error signing agreement as HR representative:", error)
+      return res.status(500).json({
+        message: "Erreur lors de l'enregistrement de la signature RH",
+      })
+    } finally {
+      client.release()
+    }
+  },
+)
 
 router.post(
   "/session/sign",
@@ -193,6 +357,7 @@ router.post(
           agreement.id AS agreement_id,
           agreement.status AS agreement_status,
           agreement.signature_s3_key,
+          agreement.hr_signature_s3_key,
           interview.id AS interview_id,
           interview.worker_user_id
         FROM foreign_workers_schedule.worker_interview_agreement_signing_sessions session
@@ -226,11 +391,19 @@ router.post(
         })
       }
 
+      if (!session.hr_signature_s3_key) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          message: "La représentante ou le représentant RH doit signer en premier",
+        })
+      }
+
       const previousSignatureKey = session.signature_s3_key as string | null
       uploadedSignatureKey = signatureKey(
         String(session.worker_user_id),
         String(session.interview_id),
         req.file.mimetype,
+        "worker",
       )
 
       await uploadBufferToS3({
