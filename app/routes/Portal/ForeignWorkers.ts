@@ -47,6 +47,7 @@ router.get(
             FROM worker_contracts wc
             WHERE wc.user_id = u.id
               AND wc.status = 'signed'
+              AND NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
           ) AS has_signed_documents,
 
           fwi.matricula,
@@ -115,9 +116,19 @@ router.get("/foreign-workers/contracts/:id", requireAppRole("main", ["admin"]), 
           wc.contract_slug
         FROM worker_contracts wc
         WHERE wc.user_id = $1
+          AND (
+            NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
+            OR (
+              wc.status = 'draft'
+              AND NULLIF(BTRIM(wc.draft_pdf_key), '') IS NOT NULL
+            )
+          )
         ORDER BY
           wc.contract_slug,
-          CASE WHEN wc.status = 'signed' THEN 0 ELSE 1 END,
+          CASE
+            WHEN NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL THEN 0
+            ELSE 1
+          END,
           wc.updated_at DESC,
           wc.id DESC
       ) current_contracts

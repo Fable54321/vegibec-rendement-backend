@@ -73,13 +73,17 @@ function getStorageKeyForContract(contract: {
   final_pdf_key?: string | null;
   storageKey?: string | null;
 }) {
-  if (contract.storageKey) {
-    return contract.storageKey;
+  const storageKey = contract.storageKey?.trim();
+
+  if (storageKey) {
+    return storageKey;
   }
 
-  return contract.status === "signed" && contract.final_pdf_key
-    ? contract.final_pdf_key
-    : contract.draft_pdf_key ?? null;
+  if (contract.status === "signed") {
+    return contract.final_pdf_key?.trim() || null;
+  }
+
+  return contract.draft_pdf_key?.trim() || null;
 }
 
 function normalizeMainContractSlug(
@@ -132,6 +136,10 @@ async function getLatestExistingContractsBySlug(
     WHERE user_id = $1
       AND contract_slug = ANY($2::text[])
       AND status IN ('signed', 'draft')
+      AND (
+        status = 'draft'
+        OR NULLIF(BTRIM(final_pdf_key), '') IS NOT NULL
+      )
     ORDER BY
       contract_slug,
       CASE WHEN status = 'signed' THEN 0 ELSE 1 END,
