@@ -42,6 +42,13 @@ router.get(
           u.company_decided_not_returning,
           u.company_decided_not_returning_at,
 
+          EXISTS (
+            SELECT 1
+            FROM worker_contracts wc
+            WHERE wc.user_id = u.id
+              AND wc.status = 'signed'
+          ) AS has_signed_documents,
+
           fwi.matricula,
           fwi.pin,
           fwi.contract_type,
