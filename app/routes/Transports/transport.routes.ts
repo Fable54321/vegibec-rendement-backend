@@ -23,6 +23,7 @@ import {
 import { requireAppRole } from "../../middleware/auth";
 import { createTransportOnlyOrders } from "./transportOnlyOrders.controller";
 import { deleteSavedOrder, listSavedOrders, updateSavedOrderDate } from "./SavedOrders/savedOrders.controller";
+import { getLoadingSlip } from "./loadingSlip.controller";
 
 const router = Router();
 const portalAccess = requireAppRole("main", ["admin", "user", "guest"]);
@@ -52,6 +53,7 @@ router.post("/public-scan/:token/items", scanTokenAccess, addScanSessionItem);
 router.post("/public-scan/:token/analyze-document", scanTokenAccess, analyzeTransportDocument);
 
 router.get("/orders", portalAccess, getTransportOrders);
+router.get("/orders/:orderId/loading-slip", portalAccess, getLoadingSlip);
 router.post("/transport-only-orders", portalAccess, createTransportOnlyOrders);
 router.get("/saved-orders", portalAccess, listSavedOrders);
 router.delete("/saved-orders/:type/:orderId", portalAccess, deleteSavedOrder);

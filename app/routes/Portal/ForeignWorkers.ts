@@ -42,12 +42,13 @@ router.get(
           u.company_decided_not_returning,
           u.company_decided_not_returning_at,
 
-          EXISTS (
-            SELECT 1
+          (
+            SELECT COUNT(DISTINCT wc.contract_slug) = 2
             FROM worker_contracts wc
             WHERE wc.user_id = u.id
               AND wc.status = 'signed'
               AND NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
+              AND wc.contract_slug IN ('Imp-aut', 'Imp-con')
           ) AS has_signed_documents,
 
           fwi.matricula,
