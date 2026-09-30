@@ -583,6 +583,8 @@ export async function getTransportOrders(
         o.order_reference,
         o.trip_number,
         o.client_name,
+        o.shipping_address,
+        o.customer_po,
         o.loaded_date,
         o.status,
         a.id AS address_id,
