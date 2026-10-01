@@ -368,4 +368,193 @@ router.post("/orders", writeRoles, async (req, res) => {
   }
 });
 
+router.patch("/orders/:id", writeRoles, async (req, res) => {
+  const orderId = positiveId(req.params.id);
+  if (!orderId) {
+    return res.status(400).json({ message: "Commande invalide." });
+  }
+
+  const body =
+    req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? (req.body as Record<string, unknown>)
+      : {};
+  const has = (field: string) =>
+    Object.prototype.hasOwnProperty.call(body, field);
+  const assignments: string[] = [];
+  const values: unknown[] = [orderId];
+  const addAssignment = (column: string, value: unknown, cast = "") => {
+    values.push(value);
+    assignments.push(`${column} = $${values.length}${cast}`);
+  };
+
+  if (has("status")) {
+    const status = cleanText(body.status);
+    if (!status || !statuses.has(status)) {
+      return res.status(400).json({ message: "Le statut est invalide." });
+    }
+    addAssignment("status", status);
+  }
+  if (has("contact")) addAssignment("contact", cleanText(body.contact));
+  if (has("reference")) {
+    addAssignment("customer_po", cleanText(body.reference));
+  }
+  if (has("soldTo")) {
+    const soldTo = cleanText(body.soldTo);
+    if (!soldTo || !["CAN", "Ã‰-U"].includes(soldTo)) {
+      return res.status(400).json({ message: "Le pays de vente est invalide." });
+    }
+    addAssignment("sold_to", soldTo);
+  }
+  if (has("soldBy")) {
+    const soldBy = cleanText(body.soldBy);
+    if (!soldBy || !sellingCompanies.has(soldBy)) {
+      return res.status(400).json({ message: "Le vendeur est invalide." });
+    }
+    addAssignment("sold_by", soldBy);
+  }
+  if (has("carrier")) addAssignment("carrier", cleanText(body.carrier));
+
+  if (has("transportTemperature")) {
+    const temperature =
+      body.transportTemperature === "" || body.transportTemperature == null
+        ? null
+        : numberInRange(body.transportTemperature, -200, 200);
+    if (
+      temperature === null &&
+      body.transportTemperature !== "" &&
+      body.transportTemperature != null
+    ) {
+      return res
+        .status(400)
+        .json({ message: "La tempÃ©rature de transport est invalide." });
+    }
+    addAssignment("transport_temperature", temperature);
+  }
+
+  if (has("dropNumber")) {
+    const dropNumber =
+      body.dropNumber === "" || body.dropNumber == null
+        ? null
+        : numberInRange(body.dropNumber, 0);
+    if (
+      dropNumber === null &&
+      body.dropNumber !== "" &&
+      body.dropNumber != null
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Le numÃ©ro de drop est invalide." });
+    }
+    addAssignment("drop_number", dropNumber);
+  }
+
+  const requiredDateFields = [
+    ["orderedDate", "ordered_date"],
+    ["loadedDate", "loaded_date"],
+  ] as const;
+  for (const [field, column] of requiredDateFields) {
+    if (!has(field)) continue;
+    const value = cleanText(body[field]);
+    if (!value) {
+      return res.status(400).json({
+        message: "Les dates de commande et de chargement sont requises.",
+      });
+    }
+    addAssignment(column, value);
+  }
+
+  const optionalTextFields = [
+    ["loadedTime", "loaded_time"],
+    ["deliveredDate", "delivered_date"],
+    ["deliveredTime", "delivered_time"],
+    ["shippedDate", "shipped_date"],
+  ] as const;
+  for (const [field, column] of optionalTextFields) {
+    if (has(field)) addAssignment(column, cleanText(body[field]));
+  }
+
+  if (has("shippingAddress")) {
+    const shippingAddress = cleanText(body.shippingAddress);
+    addAssignment(
+      "shipping_address",
+      shippingAddress
+        ? JSON.stringify({ manual_address: shippingAddress })
+        : null,
+      "::jsonb",
+    );
+  }
+
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const currentOrder = await db.query(
+      "SELECT status FROM sales.orders WHERE id = $1 FOR UPDATE",
+      [orderId],
+    );
+    if (!currentOrder.rowCount) {
+      await db.query("ROLLBACK");
+      return res.status(404).json({ message: "Commande introuvable." });
+    }
+
+    if (has("seller")) {
+      const sellerName = cleanText(body.seller);
+      let resolvedSellerName = sellerName;
+      let resolvedSoldByUserId: number | null = null;
+      if (sellerName) {
+        const seller = await db.query(
+          `
+          SELECT id, name, surname
+          FROM public.users
+          WHERE is_active = true
+            AND (
+              regexp_replace(lower(concat(surname, name)), '[[:space:]]+', '', 'g') = regexp_replace(lower($1), '[[:space:]]+', '', 'g')
+              OR regexp_replace(lower(concat(name, surname)), '[[:space:]]+', '', 'g') = regexp_replace(lower($1), '[[:space:]]+', '', 'g')
+            )
+          ORDER BY id
+          LIMIT 1
+          `,
+          [sellerName],
+        );
+        if (seller.rowCount) {
+          resolvedSoldByUserId = Number(seller.rows[0].id);
+          resolvedSellerName = [seller.rows[0].surname, seller.rows[0].name]
+            .filter(Boolean)
+            .join(" ");
+        }
+      }
+      addAssignment("seller_name", resolvedSellerName);
+      addAssignment("sold_by_user_id", resolvedSoldByUserId);
+    }
+
+    if (!assignments.length) {
+      await db.query("ROLLBACK");
+      return res.status(400).json({ message: "Aucune modification fournie." });
+    }
+
+    const updated = await db.query(
+      `UPDATE sales.orders SET ${assignments.join(", ")} WHERE id = $1 RETURNING *`,
+      values,
+    );
+    if (
+      has("status") &&
+      updated.rows[0].status !== currentOrder.rows[0].status
+    ) {
+      await db.query(
+        `INSERT INTO sales.order_status_history (order_id,to_status,note) VALUES ($1,$2,'Modification de la vente')`,
+        [orderId, updated.rows[0].status],
+      );
+    }
+    await db.query("COMMIT");
+    return res.json(updated.rows[0]);
+  } catch (error) {
+    await db.query("ROLLBACK").catch(() => undefined);
+    console.error("Error updating sales order:", error);
+    return res
+      .status(500)
+      .json({ message: "Impossible de modifier la vente." });
+  } finally {
+    db.release();
+  }
+});
+
 export default router;
