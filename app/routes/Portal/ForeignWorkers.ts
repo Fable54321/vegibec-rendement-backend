@@ -22,6 +22,13 @@ const upload = multer({
 });
 
 const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+const printableContractsBatchSize = Math.min(
+  50,
+  Math.max(
+    1,
+    Number.parseInt(process.env.PRINTABLE_CONTRACTS_BATCH_SIZE || "10", 10) || 10
+  )
+);
 
 
 router.get(
@@ -90,10 +97,62 @@ router.get(
 
 
 router.get(
-  "/foreign-workers/printable-contracts",
+  "/foreign-workers/printable-contracts/summary",
   requireAppRole("main", ["admin"]),
   async (_req, res) => {
     try {
+      const result = await pool.query<{ total_contracts: number }>(`
+        WITH latest_contracts AS (
+          SELECT DISTINCT ON (
+            wc.user_id,
+            LOWER(BTRIM(wc.contract_slug))
+          )
+            wc.user_id,
+            LOWER(BTRIM(wc.contract_slug)) AS normalized_slug
+          FROM worker_contracts wc
+          WHERE wc.status = 'signed'
+            AND NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
+            AND LOWER(BTRIM(wc.contract_slug)) IN ('imp-aut', 'imp-con')
+          ORDER BY
+            wc.user_id,
+            LOWER(BTRIM(wc.contract_slug)),
+            wc.updated_at DESC,
+            wc.id DESC
+        )
+        SELECT COUNT(*)::int AS total_contracts
+        FROM latest_contracts
+        INNER JOIN public.foreign_workers_info fwi
+          ON fwi.user_id = latest_contracts.user_id
+      `);
+
+      const totalContracts = result.rows[0]?.total_contracts ?? 0;
+
+      return res.status(200).json({
+        totalContracts,
+        batchSize: printableContractsBatchSize,
+        totalBatches: Math.ceil(totalContracts / printableContractsBatchSize),
+      });
+    } catch (err) {
+      console.error("Error counting printable worker contracts:", err);
+      return res.status(500).json({
+        error: "Erreur lors de la préparation des contrats à imprimer",
+      });
+    }
+  }
+);
+
+router.get(
+  "/foreign-workers/printable-contracts",
+  requireAppRole("main", ["admin"]),
+  async (req, res) => {
+    try {
+      const batch = Number(req.query.batch ?? 1);
+
+      if (!Number.isInteger(batch) || batch <= 0) {
+        return res.status(400).json({ error: "Lot d'impression invalide" });
+      }
+
+      const offset = (batch - 1) * printableContractsBatchSize;
       const result = await pool.query<{
         final_pdf_key: string;
       }>(
@@ -132,12 +191,15 @@ router.get(
             WHEN 'imp-aut' THEN 0
             ELSE 1
           END
-        `
+        LIMIT $1
+        OFFSET $2
+        `,
+        [printableContractsBatchSize, offset]
       );
 
       if (result.rows.length === 0) {
         return res.status(404).json({
-          error: "Aucun contrat Imp-aut ou Imp-con signé à imprimer",
+          error: "Aucun contrat dans ce lot d'impression",
         });
       }
 
@@ -162,7 +224,7 @@ router.get(
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        'inline; filename="contrats-travailleurs.pdf"'
+        `inline; filename="contrats-travailleurs-${batch}.pdf"`
       );
       res.setHeader("Content-Length", pdfBuffer.length.toString());
       res.setHeader("Cache-Control", "no-store");
