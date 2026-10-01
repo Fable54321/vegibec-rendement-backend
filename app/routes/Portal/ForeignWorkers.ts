@@ -4,7 +4,12 @@ import { requireAnyAppRole, requireAppRole } from "../../middleware/auth";
 import { getContractAccessDetails } from "../../Utils/ContractHelpers/buildContracSession";
 import multer from "multer";
 import path from "path";
-import { uploadBufferToS3, getSignedUrlForKey } from "../../services/s3.services";
+import { PDFDocument } from "pdf-lib";
+import {
+  uploadBufferToS3,
+  getSignedUrlForKey,
+  getBufferFromS3,
+} from "../../services/s3.services";
 
 
 const router = express.Router();
@@ -78,6 +83,95 @@ router.get(
 
       return res.status(500).json({
         error: "Erreur lors de la récupération des travailleurs",
+      });
+    }
+  }
+);
+
+
+router.get(
+  "/foreign-workers/printable-contracts",
+  requireAppRole("main", ["admin"]),
+  async (_req, res) => {
+    try {
+      const result = await pool.query<{
+        final_pdf_key: string;
+      }>(
+        `
+        WITH latest_contracts AS (
+          SELECT DISTINCT ON (
+            wc.user_id,
+            LOWER(BTRIM(wc.contract_slug))
+          )
+            wc.id,
+            wc.user_id,
+            wc.final_pdf_key,
+            LOWER(BTRIM(wc.contract_slug)) AS normalized_slug
+          FROM worker_contracts wc
+          WHERE wc.status = 'signed'
+            AND NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
+            AND LOWER(BTRIM(wc.contract_slug)) IN ('imp-aut', 'imp-con')
+          ORDER BY
+            wc.user_id,
+            LOWER(BTRIM(wc.contract_slug)),
+            wc.updated_at DESC,
+            wc.id DESC
+        )
+        SELECT
+          latest_contracts.final_pdf_key
+        FROM latest_contracts
+        INNER JOIN public.users u
+          ON u.id = latest_contracts.user_id
+        INNER JOIN public.foreign_workers_info fwi
+          ON fwi.user_id = latest_contracts.user_id
+        ORDER BY
+          u.surname ASC NULLS LAST,
+          u.name ASC NULLS LAST,
+          latest_contracts.user_id,
+          CASE latest_contracts.normalized_slug
+            WHEN 'imp-aut' THEN 0
+            ELSE 1
+          END
+        `
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          error: "Aucun contrat Imp-aut ou Imp-con signé à imprimer",
+        });
+      }
+
+      const mergedPdf = await PDFDocument.create();
+
+      for (const contract of result.rows) {
+        const contractBuffer = await getBufferFromS3(contract.final_pdf_key);
+        const contractPdf = await PDFDocument.load(contractBuffer, {
+          ignoreEncryption: true,
+        });
+        const pages = await mergedPdf.copyPages(
+          contractPdf,
+          contractPdf.getPageIndices()
+        );
+
+        pages.forEach((page) => mergedPdf.addPage(page));
+      }
+
+      const pdfBytes = await mergedPdf.save();
+      const pdfBuffer = Buffer.from(pdfBytes);
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        'inline; filename="contrats-travailleurs.pdf"'
+      );
+      res.setHeader("Content-Length", pdfBuffer.length.toString());
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.status(200).send(pdfBuffer);
+    } catch (err) {
+      console.error("Error preparing printable worker contracts:", err);
+      return res.status(500).json({
+        error: "Erreur lors de la préparation des contrats à imprimer",
       });
     }
   }
