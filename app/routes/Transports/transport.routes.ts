@@ -1,4 +1,9 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
+import {
+  Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import { pool } from "../../db";
 
 import {
@@ -22,13 +27,22 @@ import {
 } from "./savedRoutePlans.controller";
 import { requireAppRole } from "../../middleware/auth";
 import { createTransportOnlyOrders } from "./transportOnlyOrders.controller";
-import { deleteSavedOrder, listSavedOrders, updateSavedOrderDate } from "./SavedOrders/savedOrders.controller";
+import {
+  deleteSavedOrder,
+  listSavedOrders,
+  updateSavedOrderDate,
+} from "./SavedOrders/savedOrders.controller";
 import { getLoadingSlip } from "./loadingSlip.controller";
+import { getDeliverySlip } from "./deliverySlip.controller";
 
 const router = Router();
 const portalAccess = requireAppRole("main", ["admin", "user", "guest"]);
 
-const scanTokenAccess = async (req: Request, res: Response, next: NextFunction) => {
+const scanTokenAccess = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
     await ensureTransportScanTables();
     const session = await pool.query(
@@ -39,8 +53,14 @@ const scanTokenAccess = async (req: Request, res: Response, next: NextFunction) 
        LIMIT 1`,
       [req.params.token],
     );
-    if (!session.rows.length) return res.status(404).json({ error: "Scan session not found or expired" });
-    req.user = { id: Number(session.rows[0].owner_user_id), username: session.rows[0].username };
+    if (!session.rows.length)
+      return res
+        .status(404)
+        .json({ error: "Scan session not found or expired" });
+    req.user = {
+      id: Number(session.rows[0].owner_user_id),
+      username: session.rows[0].username,
+    };
     return next();
   } catch (error) {
     console.error("Transport scan token access error:", error);
@@ -50,14 +70,23 @@ const scanTokenAccess = async (req: Request, res: Response, next: NextFunction) 
 
 router.get("/public-scan/:token", scanTokenAccess, getScanSession);
 router.post("/public-scan/:token/items", scanTokenAccess, addScanSessionItem);
-router.post("/public-scan/:token/analyze-document", scanTokenAccess, analyzeTransportDocument);
+router.post(
+  "/public-scan/:token/analyze-document",
+  scanTokenAccess,
+  analyzeTransportDocument,
+);
 
 router.get("/orders", portalAccess, getTransportOrders);
 router.get("/orders/:orderId/loading-slip", portalAccess, getLoadingSlip);
+router.get("/orders/:orderId/delivery-slip", portalAccess, getDeliverySlip);
 router.post("/transport-only-orders", portalAccess, createTransportOnlyOrders);
 router.get("/saved-orders", portalAccess, listSavedOrders);
 router.delete("/saved-orders/:type/:orderId", portalAccess, deleteSavedOrder);
-router.patch("/saved-orders/:type/:orderId/date", portalAccess, updateSavedOrderDate);
+router.patch(
+  "/saved-orders/:type/:orderId/date",
+  portalAccess,
+  updateSavedOrderDate,
+);
 router.get("/client-stops", portalAccess, getClientStops);
 router.post("/client-locations", portalAccess, resolveClientLocations);
 router.post("/optimize-route", portalAccess, optimizeRoute);
@@ -68,8 +97,16 @@ router.delete("/route-plans/:planId", portalAccess, deleteSavedRoutePlan);
 router.post("/scan-sessions", portalAccess, createScanSession);
 router.get("/scan-sessions/:token", portalAccess, getScanSession);
 router.post("/scan-sessions/:token/items", portalAccess, addScanSessionItem);
-router.patch("/scan-sessions/:token/items/:itemId", portalAccess, resolveScanSessionItem);
-router.delete("/scan-sessions/:token/items/:itemId", portalAccess, deleteScanSessionItem);
+router.patch(
+  "/scan-sessions/:token/items/:itemId",
+  portalAccess,
+  resolveScanSessionItem,
+);
+router.delete(
+  "/scan-sessions/:token/items/:itemId",
+  portalAccess,
+  deleteScanSessionItem,
+);
 router.post("/analyze-document", portalAccess, analyzeTransportDocument);
 
 export default router;
