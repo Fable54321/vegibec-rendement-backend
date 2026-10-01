@@ -32,6 +32,7 @@ export type DeliverySlipOrder = {
   loaded_date: string | Date | null;
   shipped_date: string | Date | null;
   carrier: string | null;
+  transport_temperature: string | number | null;
   items: DeliverySlipOrderItem[];
 };
 
@@ -516,10 +517,15 @@ export async function createDeliverySlipPdf(order: DeliverySlipOrder) {
       height: 14,
       color: PALE_YELLOW,
     });
+    const transportTemperature =
+      order.transport_temperature == null ||
+      printable(order.transport_temperature).trim() === ""
+        ? ""
+        : ` ${printable(order.transport_temperature)}\u00b0`;
     drawText(
       page,
       regular,
-      "Temp\u00e9rature continue \u00e0 / Continuous temperature at:",
+      `Temp\u00e9rature continue \u00e0 / Continuous temperature at:${transportTemperature}`,
       45,
       176,
       6,

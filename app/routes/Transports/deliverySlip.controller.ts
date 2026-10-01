@@ -31,7 +31,7 @@ export async function getDeliverySlip(req: Request, res: Response) {
       pool.query<Omit<DeliverySlipOrder, "items">>(
         `SELECT id, order_reference, client_name, client_number, shipping_address,
                 sold_by, seller_name, customer_po, ordered_date, loaded_date,
-                shipped_date, carrier
+                shipped_date, carrier, transport_temperature
          FROM sales.orders
          WHERE id = $1
          LIMIT 1`,
@@ -68,10 +68,8 @@ export async function getDeliverySlip(req: Request, res: Response) {
       `Error generating delivery slip for order ${orderId}:`,
       error,
     );
-    return res
-      .status(500)
-      .json({
-        message: "Impossible de g\u00e9n\u00e9rer le bon de livraison.",
-      });
+    return res.status(500).json({
+      message: "Impossible de g\u00e9n\u00e9rer le bon de livraison.",
+    });
   }
 }
