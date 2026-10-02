@@ -2,6 +2,7 @@ import { Request, Router } from "express";
 import crypto from "crypto";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { pool } from "../../db";
+import { requireAppRole } from "../../middleware/auth";
 import { sendEmail } from "./Utils/testSMTP";
 import {
   getSignedUrlForVisitorSignature,
@@ -14,6 +15,41 @@ const VISITOR_PLAN_TOKEN_SECRET =
   process.env.JWT_SECRET ||
   "super_secret";
 const VISITOR_PLAN_TOKEN_EXPIRES_IN_SECONDS = 60 * 60 * 12;
+const MAX_VERIFICATION_NOTES_LENGTH = 5000;
+const MAX_SIGNATURE_BYTES = 2 * 1024 * 1024;
+
+const isValidDateOnly = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+};
+
+const decodePngDataUrl = (value: unknown) => {
+  if (typeof value !== "string") return null;
+
+  const matches = value.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+  if (!matches) return null;
+
+  const buffer = Buffer.from(matches[1], "base64");
+  const pngHeader = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ]);
+
+  if (
+    buffer.length === 0 ||
+    buffer.length > MAX_SIGNATURE_BYTES ||
+    !buffer.subarray(0, pngHeader.length).equals(pngHeader)
+  ) {
+    return null;
+  }
+
+  return buffer;
+};
 
 const getVisitorPlanBaseUrl = (req: Request) => {
   const configuredUrl =
@@ -237,6 +273,107 @@ router.get("/active", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch active visits" });
   }
 });
+
+router.post(
+  "/registry-verifications",
+  requireAppRole("main", ["admin"]),
+  async (req, res) => {
+    try {
+      if (!req.user) {
+        return res
+          .status(401)
+          .json({ error: "Utilisateur non authentifi\u00e9" });
+      }
+
+      const {
+        period_start,
+        period_end,
+        verification_date,
+        is_compliant,
+        notes,
+        signatureDataUrl,
+      } = req.body || {};
+
+      if (
+        !isValidDateOnly(period_start) ||
+        !isValidDateOnly(period_end) ||
+        !isValidDateOnly(verification_date)
+      ) {
+        return res.status(400).json({ error: "Les dates sont invalides" });
+      }
+
+      if (period_start > period_end) {
+        return res.status(400).json({
+          error: "La date de d\u00e9but doit pr\u00e9c\u00e9der la date de fin",
+        });
+      }
+
+      if (typeof is_compliant !== "boolean") {
+        return res.status(400).json({
+          error: "Le r\u00e9sultat de la v\u00e9rification est requis",
+        });
+      }
+
+      const normalizedNotes = typeof notes === "string" ? notes.trim() : "";
+      if (normalizedNotes.length > MAX_VERIFICATION_NOTES_LENGTH) {
+        return res.status(400).json({
+          error: `Les notes ne peuvent pas d\u00e9passer ${MAX_VERIFICATION_NOTES_LENGTH} caract\u00e8res`,
+        });
+      }
+
+      const signatureBuffer = decodePngDataUrl(signatureDataUrl);
+      if (!signatureBuffer) {
+        return res.status(400).json({
+          error: "La signature PNG est manquante, invalide ou trop volumineuse",
+        });
+      }
+
+      const signatureKey = `visitor-registry-verifications/${Date.now()}-${crypto.randomUUID()}.png`;
+      await uploadVisitorSignatureToS3(signatureKey, signatureBuffer);
+
+      const result = await pool.query(
+        `
+        INSERT INTO visitors.visitors_registry_verification (
+          verifier_user_id,
+          period_start,
+          period_end,
+          verification_date,
+          is_compliant,
+          notes,
+          signature_url,
+          signed_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        RETURNING *
+        `,
+        [
+          req.user.id,
+          period_start,
+          period_end,
+          verification_date,
+          is_compliant,
+          normalizedNotes || null,
+          // Store the durable object key; presigned URLs expire after one hour.
+          signatureKey,
+        ],
+      );
+
+      const signatureUrl = await getSignedUrlForVisitorSignature(signatureKey);
+
+      return res.status(201).json({
+        ...result.rows[0],
+        verifier_username: req.user.username,
+        signature_url: signatureUrl,
+        signature_key: signatureKey,
+      });
+    } catch (error) {
+      console.error("Error creating visitor registry verification:", error);
+      return res.status(500).json({
+        error: "Impossible d'enregistrer la v\u00e9rification du registre",
+      });
+    }
+  },
+);
 
 router.post("/signature", async (req, res) => {
   try {
