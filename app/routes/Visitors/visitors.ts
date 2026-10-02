@@ -318,6 +318,7 @@ router.post(
       }
 
       const {
+        period_start,
         period_end,
         verification_date,
         is_compliant,
@@ -325,9 +326,8 @@ router.post(
         signatureDataUrl,
       } = req.body || {};
 
-      const { period_start } = await getNextVerificationPeriodStart();
-
       if (
+        !isValidDateOnly(period_start) ||
         !isValidDateOnly(period_end) ||
         !isValidDateOnly(verification_date)
       ) {
