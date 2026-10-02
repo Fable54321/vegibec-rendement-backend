@@ -51,6 +51,38 @@ const decodePngDataUrl = (value: unknown) => {
   return buffer;
 };
 
+type VerificationPeriodStart = {
+  period_start: string;
+  source: "last_verification" | "first_visit" | "today";
+};
+
+const getNextVerificationPeriodStart = async () => {
+  const result = await pool.query<VerificationPeriodStart>(`
+    WITH verification_bounds AS (
+      SELECT
+        (
+          SELECT MAX(period_end)
+          FROM visitors.visitors_registry_verification
+        ) AS last_period_end,
+        (
+          SELECT MIN(arrival_time)::date
+          FROM visitors.visits_details
+        ) AS first_visit_date
+    )
+    SELECT
+      COALESCE(last_period_end, first_visit_date, CURRENT_DATE)::text
+        AS period_start,
+      CASE
+        WHEN last_period_end IS NOT NULL THEN 'last_verification'
+        WHEN first_visit_date IS NOT NULL THEN 'first_visit'
+        ELSE 'today'
+      END AS source
+    FROM verification_bounds
+  `);
+
+  return result.rows[0];
+};
+
 const getVisitorPlanBaseUrl = (req: Request) => {
   const configuredUrl =
   process.env.VISITOR_PLAN_PAGE_URL?.trim() ||
@@ -286,7 +318,6 @@ router.post(
       }
 
       const {
-        period_start,
         period_end,
         verification_date,
         is_compliant,
@@ -294,8 +325,9 @@ router.post(
         signatureDataUrl,
       } = req.body || {};
 
+      const { period_start } = await getNextVerificationPeriodStart();
+
       if (
-        !isValidDateOnly(period_start) ||
         !isValidDateOnly(period_end) ||
         !isValidDateOnly(verification_date)
       ) {
@@ -370,6 +402,21 @@ router.post(
       console.error("Error creating visitor registry verification:", error);
       return res.status(500).json({
         error: "Impossible d'enregistrer la v\u00e9rification du registre",
+      });
+    }
+  },
+);
+
+router.get(
+  "/registry-verifications/next-period-start",
+  requireAppRole("main", ["admin"]),
+  async (_req, res) => {
+    try {
+      return res.status(200).json(await getNextVerificationPeriodStart());
+    } catch (error) {
+      console.error("Error fetching verification period start:", error);
+      return res.status(500).json({
+        error: "Impossible de calculer le d\u00e9but de la p\u00e9riode",
       });
     }
   },
