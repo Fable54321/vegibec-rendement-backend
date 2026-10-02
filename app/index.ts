@@ -67,6 +67,7 @@ import fileTransferRoute from "./routes/Portal/FileTransfer";
 import inventoryRoute from "./routes/Inventory/inventory";
 import trackabilityRoute from "./routes/Trackability/trackability";
 import finishedProductsRoute from "./routes/Trackability/finishedProducts";
+import harvestingRoute from "./routes/Trackability/harvesting";
 import transportRoute from "./routes/Transports/transport.routes";
 import evaluationRoute from "./routes/evaluation/evaluation.routes";
 import temperaturesRoute from "./routes/Temperatures/temperatures";
@@ -1035,6 +1036,7 @@ app.use("/evaluation-new", evaluationNewRouter);
 app.use("/warehouse", warehouseProductsRoute);
 
 app.use("/inventory", inventoryRoute);
+app.use("/trackability/harvesting", harvestingRoute);
 app.use("/trackability", trackabilityRoute);
 app.use("/finished-products", finishedProductsRoute);
 app.use("/transport", transportRoute);
