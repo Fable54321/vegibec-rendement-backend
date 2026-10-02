@@ -104,14 +104,11 @@ function validateField(
   field: EditableField,
   value: unknown,
 ): string | null {
-  if (
-    field === "team_leader_user_id" ||
-    field === "harvester"
-  ) {
-    return parsePositiveInteger(value) !== null
-      ? null
-      : `${field} must be a positive integer`;
-  }
+ if (field === "team_leader_user_id") {
+  return parsePositiveInteger(value) !== null
+    ? null
+    : "team_leader_user_id must be a positive integer";
+}
 
   if (field === "amount_of_boxes") {
     return parsePositiveInteger(value) !== null
@@ -157,7 +154,6 @@ function normalizeValue(
 ) {
   if (
     field === "team_leader_user_id" ||
-    field === "harvester" ||
     field === "amount_of_boxes"
   ) {
     return parsePositiveInteger(value);
@@ -166,7 +162,8 @@ function normalizeValue(
   if (
     field === "subfield" ||
     field === "product" ||
-    field === "box_type"
+    field === "box_type" ||
+    field === "harvester"
   ) {
     return typeof value === "string"
       ? value.trim()
