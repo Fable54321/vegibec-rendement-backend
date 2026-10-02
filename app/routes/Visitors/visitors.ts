@@ -422,6 +422,58 @@ router.get(
   },
 );
 
+router.get(
+  "/registry-verifications",
+  requireAppRole("main", ["admin"]),
+  async (_req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          verification.*,
+          users.username AS verifier_username
+        FROM visitors.visitors_registry_verification verification
+        LEFT JOIN public.users users
+          ON users.id = verification.verifier_user_id
+        ORDER BY
+          verification.verification_date DESC,
+          verification.signed_at DESC NULLS LAST,
+          verification.created_at DESC,
+          verification.id DESC
+      `);
+
+      const verifications = await Promise.all(
+        result.rows.map(async (verification) => {
+          const storedSignature = verification.signature_url as string | null;
+          const signatureIsDirectUrl =
+            storedSignature?.startsWith("http://") ||
+            storedSignature?.startsWith("https://") ||
+            storedSignature?.startsWith("data:");
+          const signatureUrl =
+            storedSignature && !signatureIsDirectUrl
+              ? await getSignedUrlForVisitorSignature(storedSignature)
+              : storedSignature;
+
+          return {
+            ...verification,
+            verifier_username:
+              verification.verifier_username ||
+              `Utilisateur #${verification.verifier_user_id}`,
+            signature_key: signatureIsDirectUrl ? null : storedSignature,
+            signature_url: signatureUrl,
+          };
+        }),
+      );
+
+      return res.status(200).json(verifications);
+    } catch (error) {
+      console.error("Error fetching visitor registry verifications:", error);
+      return res.status(500).json({
+        error: "Impossible de charger l'historique des v\u00e9rifications",
+      });
+    }
+  },
+);
+
 router.post("/signature", async (req, res) => {
   try {
     const { signatureDataUrl } = req.body || {};
