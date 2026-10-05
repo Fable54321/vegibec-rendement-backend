@@ -52,6 +52,7 @@ import userDailyDurationRoute from "./Timesheets/userDailyDuration";
 import toolboxesRoute from "./ToolBoxes/toolboxes";
 import vehiclesRoute from "./ToolBoxes/vehicles";
 import finishedProductsRoute from "./Trackability/finishedProducts";
+import rawProductsRoute from "./Trackability/rawProducts";
 import harvestingRoute from "./Trackability/harvesting";
 import trackabilityRoute from "./Trackability/trackability";
 import transportRoute from "./Transports/transport.routes";
@@ -145,9 +146,12 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/warehouse", warehouseProductsRoute);
   app.use("/inventory", inventoryRoute);
   app.use("/boxes", boxesRoute);
+
   app.use("/trackability/harvesting", harvestingRoute);
   app.use("/trackability", trackabilityRoute);
   app.use("/finished-products", finishedProductsRoute);
+  app.use("/raw-products", rawProductsRoute);
+
   app.use("/transport", transportRoute);
   app.use("/timesheets/session", timesheetsSessionRoute);
   app.use("/timesheets/tasks", timesheetsTasksRoute);
