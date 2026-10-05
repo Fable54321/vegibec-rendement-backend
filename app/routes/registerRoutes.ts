@@ -69,6 +69,7 @@ import weatherRoute from "./Weather/WeatherRoutes";
 import workersScheduleRoute from "./WorkersSchedule/WorkersSchedule";
 import employeesRoute from "./employees";
 import journalRoute from "./journal";
+import boxesRoute from "./Inventory/boxTypes";
 
 function registerPublicRoutes(app: Express): void {
   app.get("/", async (_req, res) => {
@@ -143,6 +144,7 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/evaluation-new", evaluationNewRouter);
   app.use("/warehouse", warehouseProductsRoute);
   app.use("/inventory", inventoryRoute);
+  app.use("/boxes", boxesRoute);
   app.use("/trackability/harvesting", harvestingRoute);
   app.use("/trackability", trackabilityRoute);
   app.use("/finished-products", finishedProductsRoute);
