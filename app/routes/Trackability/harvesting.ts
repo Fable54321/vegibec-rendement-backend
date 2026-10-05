@@ -26,7 +26,7 @@ const editableFields = [
   "subfield",
   "harvesting_date",
   "harvesting_time",
-  "product",
+  "vegetable_id",
   "sub_product",
   "amount_of_boxes",
   "box_type",
@@ -40,7 +40,7 @@ const requiredFields: EditableField[] = [
   "subfield",
   "harvesting_date",
   "harvesting_time",
-  "product",
+  "vegetable_id",
   "amount_of_boxes",
   "box_type",
   "harvester",
@@ -136,12 +136,12 @@ function validateField(
 
   if (
     field === "subfield" ||
-    field === "product" ||
+    field === "vegetable_id" ||
     field === "box_type"
   ) {
     return isNonEmptyString(value)
       ? null
-      : `${field} must be a non-empty string`;
+      : `${field} must be non-empty `;
   }
 
   return null;
@@ -161,7 +161,7 @@ function normalizeValue(
 
   if (
     field === "subfield" ||
-    field === "product" ||
+    field === "vegetable_id" ||
     field === "box_type" ||
     field === "harvester"
   ) {
