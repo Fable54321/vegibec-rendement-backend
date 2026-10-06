@@ -10,6 +10,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
 const columns = `
   id,
   team_leader_user_id,
+  subfield,
   harvesting_date,
   harvesting_time,
   vegetable_id,
@@ -22,6 +23,7 @@ const columns = `
 
 const editableFields = [
   "team_leader_user_id",
+  "subfield",
   "harvesting_date",
   "harvesting_time",
   "vegetable_id",
@@ -35,6 +37,7 @@ type EditableField = (typeof editableFields)[number];
 
 const requiredFields: EditableField[] = [
   "team_leader_user_id",
+  "subfield",
   "harvesting_date",
   "harvesting_time",
   "vegetable_id",
@@ -138,6 +141,7 @@ function validateField(
   }
 
   if (
+    field === "subfield" ||
     field === "harvester" ||
     field === "box_type"
   ) {
