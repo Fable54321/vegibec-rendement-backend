@@ -113,6 +113,12 @@ function validateField(
       : "amount_of_boxes must be a positive integer";
   }
 
+  if (field === "vegetable_id") {
+    return parsePositiveInteger(value) !== null
+      ? null
+      : "vegetable_id must be a positive integer";
+  }
+
   if (field === "harvesting_date") {
     return isDate(value)
       ? null
@@ -132,7 +138,7 @@ function validateField(
   }
 
   if (
-    field === "vegetable_id" ||
+    field === "harvester" ||
     field === "box_type"
   ) {
     return isNonEmptyString(value)
