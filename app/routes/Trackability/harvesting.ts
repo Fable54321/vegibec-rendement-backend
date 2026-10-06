@@ -17,7 +17,7 @@ const columns = `
   product_id,
   amount_of_boxes,
   box_type,
-  harvester,
+  harvester_id,
   created_at
 `;
 
@@ -30,7 +30,7 @@ const editableFields = [
   "product_id",
   "amount_of_boxes",
   "box_type",
-  "harvester",
+  "harvester_id",
 ] as const;
 
 type EditableField = (typeof editableFields)[number];
@@ -43,7 +43,7 @@ const requiredFields: EditableField[] = [
   "vegetable_id",
   "amount_of_boxes",
   "box_type",
-  "harvester",
+  "harvester_id",
 ];
 
 
@@ -140,9 +140,14 @@ function validateField(
       : "product_id must be a positive integer or null";
   }
 
+  if (field === "harvester_id") {
+    return value === null || parsePositiveInteger(value) !== null
+      ? null
+      : "harvester_id must be a positive integer or null";
+  }
+
   if (
     field === "subfield" ||
-    field === "harvester" ||
     field === "box_type"
   ) {
     return isNonEmptyString(value)
@@ -162,15 +167,16 @@ function normalizeValue(
     field === "vegetable_id" ||
     field === "team_leader_user_id" ||
     field === "amount_of_boxes" ||
-    field === "product_id"
+    field === "product_id" ||
+    field === "harvester_id"
   ) {
     return parsePositiveInteger(value);
   }
 
   if (
     
-    field === "box_type" ||
-    field === "harvester"
+    field === "box_type"
+   
   ) {
     return typeof value === "string"
       ? value.trim()
