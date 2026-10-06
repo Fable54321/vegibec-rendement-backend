@@ -14,7 +14,7 @@ const columns = `
   harvesting_date,
   harvesting_time,
   vegetable_id,
-  sub_product,
+  product_id,
   amount_of_boxes,
   box_type,
   harvester,
@@ -27,7 +27,7 @@ const editableFields = [
   "harvesting_date",
   "harvesting_time",
   "vegetable_id",
-  "sub_product",
+  "product_id",
   "amount_of_boxes",
   "box_type",
   "harvester",
@@ -134,10 +134,10 @@ function validateField(
       : "harvesting_time must be a valid time in HH:MM format";
   }
 
-  if (field === "sub_product") {
-    return value === null || typeof value === "string"
+  if (field === "product_id") {
+    return value === null || parsePositiveInteger(value) !== null
       ? null
-      : "sub_product must be a string or null";
+      : "product_id must be a positive integer or null";
   }
 
   if (
@@ -161,7 +161,8 @@ function normalizeValue(
   if (
     field === "vegetable_id" ||
     field === "team_leader_user_id" ||
-    field === "amount_of_boxes"
+    field === "amount_of_boxes" ||
+    field === "product_id"
   ) {
     return parsePositiveInteger(value);
   }
@@ -174,20 +175,6 @@ function normalizeValue(
     return typeof value === "string"
       ? value.trim()
       : value;
-  }
-
-  if (field === "sub_product") {
-    if (value === null) {
-      return null;
-    }
-
-    if (typeof value === "string") {
-      const normalized = value.trim();
-
-      return normalized.length > 0
-        ? normalized
-        : null;
-    }
   }
 
   return value;
@@ -213,7 +200,7 @@ function databaseError(
 
   if (code === "23503") {
     return res.status(400).json({
-      error: "One of the referenced users does not exist",
+      error: "One of the referenced users or products does not exist",
     });
   }
 

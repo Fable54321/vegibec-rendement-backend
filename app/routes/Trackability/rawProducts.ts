@@ -24,20 +24,6 @@ const rawProductColumns = `
   updated_at
 `;
 
-const finishedProductColumns = `
-  id,
-  vegetable_id,
-  full_name,
-  product_code,
-  cup,
-  is_active,
-  quantity_format,
-  product_type,
-  qty_per_pallet,
-  stacking_possibility,
-  weight
-`;
-
 const rawProductWritableFields = [
   "vegetable_id",
   "product_code",
@@ -208,14 +194,45 @@ router.get("/combined", readRoles, async (_req, res) => {
   try {
     const [finishedProductResult, rawProductResult] = await Promise.all([
       pool.query(`
-        SELECT ${finishedProductColumns}
+        SELECT
+          product_reference.id,
+          finished_product.id AS source_product_id,
+          finished_product.vegetable_id,
+          finished_product.full_name,
+          finished_product.product_code,
+          finished_product.cup,
+          finished_product.is_active,
+          finished_product.quantity_format,
+          finished_product.product_type,
+          finished_product.qty_per_pallet,
+          finished_product.stacking_possibility,
+          finished_product.weight
         FROM public.finished_product
-        ORDER BY full_name, id
+        INNER JOIN trackability.product_reference
+          ON product_reference.finished_product_id = finished_product.id
+        ORDER BY finished_product.full_name, finished_product.id
       `),
       pool.query(`
-        SELECT ${rawProductColumns}
+        SELECT
+          product_reference.id,
+          raw_product.id AS source_product_id,
+          raw_product.vegetable_id,
+          raw_product.product_code,
+          raw_product.cup_label,
+          raw_product.description,
+          raw_product.product_type,
+          raw_product.quantity_format,
+          raw_product.unit_format,
+          raw_product.product_group,
+          raw_product.qty_per_pallet,
+          raw_product.transport_weight,
+          raw_product.is_active,
+          raw_product.created_at,
+          raw_product.updated_at
         FROM public.raw_product
-        ORDER BY description, id
+        INNER JOIN trackability.product_reference
+          ON product_reference.raw_product_id = raw_product.id
+        ORDER BY raw_product.description, raw_product.id
       `),
     ]);
 
