@@ -13,7 +13,7 @@ const columns = `
   subfield,
   harvesting_date,
   harvesting_time,
-  product,
+  vegetable_id,
   sub_product,
   amount_of_boxes,
   box_type,
