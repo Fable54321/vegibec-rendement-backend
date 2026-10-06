@@ -28,7 +28,7 @@ router.get(
         id,
         vegetable,
         is_generic,
-        generic_group
+        generic_for_display,
       FROM vegetables
       ORDER BY vegetable
     `);
