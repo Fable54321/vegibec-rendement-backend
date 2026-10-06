@@ -8,6 +8,7 @@ import agrivisionRoute from "./Agrivision/agrivision";
 import alternativeAuthRoute from "./alternativeAuth";
 import authRoute from "./auth";
 import converterRoute from "./Converter/Converter";
+import harvestersRoute from "./Equipment/harvesters";
 import signatureRoute from "./DigitalSignature/digitalSignature";
 import evaluationRoute from "./evaluation/evaluation.routes";
 import evaluationNewRouter from "./evaluation/evaluationNew.routes";
@@ -146,6 +147,7 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/warehouse", warehouseProductsRoute);
   app.use("/inventory", inventoryRoute);
   app.use("/boxes", boxesRoute);
+  app.use("/equipment/harvesters", harvestersRoute);
 
   app.use("/trackability/harvesting", harvestingRoute);
   app.use("/trackability", trackabilityRoute);

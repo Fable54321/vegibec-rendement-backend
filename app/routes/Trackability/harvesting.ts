@@ -221,7 +221,7 @@ function databaseError(
 }
 
 
-// GET ALL
+
 
 router.get("/", readRoles, async (_req, res) => {
   try {
@@ -240,8 +240,6 @@ router.get("/", readRoles, async (_req, res) => {
   }
 });
 
-
-// GET ONE
 
 router.get("/:id", readRoles, async (req, res) => {
   const id = parsePositiveInteger(req.params.id);
@@ -275,7 +273,6 @@ router.get("/:id", readRoles, async (req, res) => {
 });
 
 
-// CREATE
 
 router.post("/", writeRoles, async (req, res) => {
   for (const field of requiredFields) {
@@ -335,8 +332,6 @@ router.post("/", writeRoles, async (req, res) => {
   }
 });
 
-
-// UPDATE
 
 router.patch("/:id", writeRoles, async (req, res) => {
   const id = parsePositiveInteger(req.params.id);
