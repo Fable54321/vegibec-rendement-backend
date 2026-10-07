@@ -28,7 +28,7 @@ router.get(
         id,
         vegetable,
         is_generic,
-        generic_for_display,
+        generic_for_display
       FROM vegetables
       ORDER BY vegetable
     `);
@@ -139,11 +139,14 @@ router.get("/cultivars/:cultivarId", async (req, res) => {
   }
 });
 
+
+
+
 router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   try {
     const { vegetable, is_generic, generic_group } = req.body;
 
-    // --- Validation ---
+    
     if (!vegetable || typeof vegetable !== "string") {
       return res.status(400).json({ error: "Vegetable is required" });
     }
