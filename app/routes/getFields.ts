@@ -10,11 +10,11 @@ const router = express.Router();
  */
 router.get(
   "/",
-  requireAppRole("rendement", ["admin", "user", "guest"]),
+  requireAppRole("main", ["admin", "user", "guest"]),
   async (req, res) => {
     try {
       const result = await pool.query(
-        `SELECT field AS id, field FROM public.fields ORDER BY field`,
+        `SELECT id, field, harvestable_area FROM public.fields ORDER BY field`,
       );
 
       res.status(200).json(result.rows);
@@ -25,7 +25,7 @@ router.get(
   },
 );
 
-router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
+router.post("/", requireAppRole("main", ["admin"]), async (req, res) => {
   const { field } = req.body;
 
   if (!field || typeof field !== "string") {
@@ -56,7 +56,7 @@ router.post("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
   }
 });
 
-router.delete("/", requireAppRole("rendement", ["admin"]), async (req, res) => {
+router.delete("/", requireAppRole("main", ["admin"]), async (req, res) => {
   const { field } = req.body;
 
   if (!field || typeof field !== "string") {
