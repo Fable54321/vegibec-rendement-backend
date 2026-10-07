@@ -51,7 +51,6 @@ type ParsedValue = string | number | null;
 
 const requiredFields: readonly WritableField[] = [
   "season",
-  "responsible",
   "culture_id",
   "planting_type",
 ];
@@ -142,7 +141,6 @@ function parseField(
 ): ParsedValue | undefined {
   switch (field) {
     case "season":
-    case "responsible":
     case "culture_id":
       return parsePositiveInteger(value);
     case "planned_product_id":
@@ -161,6 +159,7 @@ function parseField(
     case "bed_end":
       return parseNullableText(value, 20);
     case "notes":
+    case "responsible":
       return parseNullableText(value);
     case "user_id":
       return parsePositiveInteger(value);
@@ -170,7 +169,6 @@ function parseField(
 function validationMessage(field: WritableField): string {
   switch (field) {
     case "season":
-    case "responsible":
     case "culture_id":
       return `${field} must be a positive 32-bit integer`;
     case "planned_product_id":
@@ -190,6 +188,8 @@ function validationMessage(field: WritableField): string {
       return `${field} must be null or a string of at most 20 characters`;
     case "notes":
       return "notes must be null or a string";
+    case "responsible":
+      return "responsible must be null or a string";
     case "user_id":
       return "user_id must be a positive integer";  
   }
