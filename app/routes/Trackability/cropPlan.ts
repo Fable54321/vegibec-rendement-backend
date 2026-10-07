@@ -147,6 +147,8 @@ function parseField(
     case "cultivar_id":
     case "seeding_number":
     case "field_id":
+    case "bed_start":
+    case "bed_end":
       return parseNullablePositiveInteger(value);
     case "planting_type":
       return parseRequiredText(value, 30);
@@ -155,8 +157,6 @@ function parseField(
     case "planned_area":
       return parsePlannedArea(value);
     case "area_unit":
-    case "bed_start":
-    case "bed_end":
       return parseNullableText(value, 20);
     case "notes":
     case "responsible":
@@ -175,6 +175,8 @@ function validationMessage(field: WritableField): string {
     case "cultivar_id":
     case "seeding_number":
     case "field_id":
+    case "bed_start":
+    case "bed_end":
       return `${field} must be null or a positive 32-bit integer`;
     case "planting_type":
       return "planting_type must be a non-empty string of at most 30 characters";
@@ -183,8 +185,6 @@ function validationMessage(field: WritableField): string {
     case "planned_area":
       return "planned_area must be null or a non-negative number with at most 10 integer digits and 2 decimal places";
     case "area_unit":
-    case "bed_start":
-    case "bed_end":
       return `${field} must be null or a string of at most 20 characters`;
     case "notes":
       return "notes must be null or a string";
