@@ -9,6 +9,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
 
 const cropPlanColumns = `
   id,
+  crop_plan_number,
   season,
   responsible,
   culture_id,
@@ -29,6 +30,7 @@ const cropPlanColumns = `
 `;
 
 const writableFields = [
+  "crop_plan_number",
   "season",
   "responsible",
   "culture_id",
@@ -50,6 +52,7 @@ type WritableField = (typeof writableFields)[number];
 type ParsedValue = string | number | null;
 
 const requiredFields: readonly WritableField[] = [
+  "crop_plan_number",
   "season",
   "culture_id",
   "planting_type",
@@ -140,6 +143,7 @@ function parseField(
   value: unknown,
 ): ParsedValue | undefined {
   switch (field) {
+    case "crop_plan_number":
     case "season":
     case "culture_id":
       return parsePositiveInteger(value);
@@ -168,6 +172,7 @@ function parseField(
 
 function validationMessage(field: WritableField): string {
   switch (field) {
+    case "crop_plan_number":
     case "season":
     case "culture_id":
       return `${field} must be a positive 32-bit integer`;
