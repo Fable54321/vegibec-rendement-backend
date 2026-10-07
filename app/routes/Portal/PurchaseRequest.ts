@@ -270,6 +270,29 @@ const getActivePurchaseCopyRecipients = async () => {
   ])
 }
 
+const getReadyToPurchaseRecipients = async (
+  request?: PurchaseRequestRecipientSource
+) => {
+  const requesterEmail =
+    typeof request?.requester_email === "string"
+      ? request.requester_email.trim().toLowerCase()
+      : ""
+  const recipients = uniqueRecipients([
+    ...toRecipientArray(getEmailRecipients("PURCHASE_EMAIL_COPY")),
+    ...(await getActivePurchaseCopyRecipients()),
+  ])
+
+  if (
+    requesterEmail &&
+    requesterEmail !== CONFLICT_REQUESTER_EMAIL &&
+    !recipients.some((recipient) => recipient.toLowerCase() === requesterEmail)
+  ) {
+    recipients.push(requesterEmail)
+  }
+
+  return recipients
+}
+
 const getPurchaseRequestRecipients = async (
   request?: PurchaseRequestRecipientSource
 ) => {
@@ -2286,7 +2309,7 @@ router.patch(
 
       if (updatedRequest.status === "ready_to_purchase" && purchaseToken) {
         const displayRequestNumber = getPurchaseRequestDisplayNumber(updatedRequest)
-        const emailRecipients = await getPurchaseRequestRecipients(updatedRequest)
+        const emailRecipients = await getReadyToPurchaseRecipients(updatedRequest)
         const finalRequestUrl = buildFinalPurchaseRequestUrl(
           req,
           updatedRequest.id,
@@ -2489,8 +2512,13 @@ router.patch(
         getPurchaseRequestDisplayNumber(updatedRequest)
 
       if (decision === "approved" || decision === "rejected") {
+        const emailRecipients =
+          decision === "approved"
+            ? await getReadyToPurchaseRecipients()
+            : await getPurchaseRequestReplyToRecipients()
+
         await sendPurchaseRequestEmailSafely(
-          await getPurchaseRequestReplyToRecipients(),
+          emailRecipients,
           decision === "approved"
             ? `Ricardo - demande d'achat #${displayRequestNumber} approuvée, achat à faire`
             : `Ricardo - demande d'achat #${displayRequestNumber} refusée`,
