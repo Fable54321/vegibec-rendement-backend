@@ -10,8 +10,8 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
 const cropPlanColumns = `
   id,
   season,
-  responsible_user_id,
-  vegetable_id,
+  responsible,
+  culture_id,
   planned_product_id,
   cultivar_id,
   planting_type,
@@ -24,13 +24,14 @@ const cropPlanColumns = `
   bed_end,
   notes,
   created_at,
-  updated_at
+  updated_at,
+  user_id
 `;
 
 const writableFields = [
   "season",
-  "responsible_user_id",
-  "vegetable_id",
+  "responsible",
+  "culture_id",
   "planned_product_id",
   "cultivar_id",
   "planting_type",
@@ -42,6 +43,7 @@ const writableFields = [
   "bed_start",
   "bed_end",
   "notes",
+  "user_id",
 ] as const;
 
 type WritableField = (typeof writableFields)[number];
@@ -49,8 +51,8 @@ type ParsedValue = string | number | null;
 
 const requiredFields: readonly WritableField[] = [
   "season",
-  "responsible_user_id",
-  "vegetable_id",
+  "responsible",
+  "culture_id",
   "planting_type",
 ];
 
@@ -140,8 +142,8 @@ function parseField(
 ): ParsedValue | undefined {
   switch (field) {
     case "season":
-    case "responsible_user_id":
-    case "vegetable_id":
+    case "responsible":
+    case "culture_id":
       return parsePositiveInteger(value);
     case "planned_product_id":
     case "cultivar_id":
@@ -160,14 +162,16 @@ function parseField(
       return parseNullableText(value, 20);
     case "notes":
       return parseNullableText(value);
+    case "user_id":
+      return parsePositiveInteger(value);
   }
 }
 
 function validationMessage(field: WritableField): string {
   switch (field) {
     case "season":
-    case "responsible_user_id":
-    case "vegetable_id":
+    case "responsible":
+    case "culture_id":
       return `${field} must be a positive 32-bit integer`;
     case "planned_product_id":
     case "cultivar_id":
@@ -186,6 +190,8 @@ function validationMessage(field: WritableField): string {
       return `${field} must be null or a string of at most 20 characters`;
     case "notes":
       return "notes must be null or a string";
+    case "user_id":
+      return "user_id must be a positive integer";  
   }
 }
 
