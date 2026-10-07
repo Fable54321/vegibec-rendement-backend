@@ -55,7 +55,7 @@ import vehiclesRoute from "./ToolBoxes/vehicles";
 import finishedProductsRoute from "./Trackability/finishedProducts";
 import rawProductsRoute from "./Trackability/rawProducts";
 import harvestingRoute from "./Trackability/harvesting";
-import trackabilityRoute from "./Trackability/trackability";
+
 import transportRoute from "./Transports/transport.routes";
 import portalUnprotectedRoute from "./Unprotected/PortalUnprotected";
 import unprotectedRoute from "./Unprotected/Unprotected";
@@ -150,7 +150,7 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/equipment/harvesters", harvestersRoute);
 
   app.use("/trackability/harvesting", harvestingRoute);
-  app.use("/trackability", trackabilityRoute);
+
   app.use("/finished-products", finishedProductsRoute);
   app.use("/raw-products", rawProductsRoute);
 
