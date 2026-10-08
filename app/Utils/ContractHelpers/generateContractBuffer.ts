@@ -11,6 +11,7 @@ import { generateAutlavContract } from "../GenerateAutLav";
 import { generateAutretContract } from "../generateAutretContract";
 import { generateImpAutContract } from "../GenerateImpAut";
 import { generateImpCons } from "../GenerateImpCons";
+import { generateForeignIncomeContract } from "../GenerateForeignIncome";
 import { generatePolBrisContract } from "../GeneratePolBriscontract";
 import { generatePolHarcContract } from "../GeneratePolHarcContract";
 import { generatepolProtContract } from "../GeneratePolProtContract";
@@ -63,6 +64,10 @@ export function getContractTemplateVersion({
 
   if (contractSlug === "Imp-con") {
     return "2026-icon-v1";
+  }
+
+  if (contractSlug === "Rev-etr") {
+    return "2025-revenus-etrangers-v1";
   }
 
   if (contractSlug === "Pol-bris") {
@@ -157,6 +162,8 @@ export async function generateContractBuffer({
       employer,
       getJobDescription,
     });
+  } else if (contractSlug === "Rev-etr") {
+    pdfBuffer = await generateForeignIncomeContract({ worker });
   } else if (contractSlug === "Pol-bris") {
     pdfBuffer = await generatePolBrisContract({
       worker,

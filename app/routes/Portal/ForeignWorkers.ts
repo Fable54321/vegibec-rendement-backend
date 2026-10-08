@@ -55,12 +55,12 @@ router.get(
           u.company_decided_not_returning_at,
 
           (
-            SELECT COUNT(DISTINCT wc.contract_slug) = 2
+            SELECT COUNT(DISTINCT wc.contract_slug) = 3
             FROM worker_contracts wc
             WHERE wc.user_id = u.id
               AND wc.status = 'signed'
               AND NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
-              AND wc.contract_slug IN ('Imp-aut', 'Imp-con')
+              AND wc.contract_slug IN ('Imp-aut', 'Imp-con', 'Rev-etr')
           ) AS has_signed_documents,
 
           fwi.matricula,
@@ -112,7 +112,7 @@ router.get(
           FROM worker_contracts wc
           WHERE wc.status = 'signed'
             AND NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
-            AND LOWER(BTRIM(wc.contract_slug)) IN ('imp-aut', 'imp-con')
+            AND LOWER(BTRIM(wc.contract_slug)) IN ('imp-aut', 'imp-con', 'rev-etr')
           ORDER BY
             wc.user_id,
             LOWER(BTRIM(wc.contract_slug)),
@@ -169,7 +169,7 @@ router.get(
           FROM worker_contracts wc
           WHERE wc.status = 'signed'
             AND NULLIF(BTRIM(wc.final_pdf_key), '') IS NOT NULL
-            AND LOWER(BTRIM(wc.contract_slug)) IN ('imp-aut', 'imp-con')
+            AND LOWER(BTRIM(wc.contract_slug)) IN ('imp-aut', 'imp-con', 'rev-etr')
           ORDER BY
             wc.user_id,
             LOWER(BTRIM(wc.contract_slug)),
@@ -189,7 +189,8 @@ router.get(
           latest_contracts.user_id,
           CASE latest_contracts.normalized_slug
             WHEN 'imp-aut' THEN 0
-            ELSE 1
+            WHEN 'imp-con' THEN 1
+            ELSE 2
           END
         LIMIT $1
         OFFSET $2

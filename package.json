@@ -16,6 +16,7 @@
     "migrate:worker-interview-files": "ts-node app/scripts/createWorkerInterviewFiles.ts",
     "migrate:sobeys-rfq-market": "ts-node app/scripts/mergeSobeysQuebecBouchervilleRfq.ts",
     "repair:impaut-signatures": "tsx app/scripts/repairImpAutSignatures.ts",
+    "backfill:foreign-income-signatures": "tsx app/scripts/backfillForeignIncomeSignatures.ts",
     "scrape:website": "ts-node app/Utils/WebsiteScraper.ts",
     "scrape:weather": "ts-node app/Utils/Weather/runWeatherScrape.ts",
     "test:smtp": "tsx app/routes/Visitors/Utils/testSMTP.ts",

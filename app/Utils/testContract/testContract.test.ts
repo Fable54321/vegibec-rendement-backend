@@ -84,6 +84,49 @@ test("generateContractBuffer can generate Aut-lav", async () => {
   assert.ok(pdfBuffer.length > 1_000);
 });
 
+test("generateContractBuffer can generate the foreign-income form", async () => {
+  const { pdfBuffer, templateVersion } = await generateContractBuffer({
+    contractSlug: "Rev-etr",
+    worker: {
+      user_id: 1,
+      name: "JUAN",
+      surname: "PEREZ",
+      nas: "111111111",
+    },
+  });
+
+  assert.equal(templateVersion, "2025-revenus-etrangers-v1");
+  assert.equal(pdfBuffer.subarray(0, 5).toString("utf8"), "%PDF-");
+  assert.ok(pdfBuffer.length > 1_000);
+});
+
+test("applySignatureToContract signs the foreign-income form", async () => {
+  const { pdfBuffer } = await generateContractBuffer({
+    contractSlug: "Rev-etr",
+    worker: {
+      user_id: 1,
+      name: "JUAN",
+      surname: "PEREZ",
+      nas: "111111111",
+    },
+  });
+  const canvas = createCanvas(240, 60);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "black";
+  context.font = "28px sans-serif";
+  context.fillText("Signature", 12, 38);
+
+  const signedPdfBuffer = await applySignatureToContract({
+    pdfBuffer,
+    contractSlug: "Rev-etr",
+    signatureBuffer: canvas.toBuffer("image/png"),
+    signedAt: new Date("2026-10-08T12:00:00Z"),
+  });
+
+  assert.equal(signedPdfBuffer.subarray(0, 5).toString("utf8"), "%PDF-");
+  assert.ok(signedPdfBuffer.length > pdfBuffer.length);
+});
+
 test("applySignatureToContract signs Imp-aut with all required placements", async () => {
   const { pdfBuffer } = await generateContractBuffer({
     contractSlug: "Imp-aut",
