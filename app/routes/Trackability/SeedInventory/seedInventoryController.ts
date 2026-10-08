@@ -70,9 +70,10 @@ export const adjustInventory: RequestHandler = async (
   res,
 ) => {
   try {
-    const input = req.body as SeedInventoryAdjustment;
+    const input = (req.body ?? {}) as Partial<SeedInventoryAdjustment>;
 
     if (
+      typeof input.seed_lot_id !== "number" ||
       !Number.isSafeInteger(input.seed_lot_id) ||
       input.seed_lot_id <= 0
     ) {
@@ -107,7 +108,7 @@ export const adjustInventory: RequestHandler = async (
     }
 
     const result = await seedService.adjustInventory({
-      ...input,
+      ...(input as SeedInventoryAdjustment),
       reason: input.reason.trim(),
     });
 

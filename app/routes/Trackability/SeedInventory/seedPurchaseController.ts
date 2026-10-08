@@ -36,9 +36,10 @@ export const createPurchase: RequestHandler = async (
   res,
 ) => {
   try {
-    const input = req.body as CreateSeedPurchaseInput;
+    const input = (req.body ?? {}) as Partial<CreateSeedPurchaseInput>;
 
     if (
+      typeof input.cultivar_id !== "number" ||
       !Number.isSafeInteger(input.cultivar_id) ||
       input.cultivar_id <= 0
     ) {
@@ -129,7 +130,9 @@ export const createPurchase: RequestHandler = async (
       return;
     }
 
-    const purchase = await seedService.createPurchase(input);
+    const purchase = await seedService.createPurchase(
+      input as CreateSeedPurchaseInput,
+    );
 
     res.status(201).json(purchase);
   } catch (error: any) {
