@@ -2,7 +2,18 @@
 import { pool } from "../../db";
 
 
-export function getRequiredContractSlugsForWorker(worker: { contract_type?: string | null }) {
+export function getRequiredContractSlugsForWorker(worker: {
+  contract_type?: string | null;
+  pin?: string | number | null;
+}) {
+  const normalizedPin = String(worker.pin ?? "")
+    .trim()
+    .replace(/^0+(?=\d)/, "");
+
+  if (normalizedPin === "680") {
+    return ["Imp-aut", "Imp-con", "Rev-etr"];
+  }
+
   const base = [
     "0Au",
     "0Av",

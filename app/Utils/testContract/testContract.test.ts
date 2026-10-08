@@ -5,6 +5,7 @@ import express from "express";
 import request from "supertest";
 import { generateContractBuffer } from "../ContractHelpers/generateContractBuffer";
 import { applySignatureToContract } from "../GenerateContracts";
+import { getRequiredContractSlugsForWorker } from "../ContractHelpers/getRequiredContractSlugForWorker";
 import testContractRouter from "./testContract";
 
 type BinaryParserCallback = (error: Error | null, body: Buffer) => void;
@@ -82,6 +83,35 @@ test("generateContractBuffer can generate Aut-lav", async () => {
   assert.equal(templateVersion, "2026-autlav-v1");
   assert.equal(pdfBuffer.subarray(0, 5).toString("utf8"), "%PDF-");
   assert.ok(pdfBuffer.length > 1_000);
+});
+
+test("PIN 00680 only receives the three requested tax documents", () => {
+  assert.deepEqual(
+    getRequiredContractSlugsForWorker({
+      pin: "00680",
+      contract_type: "PTET",
+    }),
+    ["Imp-aut", "Imp-con", "Rev-etr"],
+  );
+  assert.deepEqual(
+    getRequiredContractSlugsForWorker({
+      pin: 680,
+      contract_type: "PTET",
+    }),
+    ["Imp-aut", "Imp-con", "Rev-etr"],
+  );
+});
+
+test("other PINs retain the complete contract set", () => {
+  const slugs = getRequiredContractSlugsForWorker({
+    pin: "00681",
+    contract_type: "PTET",
+  });
+
+  assert.equal(slugs[0], "PTET");
+  assert.ok(slugs.includes("Rev-etr"));
+  assert.ok(slugs.includes("Pol-vio"));
+  assert.equal(slugs.length, 14);
 });
 
 test("generateContractBuffer can generate the foreign-income form", async () => {

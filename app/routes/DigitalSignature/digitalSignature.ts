@@ -363,6 +363,20 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
     await client.query(
       `
       UPDATE worker_contracts
+      SET status = 'superseded',
+          updated_at = NOW()
+      WHERE user_id = $1
+        AND contract_slug = $2
+        AND status = 'signed'
+        AND id != $3
+        AND NULLIF(BTRIM(final_pdf_key), '') IS NULL
+      `,
+      [contract.user_id, contract.contract_slug, contract.id]
+    );
+
+    await client.query(
+      `
+      UPDATE worker_contracts
       SET
         accepted_terms = $1,
         signed_name = $2,
@@ -632,6 +646,20 @@ router.post("/foreign-worker-contract/session/sign-all/by-pin", async (req, res)
         buffer: finalPdfBuffer,
         contentType: "application/pdf",
       });
+
+      await client.query(
+        `
+        UPDATE worker_contracts
+        SET status = 'superseded',
+            updated_at = NOW()
+        WHERE user_id = $1
+          AND contract_slug = $2
+          AND status = 'signed'
+          AND id != $3
+          AND NULLIF(BTRIM(final_pdf_key), '') IS NULL
+        `,
+        [contract.user_id, contract.contract_slug, contract.id]
+      );
 
       await client.query(
         `
