@@ -56,6 +56,7 @@ import finishedProductsRoute from "./Trackability/finishedProducts";
 import rawProductsRoute from "./Trackability/rawProducts";
 import harvestingRoute from "./Trackability/harvesting";
 import cropPlanRoute from "./Trackability/cropPlan";
+import seedInventoryRoutes from "./Trackability/SeedInventory/seedInventoryRoutes";
 
 import transportRoute from "./Transports/transport.routes";
 import portalUnprotectedRoute from "./Unprotected/PortalUnprotected";
@@ -152,6 +153,7 @@ function registerProtectedRoutes(app: Express): void {
 
   app.use("/trackability/harvesting", harvestingRoute);
   app.use("/trackability/crop-plans", cropPlanRoute);
+  app.use("/trackability/seeds", seedInventoryRoutes);
 
   app.use("/finished-products", finishedProductsRoute);
   app.use("/raw-products", rawProductsRoute);
