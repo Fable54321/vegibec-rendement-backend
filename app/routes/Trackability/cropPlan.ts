@@ -254,6 +254,27 @@ router.get("/", readRoles, async (_req, res) => {
   }
 });
 
+router.get("/next-number", readRoles, async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        CASE
+          WHEN is_called THEN last_value + 1
+          ELSE last_value
+        END AS next_crop_plan_number
+      FROM trackability.crop_plan_number_seq
+    `);
+
+    return res.status(200).json({
+      next_crop_plan_number: Number(
+        result.rows[0].next_crop_plan_number
+      ),
+    });
+  } catch (error) {
+    return handleDatabaseError(res, error);
+  }
+});
+
 router.get("/:id", readRoles, async (req, res) => {
   const id = parsePositiveInteger(req.params.id);
   if (id === undefined) {
