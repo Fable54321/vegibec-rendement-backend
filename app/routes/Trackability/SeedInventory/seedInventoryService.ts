@@ -59,14 +59,14 @@ async function findOrCreateSeedLot(
   client: PoolClient,
   input: CreateSeedPurchaseInput,
 ): Promise<number> {
-  const supplier = input.supplier.trim();
+  const supplierId = input.supplier_id;
   const supplierLot = input.supplier_lot_number.trim();
 
   const result = await client.query(
     `
     INSERT INTO trackability.seed_lots (
       cultivar_id,
-      supplier,
+      supplier_id,
       supplier_lot_number,
       germination_percentage,
       thousand_seed_weight_grams
@@ -75,7 +75,7 @@ async function findOrCreateSeedLot(
 
     ON CONFLICT (
       cultivar_id,
-      supplier,
+      supplier_id,
       supplier_lot_number
     )
     DO UPDATE SET
@@ -85,7 +85,7 @@ async function findOrCreateSeedLot(
     `,
     [
       input.cultivar_id,
-      supplier,
+      supplierId,
       supplierLot,
       input.germination_percentage ?? null,
       input.thousand_seed_weight_grams ?? null,
@@ -118,7 +118,7 @@ export async function createPurchase(
         purchase_date,
         reception_date,
 
-        supplier,
+        supplier_id,
         supplier_lot_number,
 
         quantity_m,
@@ -147,7 +147,7 @@ export async function createPurchase(
         input.purchase_date ?? null,
         input.reception_date,
 
-        input.supplier.trim(),
+        input.supplier_id,
         input.supplier_lot_number.trim(),
 
         input.quantity_m,
@@ -322,7 +322,7 @@ export async function getCultivarInventory(
     SELECT
       sl.id AS seed_lot_id,
       sl.cultivar_id,
-      sl.supplier,
+      sl.supplier_id,
       sl.supplier_lot_number,
       sl.germination_percentage,
 
@@ -347,7 +347,7 @@ export async function getCultivarInventory(
 
     GROUP BY sl.id
 
-    ORDER BY sl.supplier, sl.supplier_lot_number
+    ORDER BY sl.supplier_id, sl.supplier_lot_number
     `,
     [cultivarId],
   );

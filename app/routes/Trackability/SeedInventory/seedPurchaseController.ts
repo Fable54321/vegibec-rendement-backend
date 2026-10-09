@@ -50,8 +50,8 @@ export const createPurchase: RequestHandler = async (
     }
 
     if (
-      typeof input.supplier !== "string" ||
-      !input.supplier.trim() ||
+      typeof input.supplier_id !== "number" ||
+      !input.supplier_id ||
       typeof input.supplier_lot_number !== "string" ||
       !input.supplier_lot_number.trim()
     ) {

@@ -1,7 +1,7 @@
 export interface SeedLot {
   id: number;
   cultivar_id: number;
-  supplier: string;
+  supplier_id: number;
   supplier_lot_number: string;
   germination_percentage: number | null;
   thousand_seed_weight_grams: number | null;
@@ -18,7 +18,7 @@ export interface SeedPurchase {
   purchase_date: string | null;
   reception_date: string;
 
-  supplier: string;
+  supplier_id: number;
   supplier_lot_number: string;
 
   quantity_m: number;
@@ -41,7 +41,7 @@ export interface CreateSeedPurchaseInput {
   purchase_date?: string | null;
   reception_date: string;
 
-  supplier: string;
+  supplier_id: number;
   supplier_lot_number: string;
 
   quantity_m: number;
@@ -69,7 +69,7 @@ export interface SeedInventoryLot {
   seed_lot_id: number;
   cultivar_id: number;
 
-  supplier: string;
+  supplier_id: number;
   supplier_lot_number: string;
 
   germination_percentage: number | null;
