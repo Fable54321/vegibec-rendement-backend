@@ -138,6 +138,15 @@ function normalizePlan(row: Record<string, any>) {
     "planned_tray_count",
   ];
 
+  const dateFields = [
+  "planned_sowing_date",
+  "planned_transplant_date",
+  "expected_harvest_start",
+  "expected_harvest_end",
+];
+
+
+
   const result = { ...row };
 
   for (const field of numericFields) {
@@ -145,6 +154,14 @@ function normalizePlan(row: Record<string, any>) {
       result[field] = Number(result[field]);
     }
   }
+
+  for (const field of dateFields) {
+  if (result[field] instanceof Date) {
+    result[field] = result[field]
+      .toISOString()
+      .slice(0, 10);
+  }
+}
 
   return result;
 }
