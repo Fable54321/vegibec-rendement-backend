@@ -14,7 +14,7 @@ router.get(
   async (req, res) => {
     try {
       const result = await pool.query(
-        `SELECT id, field, harvestable_area FROM public.fields ORDER BY field`,
+        `SELECT id, field, harvestable_area_ha, harvestable_area_ac, field_region FROM public.fields ORDER BY field`,
       );
 
       res.status(200).json(result.rows);
