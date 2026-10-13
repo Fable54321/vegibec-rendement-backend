@@ -13,7 +13,8 @@ const genericPlanColumns = `
   vegetable_id_2,
   acre_superficy,
   hectare_superficy,
-  field_id
+  field_id,
+  "season",
 `;
 
 const writableFields = [
@@ -22,6 +23,8 @@ const writableFields = [
   "acre_superficy",
   "hectare_superficy",
   "field_id",
+  "season",
+  
 ] as const;
 
 type WritableField = (typeof writableFields)[number];
@@ -78,6 +81,8 @@ function parseField(
     case "acre_superficy":
     case "hectare_superficy":
       return parseNullableSuperficy(value);
+    case "season":
+      return parsePositiveInteger(value);  
   }
 }
 
@@ -90,6 +95,8 @@ function validationMessage(field: WritableField): string {
     case "acre_superficy":
     case "hectare_superficy":
       return `${field} must be null or a non-negative number with at most 10 integer digits and 2 decimal places`;
+    case "season":
+      return `${field} must be a positive 32-bit integer`;  
   }
 }
 
@@ -141,13 +148,30 @@ function handleDatabaseError(res: Response, error: unknown) {
   });
 }
 
-router.get("/", readRoles, async (_req, res) => {
+router.get("/", readRoles, async (req, res) => {
+  const { season } = req.query;
+
+  const parsedSeason =
+    season === undefined
+      ? undefined
+      : parsePositiveInteger(season);
+
+  if (season !== undefined && parsedSeason === undefined) {
+    return res.status(400).json({
+      error: "Invalid season",
+    });
+  }
+
   try {
-    const result = await pool.query(`
+    const result = await pool.query(
+      `
       SELECT ${genericPlanColumns}
       FROM trackability.generic_production_plan
-      ORDER BY id DESC
-    `);
+      WHERE ($1::integer IS NULL OR season = $1)
+      ORDER BY season DESC, field_id ASC, id DESC
+      `,
+      [parsedSeason ?? null],
+    );
 
     return res.status(200).json(result.rows);
   } catch (error) {
