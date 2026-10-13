@@ -14,7 +14,7 @@ const genericPlanColumns = `
   acre_superficy,
   hectare_superficy,
   field_id,
-  "season",
+  season,
 `;
 
 const writableFields = [
