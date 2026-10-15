@@ -10,7 +10,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
 const cropPlanColumns = `
   id,
   crop_plan_number,
-  sowing_date,
+  planting_date,
   season,
   responsible,
   culture_id,
@@ -46,7 +46,7 @@ const writableFields = [
   "bed_end",
   "notes",
   "user_id",
-  "sowing_date",
+  "planting_date",
 ] as const;
 
 type WritableField = (typeof writableFields)[number];
@@ -184,7 +184,7 @@ function validationMessage(field: WritableField): string {
     case "planting_type":
       return "planting_type must be a non-empty string of at most 30 characters";
     case "expected_harvest_date":
-    case "sowing_date":  
+    case "planting_date":  
       return  `${field} must be null or a valid YYYY-MM-DD date`;
     case "planned_area":
       return "planned_area must be null or a non-negative number with at most 10 integer digits and 2 decimal places";
