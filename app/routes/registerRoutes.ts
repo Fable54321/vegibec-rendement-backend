@@ -58,7 +58,7 @@ import finishedProductsRoute from "./Trackability/finishedProducts";
 import rawProductsRoute from "./Trackability/rawProducts";
 import harvestingRoute from "./Trackability/harvesting";
 import cropPlanRoute from "./Trackability/Planification/cropPlan";
-import genericPlanRoute from "./Trackability/genericPlan";
+import genericPlanRoute from "./Trackability/Planification/genericPlan";
 import seedInventoryRoutes from "./Trackability/SeedInventory/seedInventoryRoutes";
 
 
