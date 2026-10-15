@@ -1,7 +1,7 @@
 import { pool } from "../../../db";
-import type { PoolClient } from "pg";
 
 import type {
+  CreateSeedLotInput,
   CreateSeedPurchaseInput,
   SeedInventoryAdjustment,
 } from "./seedInventoryTypes";
@@ -36,10 +36,25 @@ const inventoryNumbers = [
 export async function getPurchases() {
   const result = await pool.query(`
     SELECT
-      sp.*,
-      sl.id AS resolved_seed_lot_id
+      sp.id,
+      sp.reference_number,
+      sp.purchase_date,
+      sp.reception_date,
+      sp.quantity_m,
+      sp.price_per_thousand,
+      sp.total_cost,
+      sp.packaging,
+      sp.notes,
+      sp.created_at,
+      sp.updated_at,
+      sp.seed_lot_id,
+      sl.cultivar_id,
+      sl.supplier_id,
+      sl.supplier_lot_number,
+      sl.germination_percentage,
+      sl.thousand_seed_weight_grams
     FROM trackability.seed_purchases sp
-    LEFT JOIN trackability.seed_lots sl
+    JOIN trackability.seed_lots sl
       ON sl.id = sp.seed_lot_id
     ORDER BY sp.reception_date DESC, sp.id DESC
   `);
@@ -55,46 +70,6 @@ export async function getPurchases() {
   );
 }
 
-async function findOrCreateSeedLot(
-  client: PoolClient,
-  input: CreateSeedPurchaseInput,
-): Promise<number> {
-  const supplierId = input.supplier_id;
-  const supplierLot = input.supplier_lot_number.trim();
-
-  const result = await client.query(
-    `
-    INSERT INTO trackability.seed_lots (
-      cultivar_id,
-      supplier_id,
-      supplier_lot_number,
-      germination_percentage,
-      thousand_seed_weight_grams
-    )
-    VALUES ($1, $2, $3, $4, $5)
-
-    ON CONFLICT (
-      cultivar_id,
-      supplier_id,
-      supplier_lot_number
-    )
-    DO UPDATE SET
-      supplier_lot_number = EXCLUDED.supplier_lot_number
-
-    RETURNING id
-    `,
-    [
-      input.cultivar_id,
-      supplierId,
-      supplierLot,
-      input.germination_percentage ?? null,
-      input.thousand_seed_weight_grams ?? null,
-    ],
-  );
-
-  return result.rows[0].id;
-}
-
 export async function createPurchase(
   input: CreateSeedPurchaseInput,
 ) {
@@ -103,62 +78,40 @@ export async function createPurchase(
   try {
     await client.query("BEGIN");
 
-    const seedLotId = await findOrCreateSeedLot(
-      client,
-      input,
-    );
-
     const result = await client.query(
       `
       INSERT INTO trackability.seed_purchases (
         seed_lot_id,
-        cultivar_id,
-
-        purchase_number,
+        reference_number,
         purchase_date,
         reception_date,
-
-        supplier_id,
-        supplier_lot_number,
-
         quantity_m,
         price_per_thousand,
         total_cost,
-
-        germination_percentage,
-        thousand_seed_weight_grams,
         packaging,
         notes
       )
       VALUES (
-        $1, $2,
-        $3, $4, $5,
-        $6, $7,
-        $8, $9, $10,
-        $11, $12, $13, $14
+        $1, $2, $3, $4,
+        $5, $6, $7, $8, $9
       )
       RETURNING *
       `,
       [
-        seedLotId,
-        input.cultivar_id,
-
-        input.purchase_number ?? null,
+        input.seed_lot_id,
+        input.reference_number ?? null,
         input.purchase_date ?? null,
         input.reception_date,
-
-        input.supplier_id,
-        input.supplier_lot_number.trim(),
-
         input.quantity_m,
         input.price_per_thousand ?? null,
         input.total_cost ??
           (input.price_per_thousand != null
-            ? input.quantity_m * input.price_per_thousand
+            ? Number(
+                (
+                  input.quantity_m * input.price_per_thousand
+                ).toFixed(2),
+              )
             : null),
-
-        input.germination_percentage ?? null,
-        input.thousand_seed_weight_grams ?? null,
         input.packaging ?? null,
         input.notes ?? null,
       ],
@@ -174,8 +127,6 @@ export async function createPurchase(
       "quantity_m",
       "price_per_thousand",
       "total_cost",
-      "germination_percentage",
-      "thousand_seed_weight_grams",
     ]);
   } catch (error) {
     await client.query("ROLLBACK");
@@ -188,6 +139,36 @@ export async function createPurchase(
 // ==========================================
 // SUPPLIER LOTS
 // ==========================================
+
+export async function createLot(input: CreateSeedLotInput) {
+  const result = await pool.query(
+    `
+    INSERT INTO trackability.seed_lots (
+      cultivar_id,
+      supplier_id,
+      supplier_lot_number,
+      germination_percentage,
+      thousand_seed_weight_grams,
+      notes
+    )
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *
+    `,
+    [
+      input.cultivar_id,
+      input.supplier_id,
+      input.supplier_lot_number ?? null,
+      input.germination_percentage ?? null,
+      input.thousand_seed_weight_grams ?? null,
+      input.notes ?? null,
+    ],
+  );
+
+  return normalizeNumeric(result.rows[0], [
+    "germination_percentage",
+    "thousand_seed_weight_grams",
+  ]);
+}
 
 export async function getLots() {
   const result = await pool.query(`
@@ -267,8 +248,6 @@ export async function getLotById(id: number) {
         "reserved_quantity_m",
         "price_per_thousand",
         "total_cost",
-        "germination_percentage",
-        "thousand_seed_weight_grams",
       ]),
     ),
   };

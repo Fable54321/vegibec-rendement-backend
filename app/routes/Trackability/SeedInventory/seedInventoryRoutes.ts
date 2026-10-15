@@ -5,6 +5,7 @@ import { requireAppRole } from "../../../middleware/auth";
 import * as purchases from "./seedPurchaseController";
 import * as lots from "./seedController";
 import * as inventory from "./seedInventoryController";
+import suppliers from "./seedSuppliers";
 
 const router = Router();
 
@@ -34,6 +35,15 @@ router.post(
 // ==========================================
 // SEED LOTS
 // ==========================================
+
+router.post(
+  "/lots",
+  requireAppRole("main", [
+    "admin",
+    "user",
+  ]),
+  lots.createLot,
+);
 
 router.get(
   "/lots",
@@ -84,5 +94,11 @@ router.post(
   requireAppRole("main", ["admin"]),
   inventory.adjustInventory,
 );
+
+// ==========================================
+// SUPPLIERS
+// ==========================================
+
+router.use("/suppliers", suppliers);
 
 export default router;

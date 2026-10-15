@@ -1,16 +1,9 @@
-
 import express from "express";
 import { pool } from "../../../db";
 import { requireAppRole } from "../../../middleware/auth";
+import type { SeedSupplier } from "./seedInventoryTypes";
 
 const router = express.Router();
-
-interface SeedSupplier {
-  id: number;
-  name: string;
-  is_active: boolean;
-}
-
 
 router.get(
   "/",
@@ -20,7 +13,7 @@ router.get(
       const result = await pool.query<SeedSupplier>(
         `SELECT id, name, is_active
          FROM trackability.seed_supplier
-         ORDER BY name ASC`
+         ORDER BY name ASC`,
       );
 
       res.status(200).json(result.rows);
@@ -33,7 +26,7 @@ router.get(
   }
 );
 
-// GET /seed-suppliers/:id
+// GET /trackability/seeds/suppliers/:id
 // Retrieve a single supplier
 router.get(
   "/:id",
@@ -50,7 +43,7 @@ router.get(
         `SELECT id, name, is_active
          FROM trackability.seed_supplier
          WHERE id = $1`,
-        [id]
+        [id],
       );
 
       if (result.rows.length === 0) {
@@ -69,17 +62,22 @@ router.get(
   }
 );
 
-// POST /seed-suppliers
+// POST /trackability/seeds/suppliers
 // Create a new supplier
 router.post(
   "/",
   requireAppRole("main", ["admin", "user"]),
   async (req, res) => {
-    const { name } = req.body;
+    const { name } = req.body ?? {};
 
-    if (typeof name !== "string" || !name.trim()) {
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      name.trim().length > 150
+    ) {
       return res.status(400).json({
-        error: "Supplier name is required",
+        error:
+          "Supplier name must be a non-empty string of at most 150 characters",
       });
     }
 
@@ -88,7 +86,7 @@ router.post(
         `INSERT INTO trackability.seed_supplier (name)
          VALUES ($1)
          RETURNING id, name, is_active`,
-        [name.trim()]
+        [name.trim()],
       );
 
       res.status(201).json(result.rows[0]);
@@ -107,14 +105,14 @@ router.post(
   }
 );
 
-// PATCH /seed-suppliers/:id
+// PATCH /trackability/seeds/suppliers/:id
 // Update supplier name or active status
 router.patch(
   "/:id",
   requireAppRole("main", ["admin", "user"]),
   async (req, res) => {
     const id = Number(req.params.id);
-    const { name, is_active } = req.body;
+    const { name, is_active } = req.body ?? {};
 
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: "Invalid supplier ID" });
@@ -131,10 +129,13 @@ router.patch(
 
     if (
       name !== undefined &&
-      (typeof name !== "string" || !name.trim())
+      (typeof name !== "string" ||
+        !name.trim() ||
+        name.trim().length > 150)
     ) {
       return res.status(400).json({
-        error: "Invalid supplier name",
+        error:
+          "Supplier name must be a non-empty string of at most 150 characters",
       });
     }
 
@@ -159,7 +160,7 @@ router.patch(
           name !== undefined ? name.trim() : null,
           is_active ?? null,
           id,
-        ]
+        ],
       );
 
       if (result.rows.length === 0) {
@@ -184,7 +185,7 @@ router.patch(
   }
 );
 
-// DELETE /seed-suppliers/:id
+// DELETE /trackability/seeds/suppliers/:id
 // Delete a supplier
 router.delete(
   "/:id",
@@ -201,7 +202,7 @@ router.delete(
         `DELETE FROM trackability.seed_supplier
          WHERE id = $1
          RETURNING id`,
-        [id]
+        [id],
       );
 
       if (result.rows.length === 0) {

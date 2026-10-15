@@ -87,12 +87,13 @@ export const adjustInventory: RequestHandler = async (
       typeof input.adjustment_m !== "number" ||
       !Number.isFinite(input.adjustment_m) ||
       input.adjustment_m === 0 ||
+      Math.abs(input.adjustment_m) >= 100_000_000_000 ||
       Math.round(input.adjustment_m * 1000) !==
         input.adjustment_m * 1000
     ) {
       res.status(400).json({
         error:
-          "adjustment_m must be a non-zero number with at most 3 decimal places",
+          "adjustment_m must be a non-zero numeric(14,3) value",
       });
       return;
     }
@@ -127,6 +128,13 @@ export const adjustInventory: RequestHandler = async (
       res.status(409).json({
         error:
           "Insufficient unreserved stock for this adjustment",
+      });
+      return;
+    }
+
+    if (error.code === "22003" || error.code === "23514") {
+      res.status(400).json({
+        error: "The adjustment would produce an invalid inventory balance",
       });
       return;
     }
