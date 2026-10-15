@@ -57,10 +57,10 @@ import vehiclesRoute from "./ToolBoxes/vehicles";
 import finishedProductsRoute from "./Trackability/finishedProducts";
 import rawProductsRoute from "./Trackability/rawProducts";
 import harvestingRoute from "./Trackability/harvesting";
-import cropPlanRoute from "./Trackability/cropPlan";
+import cropPlanRoute from "./Trackability/Planification/cropPlan";
 import genericPlanRoute from "./Trackability/genericPlan";
 import seedInventoryRoutes from "./Trackability/SeedInventory/seedInventoryRoutes";
-import greenHousePlanRoute from "./Trackability/SeedInventory/greenHousePlan";
+
 
 
 import transportRoute from "./Transports/transport.routes";
@@ -160,7 +160,7 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/trackability/crop-plans", cropPlanRoute);
   app.use("/trackability/generic-plans", genericPlanRoute);
   app.use("/trackability/seeds", seedInventoryRoutes);
-  app.use("/trackability/greenhouse-plans", greenHousePlanRoute);
+
 
   app.use("/finished-products", finishedProductsRoute);
   app.use("/raw-products", rawProductsRoute);

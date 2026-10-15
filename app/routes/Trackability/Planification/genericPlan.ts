@@ -1,6 +1,6 @@
 import { Response, Router } from "express";
-import { pool } from "../../db";
-import { requireAppRole } from "../../middleware/auth";
+import { pool } from "../../../db";
+import { requireAppRole } from "../../../middleware/auth";
 
 const router = Router();
 
