@@ -402,6 +402,7 @@ router.get("/me", async (req, res) => {
         email: user.email,
         name: user.name,
         surname: user.surname,
+        is_office: user.is_office,
         full_name: `${user.name ?? ""} ${user.surname ?? ""}`.trim(),
         organic_filter_mode: organicFilterMode,
         trend_preference: trendPreference,
