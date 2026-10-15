@@ -87,15 +87,17 @@ export const createLot: RequestHandler = async (
 ) => {
   try {
     const input = (req.body ?? {}) as Partial<CreateSeedLotInput>;
+    const cultivarId = input.cultivar_id;
+    const supplierId = input.supplier_id;
 
-    if (!isPositiveInteger(input.cultivar_id)) {
+    if (!isPositiveInteger(cultivarId)) {
       res.status(400).json({
         error: "A valid cultivar_id is required",
       });
       return;
     }
 
-    if (!isPositiveInteger(input.supplier_id)) {
+    if (!isPositiveInteger(supplierId)) {
       res.status(400).json({
         error: "A valid supplier_id is required",
       });
@@ -164,8 +166,8 @@ export const createLot: RequestHandler = async (
     }
 
     const lot = await seedService.createLot({
-      cultivar_id: input.cultivar_id,
-      supplier_id: input.supplier_id,
+      cultivar_id: cultivarId,
+      supplier_id: supplierId,
       supplier_lot_number:
         typeof input.supplier_lot_number === "string"
           ? input.supplier_lot_number.trim()

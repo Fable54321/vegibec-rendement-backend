@@ -352,7 +352,7 @@ router.get("/me", async (req, res) => {
   try {
     const userResult = await pool.query(
       `
-      SELECT id, username, email, name, surname
+      SELECT id, username, email, name, surname, is_office
       FROM users
       WHERE id = $1
       `,
