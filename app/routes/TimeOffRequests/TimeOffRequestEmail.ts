@@ -56,6 +56,42 @@ const formatDate = (value: string | Date): string => {
   }).format(new Date(`${rawDate}T00:00:00Z`));
 };
 
+const toIsoDate = (value: string | Date): string =>
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
+
+const formatDateRanges = (values: Array<string | Date>): string[] => {
+  const dates = [...new Set(values.map(toIsoDate))].sort();
+  const ranges: Array<{ start: string; end: string }> = [];
+
+  for (const date of dates) {
+    const currentRange = ranges[ranges.length - 1];
+
+    if (!currentRange) {
+      ranges.push({ start: date, end: date });
+      continue;
+    }
+
+    const previousDay = Date.parse(`${currentRange.end}T00:00:00Z`);
+    const currentDay = Date.parse(`${date}T00:00:00Z`);
+
+    if (
+      Number.isFinite(previousDay) &&
+      Number.isFinite(currentDay) &&
+      currentDay - previousDay === 24 * 60 * 60 * 1000
+    ) {
+      currentRange.end = date;
+    } else {
+      ranges.push({ start: date, end: date });
+    }
+  }
+
+  return ranges.map(({ start, end }) =>
+    start === end
+      ? formatDate(start)
+      : `du ${formatDate(start)} au ${formatDate(end)}`,
+  );
+};
+
 const getRequesterName = (
   request: TimeOffRequest,
   requester: TimeOffRequester,
@@ -86,7 +122,7 @@ export const buildNewTimeOffRequestEmail = (
 ): TimeOffRequestEmail => {
   const requesterName = getRequesterName(request, requester);
   const requesterEmail = requester.email?.trim() || "Non disponible";
-  const dates = request.requested_dates.map(formatDate);
+  const dates = formatDateRanges(request.requested_dates);
   const reason = request.reason?.trim() || "Aucune raison précisée";
   const paymentPreference = getPaymentPreference(request);
   const safeSubjectName = requesterName.replace(/[\r\n]+/g, " ");

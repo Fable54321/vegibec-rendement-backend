@@ -28,6 +28,45 @@ test("builds the new time-off request notification", () => {
   assert.match(email.html, /marie@example\.com/);
 });
 
+test("groups consecutive requested dates into inclusive ranges", () => {
+  const email = buildNewTimeOffRequestEmail(
+    {
+      id: 44,
+      requester_user_id: 9,
+      requested_dates: [
+        "2026-10-25",
+        "2026-10-19",
+        "2026-10-21",
+        "2026-10-20",
+        "2026-10-22",
+        "2026-10-24",
+        "2026-10-23",
+      ],
+      payment_preference: "unpaid",
+    },
+    { name: "Louis", surname: "Roy" },
+  );
+
+  assert.match(email.text, /du 19 octobre 2026 au 25 octobre 2026/);
+  assert.match(email.html, /du 19 octobre 2026 au 25 octobre 2026/);
+  assert.doesNotMatch(email.text, /- 20 octobre 2026/);
+});
+
+test("keeps separate dates and date ranges distinct", () => {
+  const email = buildNewTimeOffRequestEmail(
+    {
+      id: 45,
+      requester_user_id: 10,
+      requested_dates: ["2026-10-19", "2026-10-20", "2026-10-25"],
+      payment_preference: "overtime-bank",
+    },
+    { name: "Anne", surname: "Roy" },
+  );
+
+  assert.match(email.text, /- du 19 octobre 2026 au 20 octobre 2026/);
+  assert.match(email.text, /- 25 octobre 2026/);
+});
+
 test("escapes user-provided values in the HTML email", () => {
   const email = buildNewTimeOffRequestEmail(
     {
