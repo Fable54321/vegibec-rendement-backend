@@ -10,7 +10,8 @@ export function getRequiredContractSlugsForWorker(worker: {
     .trim()
     .replace(/^0+(?=\d)/, "");
 
-  if (normalizedPin === "680") {
+  if (normalizedPin === "680" || normalizedPin === "872" || normalizedPin === "873" 
+    || normalizedPin === "882" || normalizedPin === "1044") {
     return ["Imp-aut", "Imp-con", "Rev-etr"];
   }
 
