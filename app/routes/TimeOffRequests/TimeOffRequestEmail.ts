@@ -96,7 +96,7 @@ const getRequesterName = (
   request: TimeOffRequest,
   requester: TimeOffRequester,
 ): string => {
-  const fullName = [requester.name, requester.surname]
+  const fullName = [requester.surname, requester.name]
     .map((value) => value?.trim())
     .filter(Boolean)
     .join(" ");
