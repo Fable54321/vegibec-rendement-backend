@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildNewTimeOffRequestEmail,
+  buildTimeOffApprovalUrl,
   TIME_OFF_REQUEST_EMAIL_RECIPIENT,
 } from "./TimeOffRequestEmail";
 
@@ -22,10 +23,25 @@ test("builds the new time-off request notification", () => {
   );
 
   assert.equal(TIME_OFF_REQUEST_EMAIL_RECIPIENT, "programmation@vegibec.com");
-  assert.match(email.subject, /Marie Tremblay/);
+  assert.match(email.subject, /Tremblay Marie/);
   assert.match(email.text, /20 octobre 2026/);
   assert.match(email.text, /Banque de vacances/);
   assert.match(email.html, /marie@example\.com/);
+  assert.match(
+    email.text,
+    /https:\/\/vegibec-portail\.com\/approbation-conge\/42/,
+  );
+  assert.match(
+    email.html,
+    /href="https:\/\/vegibec-portail\.com\/approbation-conge\/42"/,
+  );
+});
+
+test("builds the approval URL from the request ID", () => {
+  assert.equal(
+    buildTimeOffApprovalUrl(987),
+    "https://vegibec-portail.com/approbation-conge/987",
+  );
 });
 
 test("groups consecutive requested dates into inclusive ranges", () => {

@@ -1,6 +1,8 @@
 import { sendEmail } from "../Visitors/Utils/testSMTP";
 
 export const TIME_OFF_REQUEST_EMAIL_RECIPIENT = "programmation@vegibec.com";
+const TIME_OFF_APPROVAL_BASE_URL =
+  "https://vegibec-portail.com/approbation-conge";
 
 type TimeOffRequest = {
   id: number | string;
@@ -24,6 +26,9 @@ export type TimeOffRequestEmail = {
   text: string;
   html: string;
 };
+
+export const buildTimeOffApprovalUrl = (requestId: number | string): string =>
+  `${TIME_OFF_APPROVAL_BASE_URL}/${encodeURIComponent(String(requestId))}`;
 
 const paymentPreferenceLabels: Record<string, string> = {
   "overtime-bank": "Banque d'heures supplémentaires",
@@ -125,6 +130,7 @@ export const buildNewTimeOffRequestEmail = (
   const dates = formatDateRanges(request.requested_dates);
   const reason = request.reason?.trim() || "Aucune raison précisée";
   const paymentPreference = getPaymentPreference(request);
+  const approvalUrl = buildTimeOffApprovalUrl(request.id);
   const safeSubjectName = requesterName.replace(/[\r\n]+/g, " ");
   const subject = `Nouvelle demande de congé — ${safeSubjectName}`;
   const text = [
@@ -137,6 +143,8 @@ export const buildNewTimeOffRequestEmail = (
     ...dates.map((date) => `- ${date}`),
     `Préférence de paiement : ${paymentPreference}`,
     `Raison : ${reason}`,
+    "",
+    `Approuver ou consulter cette demande : ${approvalUrl}`,
   ].join("\n");
   const html = `
     <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
@@ -148,6 +156,12 @@ export const buildNewTimeOffRequestEmail = (
       <ul>${dates.map((date) => `<li>${escapeHtml(date)}</li>`).join("")}</ul>
       <p><strong>Préférence de paiement :</strong> ${escapeHtml(paymentPreference)}</p>
       <p><strong>Raison :</strong><br />${escapeHtml(reason).replace(/\n/g, "<br />")}</p>
+      <p style="margin-top: 24px;">
+        <a href="${escapeHtml(approvalUrl)}" style="display: inline-block; padding: 12px 18px; border-radius: 6px; background: #166534; color: #ffffff; text-decoration: none; font-weight: bold;">
+          Approuver ou consulter la demande
+        </a>
+      </p>
+      <p style="font-size: 12px; color: #6b7280;">${escapeHtml(approvalUrl)}</p>
     </div>
   `.trim();
 
