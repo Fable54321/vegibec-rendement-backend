@@ -403,7 +403,7 @@ router.get("/me", async (req, res) => {
         name: user.name,
         surname: user.surname,
         is_office: user.is_office,
-        full_name: `${user.name ?? ""} ${user.surname ?? ""}`.trim(),
+        full_name: `${user.surname ?? ""} ${user.name ?? ""}`.trim(),
         organic_filter_mode: organicFilterMode,
         trend_preference: trendPreference,
         appAccess: appAccessResult.rows,
