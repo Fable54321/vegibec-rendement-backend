@@ -3,25 +3,11 @@ import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 import { sendNewTimeOffRequestEmailSafely } from "./TimeOffRequestEmail";
 
-/**
- * portal.time_off_request
- *
- * Mount:
- *   import timeOffRequestRoutes from "./routes/portal/timeOffRequestRoutes";
- *   app.use("/time-off-requests", timeOffRequestRoutes);
- *
- * Expects the authentication middleware to populate req.user.id.
- * The "main" app slug follows the existing portal convention; change it if
- * this feature is registered under a different app slug.
- *
- * Review status values and payment preferences are enforced by the existing
- * PostgreSQL CHECK constraints. The exact allowed values are not visible in
- * the supplied screenshots, so this router intentionally does not invent them.
- */
+
 
 const router = Router();
-const canRead = requireAppRole("main", ["admin", "user", "guest"]);
-const canReview = requireAppRole("main", ["admin"]);
+const canRead = requireAppRole("conges", ["admin", "user", "guest"]);
+const canReview = requireAppRole("conges", ["admin"]);
 
 type AuthRequest = Request & { user?: { id: number | string } };
 type DbError = Error & { code?: string; constraint?: string };
@@ -91,12 +77,10 @@ const sendDbError = (res: Response, error: unknown): void => {
   const err = error as DbError;
   console.error("Time off request database error:", error);
   if (err.code === "23514") {
-    res
-      .status(400)
-      .json({
-        error: "Value rejected by a database CHECK constraint",
-        constraint: err.constraint,
-      });
+    res.status(400).json({
+      error: "Value rejected by a database CHECK constraint",
+      constraint: err.constraint,
+    });
   } else if (err.code === "23503") {
     res.status(400).json({ error: "Referenced user does not exist" });
   } else if (
