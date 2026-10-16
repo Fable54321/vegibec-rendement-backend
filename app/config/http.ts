@@ -29,6 +29,7 @@ const allowedOrigins = [
   "https://evaluacion.vegibec-portail.com",
   "https://frigos.vegibec-portail.com",
   "https://campo.vegibec-portail.com",
+  "https://conges.vegibec-portail.com",
 ];
 
 const defaultJsonParser = express.json();
