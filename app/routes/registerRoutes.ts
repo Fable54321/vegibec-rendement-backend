@@ -61,7 +61,7 @@ import cropPlanRoute from "./Trackability/Planification/cropPlan";
 import genericPlanRoute from "./Trackability/Planification/genericPlan";
 import seedInventoryRoutes from "./Trackability/SeedInventory/seedInventoryRoutes";
 
-
+import timeOffRoute from "./TimeOffRequests/TimeOffRequests";
 
 import transportRoute from "./Transports/transport.routes";
 import portalUnprotectedRoute from "./Unprotected/PortalUnprotected";
@@ -160,6 +160,8 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/trackability/crop-plans", cropPlanRoute);
   app.use("/trackability/generic-plans", genericPlanRoute);
   app.use("/trackability/seeds", seedInventoryRoutes);
+
+  app.use("/time-off", timeOffRoute);
 
 
   app.use("/finished-products", finishedProductsRoute);
