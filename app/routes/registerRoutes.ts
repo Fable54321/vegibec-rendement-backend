@@ -52,7 +52,7 @@ import timesheetsTasksRoute from "./Timesheets/tasks";
 import userDailyDurationRoute from "./Timesheets/userDailyDuration";
 import toolboxesRoute from "./ToolBoxes/toolboxes";
 import vehiclesRoute from "./ToolBoxes/vehicles";
-
+import notificationsRoute from "./Notifications/NotificationRoutes";
 
 import finishedProductsRoute from "./Trackability/finishedProducts";
 import rawProductsRoute from "./Trackability/rawProducts";
@@ -162,7 +162,7 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/trackability/seeds", seedInventoryRoutes);
 
   app.use("/time-off", timeOffRoute);
-
+  app.use("/notifications", notificationsRoute);
 
   app.use("/finished-products", finishedProductsRoute);
   app.use("/raw-products", rawProductsRoute);
