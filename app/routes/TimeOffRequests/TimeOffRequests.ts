@@ -308,12 +308,7 @@ router.patch("/:id", canRead, async (req, res) => {
   }
 });
 
-/**
- * PATCH /time-off-requests/:id/review (ADMIN ONLY)
- * Body: { "status": "<database-allowed-review-status>", "review_note": "..." }
- * Review transitions are pending -> approved/rejected/etc. depending on the
- * actual time_off_request_status_valid CHECK constraint in the database.
- */
+
 router.patch("/:id/review", canReview, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
