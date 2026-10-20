@@ -53,7 +53,10 @@ const getOvertime = async (userId: number, query: OvertimeQuery) => {
       SELECT
         ow.week_start,
         ow.week_start + 6 AS week_end,
+        ow.worked_minutes,
+        ow.holiday_minutes,
         ow.total_minutes,
+        ow.total_minutes AS qualifying_minutes,
         ow.total_minutes / 60.0 AS total_hours,
         ow.banked_minutes,
         ow.banked_minutes / 60.0 AS banked_hours

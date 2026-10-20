@@ -28,25 +28,67 @@ const run = async () => {
 
   await pool.query(sql);
   const verification = await pool.query<{ mismatch_count: string }>(`
-    WITH calculated AS (
-      SELECT
+    WITH candidate_weeks AS (
+      SELECT DISTINCT
         ws.user_id,
         date_trunc(
           'week',
           ws.start_time AT TIME ZONE 'America/Toronto'
-        )::date AS week_start,
-        GREATEST(
-          0,
-          SUM(
-            COALESCE(
-              ws.duration_minutes,
-              ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
-            )
-          ) - SUM(COALESCE(ws.lunch_duration, 0))
-        )::bigint AS total_minutes
+        )::date AS week_start
       FROM timesheets.work_sessions ws
       WHERE ws.end_time IS NOT NULL
-      GROUP BY ws.user_id, week_start
+
+      UNION
+
+      SELECT
+        u.id AS user_id,
+        date_trunc('week', ph.holiday_date)::date AS week_start
+      FROM public.users u
+      CROSS JOIN timesheets.public_holidays ph
+      WHERE u.uses_worksheet = TRUE
+        AND u.is_active = TRUE
+        AND u.created_at::date <= ph.holiday_date
+        AND ph.is_active = TRUE
+    ),
+    calculated AS (
+      SELECT
+        candidate.user_id,
+        candidate.week_start,
+        GREATEST(
+          0,
+          COALESCE((
+            SELECT SUM(
+              COALESCE(
+                ws.duration_minutes,
+                ROUND(EXTRACT(EPOCH FROM ws.end_time - ws.start_time) / 60)
+              ) - COALESCE(ws.lunch_duration, 0)
+            )
+            FROM timesheets.work_sessions ws
+            WHERE ws.user_id = candidate.user_id
+              AND ws.end_time IS NOT NULL
+              AND date_trunc(
+                'week',
+                ws.start_time AT TIME ZONE 'America/Toronto'
+              )::date = candidate.week_start
+          ), 0)
+        )::bigint AS worked_minutes,
+        COALESCE((
+          SELECT SUM(ph.credited_minutes)
+          FROM timesheets.public_holidays ph
+          WHERE ph.is_active = TRUE
+            AND ph.holiday_date BETWEEN
+              candidate.week_start AND candidate.week_start + 6
+            AND NOT EXISTS (
+              SELECT 1
+              FROM timesheets.work_sessions holiday_session
+              WHERE holiday_session.user_id = candidate.user_id
+                AND holiday_session.end_time IS NOT NULL
+                AND (
+                  holiday_session.start_time AT TIME ZONE 'America/Toronto'
+                )::date = ph.holiday_date
+            )
+        ), 0)::bigint AS holiday_minutes
+      FROM candidate_weeks candidate
     )
     SELECT COUNT(*)::text AS mismatch_count
     FROM calculated c
@@ -54,8 +96,14 @@ const run = async () => {
       USING (user_id, week_start)
     WHERE c.user_id IS NULL
       OR ow.user_id IS NULL
-      OR c.total_minutes IS DISTINCT FROM ow.total_minutes
-      OR GREATEST(0, c.total_minutes - 2400)
+      OR c.worked_minutes IS DISTINCT FROM ow.worked_minutes
+      OR c.holiday_minutes IS DISTINCT FROM ow.holiday_minutes
+      OR c.worked_minutes + c.holiday_minutes
+        IS DISTINCT FROM ow.total_minutes
+      OR GREATEST(
+        0,
+        c.worked_minutes + c.holiday_minutes - 2400
+      )
         IS DISTINCT FROM ow.banked_minutes
   `);
 
