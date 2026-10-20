@@ -11,7 +11,7 @@ const canRead = requireAppRole("main", [
   "guest",
 ]);
 
-const canCreate = requireAppRole("main", ["admin"]);
+const canCreate = requireAppRole("main", ["admin", "user"]);
 
 type AuthRequest = Request & {
   user?: {
