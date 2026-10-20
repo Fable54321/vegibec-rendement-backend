@@ -3,8 +3,6 @@ import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 import { sendNewTimeOffRequestEmailSafely } from "./TimeOffRequestEmail";
 
-
-
 const router = Router();
 const canRead = requireAppRole("conges", ["admin", "user", "guest"]);
 const canReview = requireAppRole("conges", ["admin"]);
