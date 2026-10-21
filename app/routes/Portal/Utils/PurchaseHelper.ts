@@ -12,7 +12,7 @@ const PURCHASE_TOKEN_EXPIRES_IN_DAYS = 14
 const RECEIPT_VOUCHER_TOKEN_EXPIRES_IN_DAYS = 14
 const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
 const PURCHASE_BUYER_NAME = "Ricardo"
-const PURCHASE_ADMIN_NAME = "Michelle"
+const PURCHASE_ADMIN_NAME = "Lynda"
 
 export type PictureEmailLink = {
   label: string
@@ -1356,7 +1356,7 @@ Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
     : ""
 
   return `
-Une demande d'achat est prête pour la décision de Michelle.
+Une demande d'achat est prête pour la décision de Lynda.
 
 Numéro de demande:
 #${displayRequestNumber}
@@ -1393,11 +1393,11 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: true,
 })}
 
-Lien de décision pour Michelle:
+Lien de décision pour Lynda:
 ${adminApprovalUrl}
 
 Prochaine étape:
-Michelle doit approuver, mettre en attente ou refuser la demande.
+Lynda doit approuver, mettre en attente ou refuser la demande.
   `.trim()
 }
 
@@ -1414,9 +1414,9 @@ export const buildAdminApprovalEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Demande d'achat #${escapeHtml(displayRequestNumber)} prête pour Michelle</h2>
+      <h2>Demande d'achat #${escapeHtml(displayRequestNumber)} prête pour Lynda</h2>
 
-      <p>Michelle doit approuver, mettre en attente ou refuser cette demande.</p>
+      <p>Lynda doit approuver, mettre en attente ou refuser cette demande.</p>
 
       ${
         priceIncreaseInfo
@@ -1476,7 +1476,7 @@ export const buildAdminApprovalEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Michelle - approbation
+          Lynda - approbation
         </a>
       </p>
 
@@ -1499,12 +1499,12 @@ export const getPurchaseRequestStatusLabel = (
   const labels: Record<string, string> = {
     pending_buyer_validation: "En attente de validation par Ricardo",
     needs_requester_info: "Information demandée au demandeur",
-    pending_admin_approval: "En attente de décision par Michelle",
+    pending_admin_approval: "En attente de décision par Lynda",
     approved: "Approuvée",
     rejected: "Refusée",
     ready_to_purchase: "Prête à acheter",
     partially_purchased: "Partiellement achetée",
-    admin_on_wait: "Mise en attente par Michelle",
+    admin_on_wait: "Mise en attente par Lynda",
     purchased: "Achetée",
     cancelled: "Annulée",
   }
@@ -1555,7 +1555,7 @@ Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
 Ricardo a confirmé le prix de la demande d'achat #${displayRequestNumber}.
 
 Prochaine décision:
-Michelle doit approuver ou refuser la demande.
+Lynda doit approuver ou refuser la demande.
 
 Résumé de la demande:
 
@@ -1597,7 +1597,7 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: true,
 })}
 
-Lien de décision pour Michelle:
+Lien de décision pour Lynda:
 ${adminApprovalUrl}
   `.trim()
 }
@@ -1622,7 +1622,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
         displayRequestNumber
       )}</h2>
 
-      <p>Michelle doit maintenant approuver ou refuser la demande.</p>
+      <p>Lynda doit maintenant approuver ou refuser la demande.</p>
 
       ${
         priceIncreaseInfo
@@ -1692,7 +1692,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Michelle - approbation
+          Lynda - approbation
         </a>
       </p>
 
@@ -2032,7 +2032,7 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: false,
 })}
 
-Si cette nouvelle date pose un problème, veuillez communiquer avec Ricardo ou Michelle.
+Si cette nouvelle date pose un problème, veuillez communiquer avec Ricardo ou Lynda.
 
 Merci,
 Vegibec
@@ -2076,7 +2076,7 @@ export const buildRequesterDateChangedEmailHtml = (
 
       <p>
         Si cette nouvelle date pose un problème, veuillez communiquer avec
-        Ricardo ou Michelle.
+        Ricardo ou Lynda.
         La réponse à ce courriel est dirigée vers leurs deux boîtes courriel.
       </p>
 
