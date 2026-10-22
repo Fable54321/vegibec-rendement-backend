@@ -258,7 +258,7 @@ router.post("/", canRead, async (req, res) => {
   }
 });
 
-/** PATCH /time-off-requests/:id (requester; pending requests only) */
+
 router.patch("/:id", canRead, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
@@ -270,6 +270,7 @@ router.patch("/:id", canRead, async (req, res) => {
   try {
     const updates: string[] = [];
     const values: unknown[] = [];
+    let updatedStatus: string | null = null;
     const add = (column: string, value: unknown, cast = "") => {
       values.push(value);
       updates.push(`${column} = $${values.length}${cast}`);
@@ -285,21 +286,56 @@ router.patch("/:id", canRead, async (req, res) => {
         "payment_preference_other",
         optionalText(req.body.payment_preference_other) ?? null,
       );
+    if ("status" in req.body) {
+      updatedStatus = requiredText(req.body.status, 60);
+      add("status", updatedStatus);
+    }
     if (!updates.length)
       return res.status(400).json({ error: "No editable fields provided" });
 
     values.push(id, userId);
     const result = await pool.query(
-      `UPDATE portal.time_off_request SET ${updates.join(", ")}, updated_at = NOW()
-       WHERE id = $${values.length - 1} AND requester_user_id = $${values.length} AND status = 'pending'
-       RETURNING ${fields}`,
+      `WITH updated_request AS (
+         UPDATE portal.time_off_request
+         SET ${updates.join(", ")}, updated_at = NOW()
+         WHERE id = $${values.length - 1}
+           AND requester_user_id = $${values.length}
+           AND status = 'pending'
+         RETURNING ${fields}
+       )
+       SELECT
+         updated_request.*,
+         users.name AS requester_name,
+         users.surname AS requester_surname,
+         users.username AS requester_username,
+         users.email AS requester_email
+       FROM updated_request
+       LEFT JOIN public.users users
+         ON users.id = updated_request.requester_user_id`,
       values,
     );
     if (!result.rows.length)
       return res
         .status(404)
         .json({ error: "Pending request not found or cannot be edited" });
-    return res.json(result.rows[0]);
+    const {
+      requester_name,
+      requester_surname,
+      requester_username,
+      requester_email,
+      ...updatedRequest
+    } = result.rows[0];
+
+    if (updatedStatus && updatedStatus !== "pending") {
+      await sendTimeOffReviewEmailSafely(updatedRequest, {
+        name: requester_name,
+        surname: requester_surname,
+        username: requester_username,
+        email: requester_email,
+      });
+    }
+
+    return res.json(updatedRequest);
   } catch (error) {
     if (
       error instanceof Error &&
