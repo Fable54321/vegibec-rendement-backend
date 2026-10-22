@@ -189,7 +189,7 @@ export const buildTimeOffReviewEmail = (
     "Dates demandées :",
     ...dates.map((date) => `- ${date}`),
     `Statut : ${statusLabel}`,
-    ...(reviewNote ? [`Note de révision : ${reviewNote}`] : []),
+    ...(reviewNote ? [`Raison ou notes : ${reviewNote}`] : []),
     "",
     "Merci de votre compréhension",
     
@@ -197,16 +197,16 @@ export const buildTimeOffReviewEmail = (
   const html = `
     <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
       <p>Bonjour ${escapeHtml(requesterName)},</p>
-      <p>Votre demande de congé <strong>#${escapeHtml(String(request.id))}</strong> a été <strong>${decision}</strong>.</p>
+      <p>Votre demande de congé a été <strong>${decision}</strong>.</p>
       <p><strong>Dates demandées :</strong></p>
       <ul>${dates.map((date) => `<li>${escapeHtml(date)}</li>`).join("")}</ul>
       <p><strong>Statut :</strong> ${statusLabel}</p>
       ${
         reviewNote
-          ? `<p><strong>Note de révision :</strong><br />${escapeHtml(reviewNote).replace(/\n/g, "<br />")}</p>`
+          ? `<p><strong>Raison ou notes :</strong><br />${escapeHtml(reviewNote).replace(/\n/g, "<br />")}</p>`
           : ""
       }
-      <p>Merci,<br />Vegibec</p>
+      <p>Merci de cvotre compréhension</p>
     </div>
   `.trim();
 
