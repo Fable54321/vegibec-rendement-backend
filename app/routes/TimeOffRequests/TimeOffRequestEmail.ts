@@ -35,6 +35,7 @@ export const buildTimeOffApprovalUrl = (requestId: number | string): string =>
 const paymentPreferenceLabels: Record<string, string> = {
   "overtime-bank": "Banque d'heures supplémentaires",
   "vacation-bank": "Banque de vacances",
+  "no-preference": "Pas de préférence",
   unpaid: "Congé sans solde",
   other: "Autre",
 };
