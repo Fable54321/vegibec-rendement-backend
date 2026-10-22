@@ -180,19 +180,19 @@ export const buildTimeOffReviewEmail = (
   const requesterName = getRequesterName(request, requester);
   const dates = formatDateRanges(request.requested_dates);
   const reviewNote = request.review_note?.trim();
-  const subject = `Votre demande de congé #${request.id} a été ${decision}`;
+  const subject = `Votre demande de congé a été ${decision}`;
   const text = [
     `Bonjour ${requesterName},`,
     "",
-    `Votre demande de congé #${request.id} a été ${decision}.`,
+    `Votre demande de congé a été ${decision}.`,
     "",
     "Dates demandées :",
     ...dates.map((date) => `- ${date}`),
     `Statut : ${statusLabel}`,
     ...(reviewNote ? [`Note de révision : ${reviewNote}`] : []),
     "",
-    "Merci,",
-    "Vegibec",
+    "Merci de votre compréhension",
+    
   ].join("\n");
   const html = `
     <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
