@@ -143,7 +143,7 @@ export const buildNewTimeOffRequestEmail = (
     `Courriel : ${requesterEmail}`,
     "Dates demandées :",
     ...dates.map((date) => `- ${date}`),
-    `Préférence de paiement : ${paymentPreference}`,
+    `Préférence de rémunération : ${paymentPreference}`,
     `Raison : ${reason}`,
     "",
     `Approuver ou consulter cette demande : ${approvalUrl}`,
@@ -156,7 +156,7 @@ export const buildNewTimeOffRequestEmail = (
       <p><strong>Courriel :</strong> ${escapeHtml(requesterEmail)}</p>
       <p><strong>Dates demandées :</strong></p>
       <ul>${dates.map((date) => `<li>${escapeHtml(date)}</li>`).join("")}</ul>
-      <p><strong>Préférence de paiement :</strong> ${escapeHtml(paymentPreference)}</p>
+      <p><strong>Préférence de rémunération :</strong> ${escapeHtml(paymentPreference)}</p>
       <p><strong>Raison :</strong><br />${escapeHtml(reason).replace(/\n/g, "<br />")}</p>
       <p style="margin-top: 24px;">
         <a href="${escapeHtml(approvalUrl)}" style="display: inline-block; padding: 12px 18px; border-radius: 6px; background: #166534; color: #ffffff; text-decoration: none; font-weight: bold;">
