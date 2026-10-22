@@ -117,7 +117,7 @@ test("builds an approval email for the requester", () => {
     { name: "Marie", surname: "Tremblay" },
   );
 
-  assert.match(email.subject, /demande de congé #46 a été approuvée/);
+  assert.match(email.subject, /demande de congé a été approuvée/);
   assert.match(email.text, /Bonjour Tremblay Marie/);
   assert.match(email.text, /du 2 novembre 2026 au 3 novembre 2026/);
   assert.match(email.text, /Statut : Approuvée/);
@@ -136,7 +136,7 @@ test("builds a refusal email and escapes its review note", () => {
     { username: "jroy" },
   );
 
-  assert.match(email.subject, /demande de congé #47 a été refusée/);
+  assert.match(email.subject, /demande de congé a été refusée/);
   assert.match(email.text, /Statut : Refusée/);
   assert.match(email.text, /Conflit <horaire> & équipe/);
   assert.match(email.html, /Conflit &lt;horaire&gt; &amp; équipe/);

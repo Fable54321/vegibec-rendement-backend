@@ -95,6 +95,53 @@ const sendDbError = (res: Response, error: unknown): void => {
   }
 };
 
+
+router.get("/calendar", canRead, async (req, res) => {
+  const userId = currentUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
+
+  const from = req.query.from;
+  const to = req.query.to;
+
+  if (from !== undefined && (typeof from !== "string" || !isRealDate(from)))
+    return res.status(400).json({ error: "Invalid from date" });
+  if (to !== undefined && (typeof to !== "string" || !isRealDate(to)))
+    return res.status(400).json({ error: "Invalid to date" });
+  if (typeof from === "string" && typeof to === "string" && from > to)
+    return res
+      .status(400)
+      .json({ error: "from date must be before or equal to to date" });
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         requests.id,
+         requests.requester_user_id,
+         requests.requested_dates,
+         requests.status,
+         users.name AS requester_name,
+         users.surname AS requester_surname,
+         users.username AS requester_username,
+         (requests.requester_user_id = $3)::boolean AS is_own_request
+       FROM portal.time_off_request requests
+       LEFT JOIN public.users users ON users.id = requests.requester_user_id
+       WHERE requests.status = 'approved'
+         AND EXISTS (
+           SELECT 1
+           FROM unnest(requests.requested_dates) AS dates(requested_date)
+           WHERE ($1::date IS NULL OR dates.requested_date >= $1::date)
+             AND ($2::date IS NULL OR dates.requested_date <= $2::date)
+         )
+       ORDER BY requests.requested_dates[1], requests.id`,
+      [from ?? null, to ?? null, userId],
+    );
+
+    return res.json({ data: result.rows });
+  } catch (error) {
+    return sendDbError(res, error);
+  }
+});
+
 /** GET /time-off-requests/mine?page=1&limit=20&status=pending */
 router.get("/mine", canRead, async (req, res) => {
   const userId = currentUserId(req);
@@ -123,6 +170,9 @@ router.get("/mine", canRead, async (req, res) => {
     return sendDbError(res, error);
   }
 });
+
+/** GET /time-off/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD */
+
 
 /** GET /time-off-requests (ADMIN ONLY): all requests */
 router.get("/", canReview, async (req, res) => {
@@ -161,14 +211,15 @@ router.get("/", canReview, async (req, res) => {
 router.get("/:id", canRead, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
+  const isAdmin = req.appRole === "admin";
   if (!userId) return res.status(401).json({ error: "Unauthenticated" });
   if (!id) return res.status(400).json({ error: "Invalid ID" });
   try {
-    // Non-admins must not gain access via arbitrary IDs. Use a separate admin route
-    // to get any request rather than inferring req.user.role from its shape.
     const result = await pool.query(
-      `SELECT ${fields} FROM portal.time_off_request WHERE id = $1 AND requester_user_id = $2`,
-      [id, userId],
+      `SELECT ${fields}
+       FROM portal.time_off_request
+       WHERE id = $1 AND ($2::boolean OR requester_user_id = $3)`,
+      [id, isAdmin, userId],
     );
     if (!result.rows.length)
       return res.status(404).json({ error: "Request not found" });
@@ -259,13 +310,19 @@ router.post("/", canRead, async (req, res) => {
 });
 
 
+/** PATCH /time-off-requests/:id (admins: any request; others: own pending request) */
 router.patch("/:id", canRead, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
+  const isAdmin = req.appRole === "admin";
   if (!userId) return res.status(401).json({ error: "Unauthenticated" });
   if (!id) return res.status(400).json({ error: "Invalid ID" });
   if (!isRecord(req.body))
     return res.status(400).json({ error: "Expected JSON object" });
+  if (!isAdmin && ("status" in req.body || "review_note" in req.body))
+    return res
+      .status(403)
+      .json({ error: "Only admins can review time-off requests" });
 
   try {
     const updates: string[] = [];
@@ -288,19 +345,43 @@ router.patch("/:id", canRead, async (req, res) => {
       );
     if ("status" in req.body) {
       updatedStatus = requiredText(req.body.status, 60);
+      if (updatedStatus !== "approved" && updatedStatus !== "rejected")
+        return res
+          .status(400)
+          .json({ error: "status must be approved or rejected" });
+
+      const note = optionalText(req.body.review_note);
+      if (updatedStatus === "rejected" && !note)
+        return res.status(400).json({
+          error: "Une raison est nécessaire lors d'une demande refusée",
+        });
+
       add("status", updatedStatus);
+      add("review_note", note ?? null);
+      add("reviewed_by_user_id", userId);
+      updates.push("reviewed_at = NOW()");
+    } else if ("review_note" in req.body) {
+      return res
+        .status(400)
+        .json({ error: "status is required when changing review_note" });
     }
     if (!updates.length)
       return res.status(400).json({ error: "No editable fields provided" });
 
-    values.push(id, userId);
+    values.push(id);
+    const idParameter = values.length;
+    let ownershipClause = "";
+
+    if (!isAdmin) {
+      values.push(userId);
+      ownershipClause = ` AND requester_user_id = $${values.length} AND status = 'pending'`;
+    }
+
     const result = await pool.query(
       `WITH updated_request AS (
          UPDATE portal.time_off_request
          SET ${updates.join(", ")}, updated_at = NOW()
-         WHERE id = $${values.length - 1}
-           AND requester_user_id = $${values.length}
-           AND status = 'pending'
+         WHERE id = $${idParameter}${ownershipClause}
          RETURNING ${fields}
        )
        SELECT
@@ -315,9 +396,11 @@ router.patch("/:id", canRead, async (req, res) => {
       values,
     );
     if (!result.rows.length)
-      return res
-        .status(404)
-        .json({ error: "Pending request not found or cannot be edited" });
+      return res.status(404).json({
+        error: isAdmin
+          ? "Request not found"
+          : "Pending request not found or cannot be edited",
+      });
     const {
       requester_name,
       requester_surname,
@@ -326,7 +409,7 @@ router.patch("/:id", canRead, async (req, res) => {
       ...updatedRequest
     } = result.rows[0];
 
-    if (updatedStatus && updatedStatus !== "pending") {
+    if (updatedStatus) {
       await sendTimeOffReviewEmailSafely(updatedRequest, {
         name: requester_name,
         surname: requester_surname,
@@ -357,12 +440,16 @@ router.patch("/:id/review", canReview, async (req, res) => {
     return res.status(400).json({ error: "Expected JSON object" });
   try {
     const status = requiredText(req.body.status, 60);
-    if (status === "pending")
-      return res.status(400).json({ error: "Review status cannot be pending" });
+    if (status !== "approved" && status !== "rejected")
+      return res
+        .status(400)
+        .json({ error: "status must be approved or rejected" });
     const note = optionalText(req.body.review_note);
 
-    if(status === "rejected" && (!note || note.length === 0)){
-      return res.status(400).json({ error: "Une raison est nécessaire lors d'une demande refusée" })
+    if (status === "rejected" && !note) {
+      return res.status(400).json({
+        error: "Une raison est nécessaire lors d'une demande refusée",
+      });
     }
 
     const result = await pool.query(
@@ -370,7 +457,7 @@ router.patch("/:id/review", canReview, async (req, res) => {
          UPDATE portal.time_off_request
          SET status = $1, review_note = $2, reviewed_by_user_id = $3,
              reviewed_at = NOW(), updated_at = NOW()
-         WHERE id = $4 AND status = 'pending'
+         WHERE id = $4
          RETURNING ${fields}
        )
        SELECT
@@ -385,9 +472,7 @@ router.patch("/:id/review", canReview, async (req, res) => {
       [status, note ?? null, userId, id],
     );
     if (!result.rows.length)
-      return res
-        .status(404)
-        .json({ error: "Pending request not found or already reviewed" });
+      return res.status(404).json({ error: "Request not found" });
     const {
       requester_name,
       requester_surname,
