@@ -1,7 +1,10 @@
 import { Router, type Request, type Response } from "express";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
-import { sendNewTimeOffRequestEmailSafely } from "./TimeOffRequestEmail";
+import {
+  sendNewTimeOffRequestEmailSafely,
+  sendTimeOffReviewEmailSafely,
+} from "./TimeOffRequestEmail";
 
 const router = Router();
 const canRead = requireAppRole("conges", ["admin", "user", "guest"]);
@@ -322,18 +325,44 @@ router.patch("/:id/review", canReview, async (req, res) => {
       return res.status(400).json({ error: "Review status cannot be pending" });
     const note = optionalText(req.body.review_note);
     const result = await pool.query(
-      `UPDATE portal.time_off_request
-       SET status = $1, review_note = $2, reviewed_by_user_id = $3,
-           reviewed_at = NOW(), updated_at = NOW()
-       WHERE id = $4 AND status = 'pending'
-       RETURNING ${fields}`,
+      `WITH updated_request AS (
+         UPDATE portal.time_off_request
+         SET status = $1, review_note = $2, reviewed_by_user_id = $3,
+             reviewed_at = NOW(), updated_at = NOW()
+         WHERE id = $4 AND status = 'pending'
+         RETURNING ${fields}
+       )
+       SELECT
+         updated_request.*,
+         users.name AS requester_name,
+         users.surname AS requester_surname,
+         users.username AS requester_username,
+         users.email AS requester_email
+       FROM updated_request
+       LEFT JOIN public.users users
+         ON users.id = updated_request.requester_user_id`,
       [status, note ?? null, userId, id],
     );
     if (!result.rows.length)
       return res
         .status(404)
         .json({ error: "Pending request not found or already reviewed" });
-    return res.json(result.rows[0]);
+    const {
+      requester_name,
+      requester_surname,
+      requester_username,
+      requester_email,
+      ...updatedRequest
+    } = result.rows[0];
+
+    await sendTimeOffReviewEmailSafely(updatedRequest, {
+      name: requester_name,
+      surname: requester_surname,
+      username: requester_username,
+      email: requester_email,
+    });
+
+    return res.json(updatedRequest);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Expected"))
       return res.status(400).json({ error: error.message });

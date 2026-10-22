@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildNewTimeOffRequestEmail,
   buildTimeOffApprovalUrl,
+  buildTimeOffReviewEmail,
   TIME_OFF_REQUEST_EMAIL_RECIPIENT,
 } from "./TimeOffRequestEmail";
 
@@ -102,4 +103,41 @@ test("escapes user-provided values in the HTML email", () => {
   assert.doesNotMatch(email.html, /<script>/);
   assert.match(email.html, /&lt;script&gt;/);
   assert.match(email.html, /Échange &amp; reprise/);
+});
+
+test("builds an approval email for the requester", () => {
+  const email = buildTimeOffReviewEmail(
+    {
+      id: 46,
+      requester_user_id: 11,
+      requested_dates: ["2026-11-02", "2026-11-03"],
+      status: "approved",
+      review_note: "Approuvé par la direction",
+    },
+    { name: "Marie", surname: "Tremblay" },
+  );
+
+  assert.match(email.subject, /demande de congé #46 a été approuvée/);
+  assert.match(email.text, /Bonjour Tremblay Marie/);
+  assert.match(email.text, /du 2 novembre 2026 au 3 novembre 2026/);
+  assert.match(email.text, /Statut : Approuvée/);
+  assert.match(email.html, /Approuvé par la direction/);
+});
+
+test("builds a refusal email and escapes its review note", () => {
+  const email = buildTimeOffReviewEmail(
+    {
+      id: 47,
+      requester_user_id: 12,
+      requested_dates: ["2026-11-05"],
+      status: "rejected",
+      review_note: "Conflit <horaire> & équipe",
+    },
+    { username: "jroy" },
+  );
+
+  assert.match(email.subject, /demande de congé #47 a été refusée/);
+  assert.match(email.text, /Statut : Refusée/);
+  assert.match(email.text, /Conflit <horaire> & équipe/);
+  assert.match(email.html, /Conflit &lt;horaire&gt; &amp; équipe/);
 });

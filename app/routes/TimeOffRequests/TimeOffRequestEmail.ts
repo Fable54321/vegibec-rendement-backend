@@ -11,6 +11,8 @@ type TimeOffRequest = {
   reason?: string | null;
   payment_preference?: string | null;
   payment_preference_other?: string | null;
+  status?: string | null;
+  review_note?: string | null;
   created_at?: string | Date | null;
 };
 
@@ -168,6 +170,49 @@ export const buildNewTimeOffRequestEmail = (
   return { subject, text, html };
 };
 
+export const buildTimeOffReviewEmail = (
+  request: TimeOffRequest,
+  requester: TimeOffRequester,
+): TimeOffRequestEmail => {
+  const approved = request.status === "approved";
+  const decision = approved ? "approuvée" : "refusée";
+  const statusLabel = approved ? "Approuvée" : "Refusée";
+  const requesterName = getRequesterName(request, requester);
+  const dates = formatDateRanges(request.requested_dates);
+  const reviewNote = request.review_note?.trim();
+  const subject = `Votre demande de congé #${request.id} a été ${decision}`;
+  const text = [
+    `Bonjour ${requesterName},`,
+    "",
+    `Votre demande de congé #${request.id} a été ${decision}.`,
+    "",
+    "Dates demandées :",
+    ...dates.map((date) => `- ${date}`),
+    `Statut : ${statusLabel}`,
+    ...(reviewNote ? [`Note de révision : ${reviewNote}`] : []),
+    "",
+    "Merci,",
+    "Vegibec",
+  ].join("\n");
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+      <p>Bonjour ${escapeHtml(requesterName)},</p>
+      <p>Votre demande de congé <strong>#${escapeHtml(String(request.id))}</strong> a été <strong>${decision}</strong>.</p>
+      <p><strong>Dates demandées :</strong></p>
+      <ul>${dates.map((date) => `<li>${escapeHtml(date)}</li>`).join("")}</ul>
+      <p><strong>Statut :</strong> ${statusLabel}</p>
+      ${
+        reviewNote
+          ? `<p><strong>Note de révision :</strong><br />${escapeHtml(reviewNote).replace(/\n/g, "<br />")}</p>`
+          : ""
+      }
+      <p>Merci,<br />Vegibec</p>
+    </div>
+  `.trim();
+
+  return { subject, text, html };
+};
+
 export const sendNewTimeOffRequestEmailSafely = async (
   request: TimeOffRequest,
   requester: TimeOffRequester,
@@ -194,6 +239,47 @@ export const sendNewTimeOffRequestEmailSafely = async (
     console.error("Time off request email failed:", {
       requestId: request.id,
       to: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+      error,
+    });
+  }
+};
+
+export const sendTimeOffReviewEmailSafely = async (
+  request: TimeOffRequest,
+  requester: TimeOffRequester,
+): Promise<void> => {
+  const recipient = requester.email?.trim();
+
+  if (!recipient) {
+    console.error("Time off review email skipped: requester has no email", {
+      requestId: request.id,
+      requesterUserId: request.requester_user_id,
+    });
+    return;
+  }
+
+  try {
+    const email = buildTimeOffReviewEmail(request, requester);
+    const emailInfo = await sendEmail({
+      to: recipient,
+      fromLabel: "Vegibec - Demandes de congé",
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+    });
+
+    console.log("Time off review email relay response:", {
+      requestId: request.id,
+      to: recipient,
+      messageId: emailInfo.messageId,
+      accepted: emailInfo.accepted,
+      rejected: emailInfo.rejected,
+      response: emailInfo.response,
+    });
+  } catch (error) {
+    console.error("Time off review email failed:", {
+      requestId: request.id,
+      to: recipient,
       error,
     });
   }
