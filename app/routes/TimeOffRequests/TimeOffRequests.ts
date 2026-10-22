@@ -1,4 +1,9 @@
-import { Router, type Request, type Response } from "express";
+import {
+  Router,
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 import {
@@ -9,9 +14,11 @@ import {
 const router = Router();
 const canRead = requireAppRole("conges", ["admin", "user", "guest"]);
 const canReview = requireAppRole("conges", ["admin"]);
+const READ_ONLY_ALL_REQUESTS_USER_ID = 368;
 
 type AuthRequest = Request & { user?: { id: number | string } };
 type DbError = Error & { code?: string; constraint?: string };
+class ValidationError extends Error {}
 
 const fields = `
   id, requester_user_id, requested_dates, reason,
@@ -22,6 +29,27 @@ const fields = `
 const currentUserId = (req: Request): number | null => {
   const id = Number((req as AuthRequest).user?.id);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
+};
+
+const isReadOnlyAllRequestsUser = (req: Request): boolean =>
+  currentUserId(req) === READ_ONLY_ALL_REQUESTS_USER_ID;
+
+const canReadOrReadOnlyViewer = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (isReadOnlyAllRequestsUser(req)) return next();
+  return canRead(req, res, next);
+};
+
+const canReviewOrReadOnlyViewer = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (isReadOnlyAllRequestsUser(req)) return next();
+  return canReview(req, res, next);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -39,13 +67,17 @@ const optionalText = (
   if (value === undefined) return undefined;
   if (value === null || value === "") return null;
   if (typeof value !== "string" || value.length > max)
-    throw new Error(`Expected text (max ${max} characters)`);
+    throw new ValidationError(
+      `Le texte doit contenir au maximum ${max} caractères`,
+    );
   return value.trim() || null;
 };
 
 const requiredText = (value: unknown, max = 100): string => {
   if (typeof value !== "string" || !value.trim() || value.length > max)
-    throw new Error(`Expected non-empty text (max ${max} characters)`);
+    throw new ValidationError(
+      `Un texte non vide d'au plus ${max} caractères est requis`,
+    );
   return value.trim();
 };
 
@@ -67,8 +99,8 @@ const parseDates = (value: unknown): string[] => {
     value.length > 366 ||
     !value.every((d) => typeof d === "string" && isRealDate(d))
   ) {
-    throw new Error(
-      "requested_dates must be a non-empty array of YYYY-MM-DD dates (max 366)",
+    throw new ValidationError(
+      "requested_dates doit être un tableau non vide de dates au format AAAA-MM-JJ (maximum 366)",
     );
   }
   return [...new Set(value as string[])].sort();
@@ -79,38 +111,42 @@ const sendDbError = (res: Response, error: unknown): void => {
   console.error("Time off request database error:", error);
   if (err.code === "23514") {
     res.status(400).json({
-      error: "Value rejected by a database CHECK constraint",
+      error:
+        "La valeur a été refusée par une contrainte de validation de la base de données",
       constraint: err.constraint,
     });
   } else if (err.code === "23503") {
-    res.status(400).json({ error: "Referenced user does not exist" });
+    res.status(400).json({ error: "L'utilisateur référencé n'existe pas" });
   } else if (
     err.code === "23502" ||
     err.code === "22P02" ||
     err.code === "22007"
   ) {
-    res.status(400).json({ error: "Invalid or missing field" });
+    res.status(400).json({ error: "Champ invalide ou manquant" });
   } else {
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Erreur interne du serveur" });
   }
 };
 
 
 router.get("/calendar", canRead, async (req, res) => {
   const userId = currentUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
+  if (!userId) return res.status(401).json({ error: "Non authentifié" });
 
   const from = req.query.from;
   const to = req.query.to;
 
   if (from !== undefined && (typeof from !== "string" || !isRealDate(from)))
-    return res.status(400).json({ error: "Invalid from date" });
+    return res.status(400).json({ error: "Date de début invalide" });
   if (to !== undefined && (typeof to !== "string" || !isRealDate(to)))
-    return res.status(400).json({ error: "Invalid to date" });
+    return res.status(400).json({ error: "Date de fin invalide" });
   if (typeof from === "string" && typeof to === "string" && from > to)
     return res
       .status(400)
-      .json({ error: "from date must be before or equal to to date" });
+      .json({
+        error:
+          "La date de début doit être antérieure ou égale à la date de fin",
+      });
 
   try {
     const result = await pool.query(
@@ -145,7 +181,7 @@ router.get("/calendar", canRead, async (req, res) => {
 /** GET /time-off-requests/mine?page=1&limit=20&status=pending */
 router.get("/mine", canRead, async (req, res) => {
   const userId = currentUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
+  if (!userId) return res.status(401).json({ error: "Non authentifié" });
 
   const page = Math.max(1, Math.min(100000, Number(req.query.page) || 1));
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
@@ -174,8 +210,8 @@ router.get("/mine", canRead, async (req, res) => {
 /** GET /time-off/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD */
 
 
-/** GET /time-off-requests (ADMIN ONLY): all requests */
-router.get("/", canReview, async (req, res) => {
+/** GET /time-off-requests (admins and the read-only cross-request viewer) */
+router.get("/", canReviewOrReadOnlyViewer, async (req, res) => {
   const page = Math.max(1, Math.min(100000, Number(req.query.page) || 1));
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
   const status = typeof req.query.status === "string" ? req.query.status : null;
@@ -184,7 +220,9 @@ router.get("/", canReview, async (req, res) => {
       ? null
       : parseId(String(req.query.requester_user_id));
   if (req.query.requester_user_id !== undefined && !requesterId)
-    return res.status(400).json({ error: "Invalid requester_user_id" });
+    return res
+      .status(400)
+      .json({ error: "Identifiant du demandeur invalide" });
 
   try {
     const result = await pool.query(
@@ -207,39 +245,40 @@ router.get("/", canReview, async (req, res) => {
   }
 });
 
-/** GET /time-off-requests/:id (requester or admin) */
-router.get("/:id", canRead, async (req, res) => {
+/** GET /time-off-requests/:id (owner, admin, or read-only cross-request viewer) */
+router.get("/:id", canReadOrReadOnlyViewer, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
-  const isAdmin = req.appRole === "admin";
-  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
-  if (!id) return res.status(400).json({ error: "Invalid ID" });
+  const canViewAnyRequest =
+    req.appRole === "admin" || isReadOnlyAllRequestsUser(req);
+  if (!userId) return res.status(401).json({ error: "Non authentifié" });
+  if (!id) return res.status(400).json({ error: "Identifiant invalide" });
   try {
     const result = await pool.query(
       `SELECT ${fields}
        FROM portal.time_off_request
        WHERE id = $1 AND ($2::boolean OR requester_user_id = $3)`,
-      [id, isAdmin, userId],
+      [id, canViewAnyRequest, userId],
     );
     if (!result.rows.length)
-      return res.status(404).json({ error: "Request not found" });
+      return res.status(404).json({ error: "Demande introuvable" });
     return res.json(result.rows[0]);
   } catch (error) {
     return sendDbError(res, error);
   }
 });
 
-/** GET /time-off-requests/admin/:id (ADMIN ONLY) */
-router.get("/admin/:id", canReview, async (req, res) => {
+/** GET /time-off-requests/admin/:id (admin or read-only cross-request viewer) */
+router.get("/admin/:id", canReviewOrReadOnlyViewer, async (req, res) => {
   const id = parseId(req.params.id);
-  if (!id) return res.status(400).json({ error: "Invalid ID" });
+  if (!id) return res.status(400).json({ error: "Identifiant invalide" });
   try {
     const result = await pool.query(
       `SELECT ${fields} FROM portal.time_off_request WHERE id = $1`,
       [id],
     );
     if (!result.rows.length)
-      return res.status(404).json({ error: "Request not found" });
+      return res.status(404).json({ error: "Demande introuvable" });
     return res.json(result.rows[0]);
   } catch (error) {
     return sendDbError(res, error);
@@ -249,9 +288,9 @@ router.get("/admin/:id", canReview, async (req, res) => {
 /** POST /time-off-requests */
 router.post("/", canRead, async (req, res) => {
   const userId = currentUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
+  if (!userId) return res.status(401).json({ error: "Non authentifié" });
   if (!isRecord(req.body))
-    return res.status(400).json({ error: "Expected JSON object" });
+    return res.status(400).json({ error: "Un objet JSON est attendu" });
   try {
     const requestedDates = parseDates(req.body.requested_dates);
     const reason = optionalText(req.body.reason);
@@ -300,11 +339,8 @@ router.post("/", canRead, async (req, res) => {
 
     return res.status(201).json(createdRequest);
   } catch (error) {
-    if (
-      (error instanceof Error && error.message.startsWith("Expected")) ||
-      (error instanceof Error && error.message.startsWith("requested_dates"))
-    )
-      return res.status(400).json({ error: (error as Error).message });
+    if (error instanceof ValidationError)
+      return res.status(400).json({ error: error.message });
     return sendDbError(res, error);
   }
 });
@@ -315,14 +351,16 @@ router.patch("/:id", canRead, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
   const isAdmin = req.appRole === "admin";
-  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
-  if (!id) return res.status(400).json({ error: "Invalid ID" });
+  if (!userId) return res.status(401).json({ error: "Non authentifié" });
+  if (!id) return res.status(400).json({ error: "Identifiant invalide" });
   if (!isRecord(req.body))
-    return res.status(400).json({ error: "Expected JSON object" });
+    return res.status(400).json({ error: "Un objet JSON est attendu" });
   if (!isAdmin && ("status" in req.body || "review_note" in req.body))
     return res
       .status(403)
-      .json({ error: "Only admins can review time-off requests" });
+      .json({
+        error: "Seuls les administrateurs peuvent évaluer les demandes de congé",
+      });
 
   try {
     const updates: string[] = [];
@@ -348,7 +386,7 @@ router.patch("/:id", canRead, async (req, res) => {
       if (updatedStatus !== "approved" && updatedStatus !== "rejected")
         return res
           .status(400)
-          .json({ error: "status must be approved or rejected" });
+          .json({ error: "Le statut doit être approved ou rejected" });
 
       const note = optionalText(req.body.review_note);
       if (updatedStatus === "rejected" && !note)
@@ -363,10 +401,14 @@ router.patch("/:id", canRead, async (req, res) => {
     } else if ("review_note" in req.body) {
       return res
         .status(400)
-        .json({ error: "status is required when changing review_note" });
+        .json({
+          error: "Le statut est requis pour modifier la note d'évaluation",
+        });
     }
     if (!updates.length)
-      return res.status(400).json({ error: "No editable fields provided" });
+      return res
+        .status(400)
+        .json({ error: "Aucun champ modifiable n'a été fourni" });
 
     values.push(id);
     const idParameter = values.length;
@@ -398,8 +440,8 @@ router.patch("/:id", canRead, async (req, res) => {
     if (!result.rows.length)
       return res.status(404).json({
         error: isAdmin
-          ? "Request not found"
-          : "Pending request not found or cannot be edited",
+          ? "Demande introuvable"
+          : "Demande en attente introuvable ou non modifiable",
       });
     const {
       requester_name,
@@ -420,11 +462,7 @@ router.patch("/:id", canRead, async (req, res) => {
 
     return res.json(updatedRequest);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.startsWith("Expected") ||
-        error.message.startsWith("requested_dates"))
-    )
+    if (error instanceof ValidationError)
       return res.status(400).json({ error: error.message });
     return sendDbError(res, error);
   }
@@ -434,16 +472,16 @@ router.patch("/:id", canRead, async (req, res) => {
 router.patch("/:id/review", canReview, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
-  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
-  if (!id) return res.status(400).json({ error: "Invalid ID" });
+  if (!userId) return res.status(401).json({ error: "Non authentifié" });
+  if (!id) return res.status(400).json({ error: "Identifiant invalide" });
   if (!isRecord(req.body))
-    return res.status(400).json({ error: "Expected JSON object" });
+    return res.status(400).json({ error: "Un objet JSON est attendu" });
   try {
     const status = requiredText(req.body.status, 60);
     if (status !== "approved" && status !== "rejected")
       return res
         .status(400)
-        .json({ error: "status must be approved or rejected" });
+        .json({ error: "Le statut doit être approved ou rejected" });
     const note = optionalText(req.body.review_note);
 
     if (status === "rejected" && !note) {
@@ -472,7 +510,7 @@ router.patch("/:id/review", canReview, async (req, res) => {
       [status, note ?? null, userId, id],
     );
     if (!result.rows.length)
-      return res.status(404).json({ error: "Request not found" });
+      return res.status(404).json({ error: "Demande introuvable" });
     const {
       requester_name,
       requester_surname,
@@ -490,7 +528,7 @@ router.patch("/:id/review", canReview, async (req, res) => {
 
     return res.json(updatedRequest);
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Expected"))
+    if (error instanceof ValidationError)
       return res.status(400).json({ error: error.message });
     return sendDbError(res, error);
   }
@@ -500,8 +538,8 @@ router.patch("/:id/review", canReview, async (req, res) => {
 router.delete("/:id", canRead, async (req, res) => {
   const userId = currentUserId(req);
   const id = parseId(req.params.id);
-  if (!userId) return res.status(401).json({ error: "Unauthenticated" });
-  if (!id) return res.status(400).json({ error: "Invalid ID" });
+  if (!userId) return res.status(401).json({ error: "Non authentifié" });
+  if (!id) return res.status(400).json({ error: "Identifiant invalide" });
   try {
     const result = await pool.query(
       `DELETE FROM portal.time_off_request
@@ -512,7 +550,9 @@ router.delete("/:id", canRead, async (req, res) => {
     if (!result.rows.length)
       return res
         .status(404)
-        .json({ error: "Pending request not found or cannot be deleted" });
+        .json({
+          error: "Demande en attente introuvable ou impossible à supprimer",
+        });
     return res.status(204).send();
   } catch (error) {
     return sendDbError(res, error);

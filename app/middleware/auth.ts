@@ -69,7 +69,9 @@ export const authMiddleware = async (
   const deviceToken = req.cookies.toolboxDeviceToken;
 
   if (!deviceToken) {
-    return res.status(401).json({ message: "Missing token" });
+    return res
+      .status(401)
+      .json({ message: "Jeton d'authentification manquant" });
   }
 
   try {
@@ -94,17 +96,17 @@ export const authMiddleware = async (
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ message: "Invalid device token" });
+      return res.status(401).json({ message: "Jeton d'appareil invalide" });
     }
 
     const session = result.rows[0];
 
     if (session.revoked_at) {
-      return res.status(401).json({ message: "Device session revoked" });
+      return res.status(401).json({ message: "Session de l'appareil révoquée" });
     }
 
     if (new Date(session.expires_at) < new Date()) {
-      return res.status(401).json({ message: "Device session expired" });
+      return res.status(401).json({ message: "Session de l'appareil expirée" });
     }
 
     req.user = {
@@ -126,7 +128,7 @@ export const authMiddleware = async (
     console.error("authMiddleware device session error:", error);
 
     return res.status(500).json({
-      message: "Server error",
+      message: "Erreur du serveur",
     });
   }
 };
@@ -135,7 +137,7 @@ export const requireAppRole = (appSlug: string, allowedRoles: string[]) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
+        return res.status(401).json({ message: "Non authentifié" });
       }
 
       const result = await pool.query(
@@ -151,20 +153,20 @@ export const requireAppRole = (appSlug: string, allowedRoles: string[]) => {
       );
 
       if (result.rows.length === 0) {
-        return res.status(403).json({ message: "Access denied" });
+        return res.status(403).json({ message: "Accès refusé" });
       }
 
       const appRole = result.rows[0].role;
 
       if (!allowedRoles.includes(appRole)) {
-        return res.status(403).json({ message: "Access denied test" });
+        return res.status(403).json({ message: "Accès refusé" });
       }
 
       req.appRole = appRole;
       next();
     } catch (error) {
       console.error("requireAppRole error:", error);
-      return res.status(500).json({ message: "Server error" });
+      return res.status(500).json({ message: "Erreur du serveur" });
     }
   };
 };
@@ -174,7 +176,8 @@ export const requireAnyAppRole = (
 ) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!req.user) return res.status(401).json({ message: "Not authenticated" });
+      if (!req.user)
+        return res.status(401).json({ message: "Non authentifié" });
 
       const slugs = rules.map((rule) => rule.appSlug);
       const result = await pool.query<{ slug: string; role: string }>(
@@ -187,13 +190,14 @@ export const requireAnyAppRole = (
       const granted = result.rows.find((access) =>
         rules.some((rule) => rule.appSlug === access.slug && rule.allowedRoles.includes(access.role)),
       );
-      if (!granted) return res.status(403).json({ message: "Access denied" });
+      if (!granted)
+        return res.status(403).json({ message: "Accès refusé" });
 
       req.appRole = granted.role;
       return next();
     } catch (error) {
       console.error("requireAnyAppRole error:", error);
-      return res.status(500).json({ message: "Server error" });
+      return res.status(500).json({ message: "Erreur du serveur" });
     }
   };
 };
