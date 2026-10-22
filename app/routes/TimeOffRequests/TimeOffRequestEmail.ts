@@ -139,7 +139,6 @@ export const buildNewTimeOffRequestEmail = (
   const text = [
     "Une nouvelle demande de congé a été soumise.",
     "",
-    `Demande : #${request.id}`,
     `Employé : ${requesterName}`,
     `Courriel : ${requesterEmail}`,
     "Dates demandées :",
@@ -152,7 +151,7 @@ export const buildNewTimeOffRequestEmail = (
   const html = `
     <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
       <h2 style="margin-bottom: 16px;">Nouvelle demande de congé</h2>
-      <p><strong>Demande :</strong> #${escapeHtml(String(request.id))}</p>
+      
       <p><strong>Employé :</strong> ${escapeHtml(requesterName)}</p>
       <p><strong>Courriel :</strong> ${escapeHtml(requesterEmail)}</p>
       <p><strong>Dates demandées :</strong></p>
