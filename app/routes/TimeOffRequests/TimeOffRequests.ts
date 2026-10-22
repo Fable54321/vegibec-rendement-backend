@@ -324,6 +324,11 @@ router.patch("/:id/review", canReview, async (req, res) => {
     if (status === "pending")
       return res.status(400).json({ error: "Review status cannot be pending" });
     const note = optionalText(req.body.review_note);
+
+    if(status === "rejected" && (!note || note.length === 0)){
+      return res.status(400).json({ error: "Une raison est nécessaire lors d'une demande refusée" })
+    }
+
     const result = await pool.query(
       `WITH updated_request AS (
          UPDATE portal.time_off_request
