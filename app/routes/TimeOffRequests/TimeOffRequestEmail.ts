@@ -206,7 +206,7 @@ export const buildTimeOffReviewEmail = (
           ? `<p><strong>Raison ou notes :</strong><br />${escapeHtml(reviewNote).replace(/\n/g, "<br />")}</p>`
           : ""
       }
-      <p>Merci de cvotre compréhension</p>
+      <p>Merci de votre compréhension</p>
     </div>
   `.trim();
 
