@@ -418,6 +418,38 @@ router.patch("/:id/unread", canRead, async (req, res) => {
 });
 
 // ============================================
+// DELETE /notifications/all
+// ============================================
+
+router.delete("/all", canRead, async (req, res) => {
+  const userId = getUserId(req);
+
+  if (!userId) {
+    return res.status(401).json({
+      error: "Unauthenticated",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      DELETE FROM portal.notifications
+      WHERE user_id = $1
+      RETURNING id
+      `,
+      [userId],
+    );
+
+    return res.json({
+      success: true,
+      deleted: result.rowCount ?? 0,
+    });
+  } catch (error) {
+    return sendDbError(res, error);
+  }
+});
+
+// ============================================
 // DELETE /notifications/:id
 // ============================================
 
@@ -459,23 +491,8 @@ router.delete("/:id", canRead, async (req, res) => {
   }
 });
 
-// ============================================
-// POST /notifications
-//
-// Admin-only creation endpoint.
-//
-// Body:
-// {
-//   "user_id": 12,
-//   "type_code": "time_off_request",
-//   "title": "...",
-//   "message": "...",
-//   "action_link": "/gestion-rh/...",
-//   "target_app": "portal",
-//   "source_type": "time_off_request",
-//   "source_id": "45"
-// }
-// ============================================
+
+
 
 router.post("/", canCreate, async (req, res) => {
   const senderUserId = getUserId(req);
