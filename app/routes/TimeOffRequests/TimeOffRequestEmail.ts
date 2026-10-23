@@ -6,7 +6,7 @@ const TIME_OFF_APPROVAL_BASE_URL =
 
 type TimeOffRequest = {
   id: number | string;
-  requester_user_id: number | string;
+  requester_user_id: number | string | null;
   requested_dates: Array<string | Date>;
   reason?: string | null;
   payment_preference?: string | null;
@@ -112,7 +112,9 @@ const getRequesterName = (
   return (
     fullName ||
     requester.username?.trim() ||
-    `Utilisateur #${request.requester_user_id}`
+    (request.requester_user_id
+      ? `Utilisateur #${request.requester_user_id}`
+      : "Invité")
   );
 };
 

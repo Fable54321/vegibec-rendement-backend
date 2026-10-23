@@ -61,7 +61,9 @@ import cropPlanRoute from "./Trackability/Planification/cropPlan";
 import genericPlanRoute from "./Trackability/Planification/genericPlan";
 import seedInventoryRoutes from "./Trackability/SeedInventory/seedInventoryRoutes";
 
-import timeOffRoute from "./TimeOffRequests/TimeOffRequests";
+import timeOffRoute, {
+  publicTimeOffRouter,
+} from "./TimeOffRequests/TimeOffRequests";
 
 import transportRoute from "./Transports/transport.routes";
 import portalUnprotectedRoute from "./Unprotected/PortalUnprotected";
@@ -119,6 +121,7 @@ function registerPublicRoutes(app: Express): void {
   }
 
   app.use("/auth", authRoute);
+  app.use("/time-off", publicTimeOffRouter);
   app.use("/file-transfer", fileTransferRoute);
 }
 

@@ -38,6 +38,25 @@ test("builds the new time-off request notification", () => {
   );
 });
 
+test("builds a new request notification for a guest", () => {
+  const email = buildNewTimeOffRequestEmail(
+    {
+      id: 48,
+      requester_user_id: null,
+      requested_dates: ["2026-11-10"],
+      payment_preference: "no-preference",
+    },
+    {
+      name: "Camille Invitée",
+      email: "camille@example.com",
+    },
+  );
+
+  assert.match(email.subject, /Camille Invitée/);
+  assert.match(email.text, /camille@example\.com/);
+  assert.match(email.html, /Camille Invitée/);
+});
+
 test("builds the approval URL from the request ID", () => {
   assert.equal(
     buildTimeOffApprovalUrl(987),

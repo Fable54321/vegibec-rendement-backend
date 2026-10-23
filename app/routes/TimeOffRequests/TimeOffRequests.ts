@@ -4,6 +4,7 @@ import {
   type Request,
   type Response,
 } from "express";
+import { rateLimit } from "express-rate-limit";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 import {
@@ -12,16 +13,18 @@ import {
 } from "./TimeOffRequestEmail";
 
 const router = Router();
+export const publicTimeOffRouter = Router();
 const canRead = requireAppRole("conges", ["admin", "user", "guest"]);
 const canReview = requireAppRole("conges", ["admin"]);
 const READ_ONLY_ALL_REQUESTS_USER_ID = 368;
+const TIME_OFF_NOTIFICATION_RECIPIENT_IDS = [2];
 
 type AuthRequest = Request & { user?: { id: number | string } };
 type DbError = Error & { code?: string; constraint?: string };
 class ValidationError extends Error {}
 
 const fields = `
-  id, requester_user_id, requested_dates, reason,
+  id, requester_user_id, guest_name, guest_email, requested_dates, reason,
   payment_preference, payment_preference_other, status,
   reviewed_by_user_id, reviewed_at, review_note, created_at, updated_at
 `;
@@ -81,6 +84,13 @@ const requiredText = (value: unknown, max = 100): string => {
   return value.trim();
 };
 
+const requiredEmail = (value: unknown): string => {
+  const email = requiredText(value, 254).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    throw new ValidationError("Une adresse courriel valide est requise");
+  return email;
+};
+
 const isRealDate = (date: string): boolean => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
   const [year, month, day] = date.split("-").map(Number);
@@ -127,6 +137,99 @@ const sendDbError = (res: Response, error: unknown): void => {
     res.status(500).json({ error: "Erreur interne du serveur" });
   }
 };
+
+const guestRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Trop de demandes ont été envoyées. Veuillez réessayer plus tard.",
+  },
+});
+
+const sendGuestRequestNotificationsSafely = async (
+  request: { id: number | string; requested_dates: string[] },
+  guestName: string,
+): Promise<void> => {
+  try {
+    const dateLabel =
+      request.requested_dates.length === 1
+        ? "pour une date"
+        : `pour ${request.requested_dates.length} dates`;
+
+    await pool.query(
+      `INSERT INTO portal.notifications (
+         user_id, sender_user_id, type_id, title, message, action_link,
+         target_app, source_type, source_id
+       )
+       SELECT
+         recipient_id, NULL, notification_type.id, $2, $3, $4,
+         'portal', 'time_off_request', $5
+       FROM unnest($1::bigint[]) AS recipients(recipient_id)
+       CROSS JOIN portal.notification_types notification_type
+       WHERE notification_type.code = 'time_off_request_created'
+         AND notification_type.is_active = TRUE`,
+      [
+        TIME_OFF_NOTIFICATION_RECIPIENT_IDS,
+        "Nouvelle demande de congé",
+        `${guestName} a soumis une demande de congé ${dateLabel}.`,
+        `/approbation-conge/${request.id}`,
+        String(request.id),
+      ],
+    );
+  } catch (error) {
+    console.error("Guest time-off notification failed:", {
+      requestId: request.id,
+      error,
+    });
+  }
+};
+
+/** POST /time-off/guest (public) */
+publicTimeOffRouter.post("/guest", guestRequestLimiter, async (req, res) => {
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Un objet JSON est attendu" });
+
+  try {
+    const guestName = requiredText(req.body.guest_name, 160);
+    const guestEmail = requiredEmail(req.body.guest_email);
+    const requestedDates = parseDates(req.body.requested_dates);
+    const reason = optionalText(req.body.reason);
+    const paymentPreference = requiredText(req.body.payment_preference);
+    const paymentPreferenceOther = optionalText(
+      req.body.payment_preference_other,
+    );
+    const result = await pool.query(
+      `INSERT INTO portal.time_off_request
+       (requester_user_id, guest_name, guest_email, requested_dates, reason,
+        payment_preference, payment_preference_other)
+       VALUES (NULL, $1, $2, $3::date[], $4, $5, $6)
+       RETURNING ${fields}`,
+      [
+        guestName,
+        guestEmail,
+        requestedDates,
+        reason ?? null,
+        paymentPreference,
+        paymentPreferenceOther ?? null,
+      ],
+    );
+    const createdRequest = result.rows[0];
+
+    await sendNewTimeOffRequestEmailSafely(createdRequest, {
+      name: guestName,
+      email: guestEmail,
+    });
+    await sendGuestRequestNotificationsSafely(createdRequest, guestName);
+
+    return res.status(201).json(createdRequest);
+  } catch (error) {
+    if (error instanceof ValidationError)
+      return res.status(400).json({ error: error.message });
+    return sendDbError(res, error);
+  }
+});
 
 
 router.get("/calendar", canRead, async (req, res) => {
@@ -337,10 +440,10 @@ router.post("/", canRead, async (req, res) => {
     } = result.rows[0];
 
     await sendNewTimeOffRequestEmailSafely(createdRequest, {
-      name: requester_name,
+      name: requester_name ?? createdRequest.guest_name,
       surname: requester_surname,
       username: requester_username,
-      email: requester_email,
+      email: requester_email ?? createdRequest.guest_email,
     });
 
     return res.status(201).json(createdRequest);
@@ -459,10 +562,10 @@ router.patch("/:id", canRead, async (req, res) => {
 
     if (updatedStatus) {
       await sendTimeOffReviewEmailSafely(updatedRequest, {
-        name: requester_name,
+        name: requester_name ?? updatedRequest.guest_name,
         surname: requester_surname,
         username: requester_username,
-        email: requester_email,
+        email: requester_email ?? updatedRequest.guest_email,
       });
     }
 
@@ -526,10 +629,10 @@ router.patch("/:id/review", canReview, async (req, res) => {
     } = result.rows[0];
 
     await sendTimeOffReviewEmailSafely(updatedRequest, {
-      name: requester_name,
+      name: requester_name ?? updatedRequest.guest_name,
       surname: requester_surname,
       username: requester_username,
-      email: requester_email,
+      email: requester_email ?? updatedRequest.guest_email,
     });
 
     return res.json(updatedRequest);
