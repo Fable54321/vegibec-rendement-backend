@@ -23,9 +23,15 @@ const isValidEmail = (email: string): boolean => {
 router.get("/", requireAppRole("main", ["admin", "user", "guest"]), async (_req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, name, slug
-      FROM apps
-      ORDER BY name;
+      SELECT
+        a.id,
+        a.name,
+        a.slug,
+        COUNT(DISTINCT uar.user_id)::int AS user_count
+      FROM apps a
+      LEFT JOIN user_app_roles uar ON uar.app_id = a.id
+      GROUP BY a.id, a.name, a.slug
+      ORDER BY user_count DESC, LOWER(a.name) ASC, a.id ASC;
     `);
 
     return res.json({
