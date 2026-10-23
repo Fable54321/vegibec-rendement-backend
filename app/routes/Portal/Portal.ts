@@ -68,6 +68,69 @@ router.get("/list", requireAppRole("main", ["admin", "user", "guest"]), async (_
   }
 });
 
+router.get(
+  "/apps/:id/users",
+  requireAppRole("main", ["admin"]),
+  async (req, res) => {
+    try {
+      const appId = Number(req.params.id);
+
+      if (!Number.isInteger(appId) || appId <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid app id",
+        });
+      }
+
+      const appResult = await pool.query(
+        `
+        SELECT id, name, slug
+        FROM apps
+        WHERE id = $1
+        `,
+        [appId],
+      );
+
+      if (appResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "App not found",
+        });
+      }
+
+      const usersResult = await pool.query(
+        `
+        SELECT
+          u.id,
+          u.name,
+          u.surname,
+          uar.role
+        FROM user_app_roles uar
+        INNER JOIN users u ON u.id = uar.user_id
+        WHERE uar.app_id = $1
+        ORDER BY
+          LOWER(COALESCE(u.surname, '')) ASC,
+          LOWER(COALESCE(u.name, '')) ASC,
+          u.id ASC
+        `,
+        [appId],
+      );
+
+      return res.json({
+        success: true,
+        app: appResult.rows[0],
+        users: usersResult.rows,
+      });
+    } catch (error) {
+      console.error("Error fetching users for app:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+      });
+    }
+  },
+);
+
 router.get("/:id", requireAppRole("main", ["admin", "user", "guest" ]), async (req, res) => {
   try {
     const userId = Number(req.params.id);
