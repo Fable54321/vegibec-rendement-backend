@@ -192,8 +192,51 @@ publicTimeOffRouter.post("/guest", guestRequestLimiter, async (req, res) => {
     return res.status(400).json({ error: "Un objet JSON est attendu" });
 
   try {
-    const guestName = requiredText(req.body.guest_name, 160);
-    const guestEmail = requiredEmail(req.body.guest_email);
+    const employeeId =
+      req.body.employee_id === undefined || req.body.employee_id === null
+        ? null
+        : parseId(String(req.body.employee_id));
+    if (req.body.employee_id !== undefined && req.body.employee_id !== null && !employeeId)
+      throw new ValidationError("L’employé sélectionné est invalide");
+
+    let requesterUserId: number | null = null;
+    let guestName: string | null = null;
+    let guestEmail: string | null = null;
+    let requester: {
+      name?: string | null;
+      surname?: string | null;
+      email?: string | null;
+    };
+
+    if (employeeId) {
+      const employeeResult = await pool.query(
+        `SELECT id, name, surname, email
+         FROM public.users
+         WHERE id = $1
+           AND is_office IS TRUE
+           AND is_active IS TRUE`,
+        [employeeId],
+      );
+      const employee = employeeResult.rows[0];
+      if (!employee)
+        throw new ValidationError("L’employé sélectionné est introuvable");
+      if (!employee.email?.trim())
+        throw new ValidationError(
+          "Cet employé n’a pas d’adresse courriel. Utilisez la saisie manuelle.",
+        );
+
+      requesterUserId = employee.id;
+      requester = {
+        name: employee.name,
+        surname: employee.surname,
+        email: employee.email,
+      };
+    } else {
+      guestName = requiredText(req.body.guest_name, 160);
+      guestEmail = requiredEmail(req.body.guest_email);
+      requester = { name: guestName, email: guestEmail };
+    }
+
     const requestedDates = parseDates(req.body.requested_dates);
     const reason = optionalText(req.body.reason);
     const paymentPreference = requiredText(req.body.payment_preference);
@@ -204,9 +247,10 @@ publicTimeOffRouter.post("/guest", guestRequestLimiter, async (req, res) => {
       `INSERT INTO portal.time_off_request
        (requester_user_id, guest_name, guest_email, requested_dates, reason,
         payment_preference, payment_preference_other)
-       VALUES (NULL, $1, $2, $3::date[], $4, $5, $6)
+       VALUES ($1, $2, $3, $4::date[], $5, $6, $7)
        RETURNING ${fields}`,
       [
+        requesterUserId,
         guestName,
         guestEmail,
         requestedDates,
@@ -216,12 +260,16 @@ publicTimeOffRouter.post("/guest", guestRequestLimiter, async (req, res) => {
       ],
     );
     const createdRequest = result.rows[0];
+    const requesterDisplayName = [requester.surname, requester.name]
+      .map((value) => value?.trim())
+      .filter(Boolean)
+      .join(" ");
 
-    await sendNewTimeOffRequestEmailSafely(createdRequest, {
-      name: guestName,
-      email: guestEmail,
-    });
-    await sendGuestRequestNotificationsSafely(createdRequest, guestName);
+    await sendNewTimeOffRequestEmailSafely(createdRequest, requester);
+    await sendGuestRequestNotificationsSafely(
+      createdRequest,
+      requesterDisplayName,
+    );
 
     return res.status(201).json(createdRequest);
   } catch (error) {
