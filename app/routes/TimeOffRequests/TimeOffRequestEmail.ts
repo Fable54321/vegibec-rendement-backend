@@ -180,7 +180,7 @@ export const buildTimeOffReviewEmail = (
   const requesterName = getRequesterName(request, requester);
   const dates = formatDateRanges(request.requested_dates);
   const reviewNote = request.review_note?.trim();
-  const subject = `Votre demande de congé a été ${decision}`;
+  const subject = `Demande de congé ${decision}`;
   const text = [
     `Bonjour ${requesterName},`,
     "",
@@ -188,10 +188,10 @@ export const buildTimeOffReviewEmail = (
     "",
     "Dates demandées :",
     ...dates.map((date) => `- ${date}`),
-    `Statut : ${statusLabel}`,
+    
     ...(reviewNote ? [`Raison ou notes : ${reviewNote}`] : []),
     "",
-    "Merci de votre compréhension",
+    "Merci",
     
   ].join("\n");
   const html = `
@@ -200,7 +200,7 @@ export const buildTimeOffReviewEmail = (
       <p>Votre demande de congé a été <strong>${decision}</strong>.</p>
       <p><strong>Dates demandées :</strong></p>
       <ul>${dates.map((date) => `<li>${escapeHtml(date)}</li>`).join("")}</ul>
-      <p><strong>Statut :</strong> ${statusLabel}</p>
+      
       ${
         reviewNote
           ? `<p><strong>Raison ou notes :</strong><br />${escapeHtml(reviewNote).replace(/\n/g, "<br />")}</p>`
