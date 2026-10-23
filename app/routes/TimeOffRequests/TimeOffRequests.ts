@@ -191,7 +191,13 @@ router.get("/mine", canRead, async (req, res) => {
     const result = await pool.query(
       `SELECT ${fields}, COUNT(*) OVER()::int AS total_count
        FROM portal.time_off_request
-       WHERE requester_user_id = $1 AND ($2::text IS NULL OR status = $2)
+       WHERE requester_user_id = $1
+         AND ($2::text IS NULL OR status = $2)
+         AND EXISTS (
+           SELECT 1
+           FROM unnest(requested_dates) AS dates(requested_date)
+           WHERE dates.requested_date >= CURRENT_DATE
+         )
        ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4`,
       [userId, status, limit, (page - 1) * limit],
     );
