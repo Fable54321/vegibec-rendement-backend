@@ -11,7 +11,6 @@ import {
   sendNewTimeOffRequestEmailSafely,
   sendTimeOffReviewEmailSafely,
   sendUpcomingTimeOffEmail,
-  TIME_OFF_REQUEST_EMAIL_RECIPIENT,
 } from "./TimeOffRequestEmail";
 
 const router = Router();
@@ -332,8 +331,12 @@ router.get("/calendar", canRead, async (req, res) => {
 });
 
 /** POST /time-off/next-7-days/email (admins only) */
-router.post("/next-7-days/email", canReview, async (_req, res) => {
+router.post("/next-7-days/email", canReview, async (req, res) => {
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Un objet JSON est attendu" });
+
   try {
+    const recipient = requiredEmail(req.body.email);
     const result = await pool.query(
       `SELECT
          requests.id,
@@ -369,16 +372,18 @@ router.post("/next-7-days/email", canReview, async (_req, res) => {
       name: user_name ?? request.name,
     }));
 
-    await sendUpcomingTimeOffEmail(requests, from_date, to_date);
+    await sendUpcomingTimeOffEmail(requests, from_date, to_date, recipient);
 
     return res.json({
       message: "Courriel des congés à venir envoyé",
-      recipient: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+      recipient,
       from: from_date,
       to: to_date,
       request_count: requests.length,
     });
   } catch (error) {
+    if (error instanceof ValidationError)
+      return res.status(400).json({ error: error.message });
     console.error("Upcoming time-off email failed:", error);
     return res.status(500).json({
       error: "Impossible d'envoyer le courriel des congés à venir",

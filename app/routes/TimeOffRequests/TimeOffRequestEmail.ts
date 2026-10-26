@@ -266,10 +266,11 @@ export const sendUpcomingTimeOffEmail = async (
   requests: UpcomingTimeOff[],
   from: string | Date,
   to: string | Date,
+  recipient: string,
 ): Promise<void> => {
   const email = buildUpcomingTimeOffEmail(requests, from, to);
   await sendEmail({
-    to: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+    to: recipient,
     fromLabel: "Vegibec - Demandes de congé",
     subject: email.subject,
     text: email.text,
