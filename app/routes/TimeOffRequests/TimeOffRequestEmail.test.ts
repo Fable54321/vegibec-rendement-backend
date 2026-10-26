@@ -4,8 +4,48 @@ import {
   buildNewTimeOffRequestEmail,
   buildTimeOffApprovalUrl,
   buildTimeOffReviewEmail,
+  buildUpcomingTimeOffEmail,
   TIME_OFF_REQUEST_EMAIL_RECIPIENT,
 } from "./TimeOffRequestEmail";
+
+test("builds the approved time-off summary for the next seven days", () => {
+  const email = buildUpcomingTimeOffEmail(
+    [
+      {
+        id: 50,
+        requester_user_id: 13,
+        requested_dates: ["2026-10-26", "2026-10-27"],
+        status: "approved",
+        name: "Marie",
+        surname: "Tremblay",
+      },
+      {
+        id: 51,
+        requester_user_id: null,
+        requested_dates: ["2026-11-01"],
+        status: "pending",
+        name: "Camille Invitée",
+      },
+    ],
+    "2026-10-26",
+    "2026-11-01",
+  );
+
+  assert.match(email.subject, /7 prochains jours/);
+  assert.match(email.text, /Tremblay Marie/);
+  assert.match(email.text, /Approuvée/);
+  assert.match(email.text, /du 26 octobre 2026 au 27 octobre 2026/);
+  assert.match(email.html, /Camille Invitée/);
+  assert.match(email.html, /En attente/);
+  assert.match(email.html, /1 novembre 2026/);
+});
+
+test("builds an empty approved time-off summary", () => {
+  const email = buildUpcomingTimeOffEmail([], "2026-10-26", "2026-11-01");
+
+  assert.match(email.text, /Aucune demande de congé/);
+  assert.match(email.html, /Aucune demande de congé/);
+});
 
 test("builds the new time-off request notification", () => {
   const email = buildNewTimeOffRequestEmail(

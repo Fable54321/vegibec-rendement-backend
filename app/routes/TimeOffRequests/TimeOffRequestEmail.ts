@@ -29,6 +29,8 @@ export type TimeOffRequestEmail = {
   html: string;
 };
 
+export type UpcomingTimeOff = TimeOffRequest & TimeOffRequester;
+
 export const buildTimeOffApprovalUrl = (requestId: number | string): string =>
   `${TIME_OFF_APPROVAL_BASE_URL}/${encodeURIComponent(String(requestId))}`;
 
@@ -213,6 +215,66 @@ export const buildTimeOffReviewEmail = (
   `.trim();
 
   return { subject, text, html };
+};
+
+export const buildUpcomingTimeOffEmail = (
+  requests: UpcomingTimeOff[],
+  from: string | Date,
+  to: string | Date,
+): TimeOffRequestEmail => {
+  const period = `${formatDate(from)} au ${formatDate(to)}`;
+  const subject = `Demandes de congé des 7 prochains jours — ${period}`;
+  const entries = requests.map((request) => ({
+    name: getRequesterName(request, request),
+    dates: formatDateRanges(request.requested_dates),
+    status: request.status === "approved" ? "Approuvée" : "En attente",
+  }));
+  const text = [
+    `Demandes de congé du ${period}`,
+    "",
+    ...(entries.length
+      ? entries.flatMap(({ name, dates, status }) => [
+          `${name} — ${status}`,
+          ...dates.map((date) => `- ${date}`),
+          "",
+        ])
+      : ["Aucune demande de congé pendant cette période."]),
+  ].join("\n").trim();
+  const htmlEntries = entries.length
+    ? entries
+        .map(
+          ({ name, dates, status }) => `
+            <li style="margin-bottom: 12px;">
+              <strong>${escapeHtml(name)}</strong> — ${escapeHtml(status)}
+              <ul>${dates.map((date) => `<li>${escapeHtml(date)}</li>`).join("")}</ul>
+            </li>`,
+        )
+        .join("")
+    : "<li>Aucune demande de congé pendant cette période.</li>";
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+      <h2>Demandes de congé des 7 prochains jours</h2>
+      <p><strong>Période :</strong> ${escapeHtml(period)}</p>
+      <ul>${htmlEntries}</ul>
+    </div>
+  `.trim();
+
+  return { subject, text, html };
+};
+
+export const sendUpcomingTimeOffEmail = async (
+  requests: UpcomingTimeOff[],
+  from: string | Date,
+  to: string | Date,
+): Promise<void> => {
+  const email = buildUpcomingTimeOffEmail(requests, from, to);
+  await sendEmail({
+    to: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+    fromLabel: "Vegibec - Demandes de congé",
+    subject: email.subject,
+    text: email.text,
+    html: email.html,
+  });
 };
 
 export const sendNewTimeOffRequestEmailSafely = async (

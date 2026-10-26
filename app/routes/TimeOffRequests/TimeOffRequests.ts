@@ -10,6 +10,8 @@ import { requireAppRole } from "../../middleware/auth";
 import {
   sendNewTimeOffRequestEmailSafely,
   sendTimeOffReviewEmailSafely,
+  sendUpcomingTimeOffEmail,
+  TIME_OFF_REQUEST_EMAIL_RECIPIENT,
 } from "./TimeOffRequestEmail";
 
 const router = Router();
@@ -326,6 +328,61 @@ router.get("/calendar", canRead, async (req, res) => {
     return res.json({ data: result.rows });
   } catch (error) {
     return sendDbError(res, error);
+  }
+});
+
+/** POST /time-off/next-7-days/email (admins only) */
+router.post("/next-7-days/email", canReview, async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+         requests.id,
+         requests.requester_user_id,
+         requests.guest_name AS name,
+         requests.guest_email AS email,
+         requests.status,
+         ARRAY(
+           SELECT requested_date
+           FROM unnest(requests.requested_dates) AS dates(requested_date)
+           WHERE requested_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 6
+           ORDER BY requested_date
+         ) AS requested_dates,
+         users.name AS user_name,
+         users.surname,
+         users.username
+       FROM portal.time_off_request requests
+       LEFT JOIN public.users users ON users.id = requests.requester_user_id
+       WHERE requests.status IN ('approved', 'pending')
+         AND EXISTS (
+           SELECT 1
+           FROM unnest(requests.requested_dates) AS dates(requested_date)
+           WHERE requested_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 6
+         )
+       ORDER BY requests.requested_dates[1], requests.id`,
+    );
+    const periodResult = await pool.query(
+      `SELECT CURRENT_DATE::text AS from_date, (CURRENT_DATE + 6)::text AS to_date`,
+    );
+    const { from_date, to_date } = periodResult.rows[0];
+    const requests = result.rows.map(({ user_name, ...request }) => ({
+      ...request,
+      name: user_name ?? request.name,
+    }));
+
+    await sendUpcomingTimeOffEmail(requests, from_date, to_date);
+
+    return res.json({
+      message: "Courriel des congés à venir envoyé",
+      recipient: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+      from: from_date,
+      to: to_date,
+      request_count: requests.length,
+    });
+  } catch (error) {
+    console.error("Upcoming time-off email failed:", error);
+    return res.status(500).json({
+      error: "Impossible d'envoyer le courriel des congés à venir",
+    });
   }
 });
 
