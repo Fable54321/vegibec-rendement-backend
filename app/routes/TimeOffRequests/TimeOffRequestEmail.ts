@@ -223,14 +223,14 @@ export const buildUpcomingTimeOffEmail = (
   to: string | Date,
 ): TimeOffRequestEmail => {
   const period = `${formatDate(from)} au ${formatDate(to)}`;
-  const subject = `Demandes de congé des 7 prochains jours — ${period}`;
+  const subject = `Congés des 7 prochains jours — ${period}`;
   const entries = requests.map((request) => ({
     name: getRequesterName(request, request),
     dates: formatDateRanges(request.requested_dates),
     status: request.status === "approved" ? "Approuvée" : "En attente",
   }));
   const text = [
-    `Demandes de congé du ${period}`,
+    `Congé(s) du ${period}`,
     "",
     ...(entries.length
       ? entries.flatMap(({ name, dates, status }) => [
@@ -253,7 +253,7 @@ export const buildUpcomingTimeOffEmail = (
     : "<li>Aucune demande de congé pendant cette période.</li>";
   const html = `
     <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
-      <h2>Demandes de congé des 7 prochains jours</h2>
+      <h2>Congés des 7 prochains jours</h2>
       <p><strong>Période :</strong> ${escapeHtml(period)}</p>
       <ul>${htmlEntries}</ul>
     </div>
