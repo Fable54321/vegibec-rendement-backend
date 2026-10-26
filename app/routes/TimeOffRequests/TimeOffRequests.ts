@@ -312,7 +312,7 @@ router.get("/calendar", canRead, async (req, res) => {
          (requests.requester_user_id = $3)::boolean AS is_own_request
        FROM portal.time_off_request requests
        LEFT JOIN public.users users ON users.id = requests.requester_user_id
-       WHERE requests.status = 'approved'
+       WHERE requests.status IN ('approved', 'pending')
          AND EXISTS (
            SELECT 1
            FROM unnest(requests.requested_dates) AS dates(requested_date)
