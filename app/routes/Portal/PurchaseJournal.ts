@@ -1723,7 +1723,7 @@ router.get("/:id", async (req, res) => {
     rv.purchase_request_id,
     rv.receipt_voucher_reference,
     rv.receipt_voucher_sequence,
-    rv.received_by_user_id,
+    NULL::bigint AS received_by_user_id,
     rv.received_by_name,
     rv.received_by_email,
     rv.buyer_phone,
