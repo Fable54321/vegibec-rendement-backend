@@ -752,6 +752,156 @@ router.patch("/:id/recurring", async (req, res) => {
   }
 })
 
+router.patch("/:id/status", async (req, res) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" })
+    }
+
+    const purchaseRequestId = Number(req.params.id)
+    const status = req.body?.status
+    const cancellationReason =
+      typeof req.body?.cancellation_reason === "string"
+        ? req.body.cancellation_reason.trim()
+        : ""
+
+    if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
+      return res.status(400).json({ message: "Invalid purchase request id" })
+    }
+
+    // Workflow statuses are normally derived from buyer, approval, purchase,
+    // and receipt actions. The journal only permits the manual terminal state
+    // needed when an open request has been abandoned.
+    if (status !== "cancelled") {
+      return res.status(400).json({
+        message: "Only cancellation can be set manually from the journal",
+      })
+    }
+
+    if (cancellationReason.length < 3) {
+      return res.status(400).json({
+        message: "A cancellation reason is required",
+      })
+    }
+
+    await client.query("BEGIN")
+    transactionStarted = true
+
+    const requestResult = await client.query(
+      `
+      SELECT id, status
+      FROM portal.purchase_requests
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [purchaseRequestId],
+    )
+
+    if (requestResult.rows.length === 0) {
+      await client.query("ROLLBACK")
+      transactionStarted = false
+      return res.status(404).json({ message: "Purchase request not found" })
+    }
+
+    if (
+      ["cancelled", "rejected", "received"].includes(
+        requestResult.rows[0].status,
+      )
+    ) {
+      await client.query("ROLLBACK")
+      transactionStarted = false
+      return res.status(409).json({
+        message: "This purchase request can no longer be cancelled",
+      })
+    }
+
+    const userResult = await client.query(
+      `
+      SELECT name, surname, email
+      FROM public.users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [req.user.id],
+    )
+    const user = userResult.rows[0]
+    const cancelledByName =
+      [user?.name, user?.surname].filter(Boolean).join(" ").trim() ||
+      req.user.username
+    const cancelledByEmail = user?.email ?? null
+
+    const updateResult = await client.query(
+      `
+      UPDATE portal.purchase_requests
+      SET
+        status = 'cancelled',
+        cancelled_at = now(),
+        cancelled_by_name = $2,
+        cancelled_by_email = $3,
+        cancellation_reason = $4,
+        updated_at = now()
+      WHERE id = $1
+      RETURNING
+        id,
+        status,
+        cancelled_at,
+        cancelled_by_name,
+        cancelled_by_email,
+        cancellation_reason
+      `,
+      [
+        purchaseRequestId,
+        cancelledByName,
+        cancelledByEmail,
+        cancellationReason,
+      ],
+    )
+
+    // Preserve items that already belong to a purchase order, while closing
+    // every unpurchased item so it cannot reappear in an active buying flow.
+    await client.query(
+      `
+      UPDATE portal.purchase_request_items
+      SET
+        status = 'cancelled',
+        cancelled_at = now(),
+        cancellation_reason = $2,
+        updated_at = now()
+      WHERE purchase_request_id = $1
+        AND NOT EXISTS (
+          SELECT 1
+          FROM portal.purchase_order_items poi
+          WHERE poi.purchase_request_item_id = portal.purchase_request_items.id
+        )
+      `,
+      [purchaseRequestId, cancellationReason],
+    )
+
+    await client.query("COMMIT")
+    transactionStarted = false
+
+    const updatedRequest = updateResult.rows[0]
+    return res.json({
+      ...updatedRequest,
+      available_action: getAvailableAction(
+        updatedRequest.status,
+        purchaseRequestId,
+      ),
+    })
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK")
+    console.error("Purchase journal status update error:", error)
+    return res.status(500).json({
+      message: "Unable to update purchase request status",
+    })
+  } finally {
+    client.release()
+  }
+})
+
 router.post("/direct-purchase-order", async (req, res) => {
   const client = await pool.connect()
   let transactionStarted = false
