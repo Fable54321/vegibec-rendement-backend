@@ -4,7 +4,8 @@ import {
   buildNewTimeOffRequestEmail,
   buildTimeOffApprovalUrl,
   buildTimeOffReviewEmail,
-  TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+  buildUpcomingTimeOffEmail,
+  TIME_OFF_REQUEST_EMAIL_RECIPIENTS,
 } from "./TimeOffRequestEmail";
 
 test("builds the approved time-off summary for the next seven days", () => {
