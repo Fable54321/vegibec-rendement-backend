@@ -8,15 +8,21 @@ import {
 } from "./Utils/PurchaseHelper"
 import { generateReceiptVoucherPdf } from "./Utils/PdfReceiptVoucherGeneration"
 import { getSignedUrlForKey, uploadBufferToS3 } from "../../services/s3.services"
+import { authMiddleware } from "../../middleware/auth"
 
 const router = express.Router()
 
 type ReceiptVoucherItemInput = {
+  id?: number | null
   purchase_request_item_id?: number | null
   purchase_order_item_id?: number | null
   quantity?: number | string | null
   received_quantity?: number | string | null
   comment?: string | null
+}
+
+type NormalizedReceiptVoucherUpdateItem = NormalizedReceiptVoucherItem & {
+  id: number | null
 }
 
 type NormalizedReceiptVoucherItem = {
@@ -375,6 +381,349 @@ router.get("/:receiptVoucherId/pdf", async (req, res) => {
     return res.status(500).json({
       message: "Error generating receipt voucher PDF",
     })
+  } finally {
+    client.release()
+  }
+})
+
+router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
+  const client = await pool.connect()
+  let transactionStarted = false
+
+  try {
+    const receiptVoucherId = toPositiveInteger(req.params.receiptVoucherId)
+    const items = Array.isArray(req.body?.items) ? req.body.items : []
+    const receivedByName = cleanText(req.body?.received_by_name)
+
+    if (!receiptVoucherId || !receivedByName || items.length === 0) {
+      return res.status(400).json({
+        message: "Le réceptionnaire et au moins un article sont requis.",
+      })
+    }
+
+    const normalizedItems: NormalizedReceiptVoucherUpdateItem[] = items.map(
+      (item: ReceiptVoucherItemInput) => ({
+        id: toPositiveInteger(item.id),
+        purchase_request_item_id: toPositiveInteger(
+          item.purchase_request_item_id,
+        ),
+        purchase_order_item_id: toPositiveInteger(item.purchase_order_item_id),
+        quantity: toPositiveNumber(item.quantity),
+        received_quantity: toPositiveNumber(item.received_quantity),
+        comment: cleanText(item.comment),
+      }),
+    )
+
+    if (
+      normalizedItems.some(
+        (item) =>
+          !item.purchase_request_item_id ||
+          !item.purchase_order_item_id ||
+          !item.received_quantity,
+      )
+    ) {
+      return res.status(400).json({
+        message: "Chaque article doit avoir une quantité reçue valide.",
+      })
+    }
+
+    const purchaseOrderItemIds = normalizedItems.map(
+      (item) => item.purchase_order_item_id!,
+    )
+    if (new Set(purchaseOrderItemIds).size !== purchaseOrderItemIds.length) {
+      return res.status(400).json({
+        message: "Un article ne peut apparaître qu'une seule fois.",
+      })
+    }
+
+    await client.query("BEGIN")
+    transactionStarted = true
+
+    const voucherResult = await client.query(
+      `
+      SELECT rv.id, rv.purchase_request_id, pr.status AS purchase_request_status
+      FROM portal.receipt_vouchers rv
+      INNER JOIN portal.purchase_requests pr
+        ON pr.id = rv.purchase_request_id
+      WHERE rv.id = $1
+      FOR UPDATE OF rv, pr
+      `,
+      [receiptVoucherId],
+    )
+
+    if (voucherResult.rows.length === 0) {
+      await client.query("ROLLBACK")
+      transactionStarted = false
+      return res.status(404).json({ message: "Receipt voucher not found" })
+    }
+
+    const purchaseRequestId = Number(voucherResult.rows[0].purchase_request_id)
+    if (["cancelled", "rejected"].includes(voucherResult.rows[0].purchase_request_status)) {
+      await client.query("ROLLBACK")
+      transactionStarted = false
+      return res.status(409).json({
+        message: "Ce bon de réception appartient à une demande fermée.",
+      })
+    }
+
+    const existingItemsResult = await client.query(
+      `
+      SELECT rvi.id, rvi.purchase_order_item_id, poi.purchase_order_id
+      FROM portal.receipt_voucher_items rvi
+      LEFT JOIN portal.purchase_order_items poi
+        ON poi.id = rvi.purchase_order_item_id
+      WHERE rvi.receipt_voucher_id = $1
+      FOR UPDATE OF rvi
+      `,
+      [receiptVoucherId],
+    )
+    const existingItemsById = new Map(
+      existingItemsResult.rows.map((item) => [Number(item.id), item]),
+    )
+    const existingPurchaseOrderIds = new Set(
+      existingItemsResult.rows
+        .map((item) => Number(item.purchase_order_id))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    )
+
+    const orderItemsResult = await client.query(
+      `
+      SELECT
+        poi.id,
+        poi.purchase_request_item_id,
+        poi.purchase_order_id,
+        poi.ordered_quantity,
+        COALESCE(other_receipts.received_quantity, 0)::numeric
+          AS received_by_other_vouchers
+      FROM portal.purchase_order_items poi
+      INNER JOIN portal.purchase_orders po
+        ON po.id = poi.purchase_order_id
+      LEFT JOIN (
+        SELECT purchase_order_item_id, SUM(received_quantity)::numeric AS received_quantity
+        FROM portal.receipt_voucher_items
+        WHERE receipt_voucher_id <> $2
+        GROUP BY purchase_order_item_id
+      ) other_receipts
+        ON other_receipts.purchase_order_item_id = poi.id
+      WHERE po.purchase_request_id = $1
+        AND poi.id = ANY($3::bigint[])
+      FOR UPDATE OF poi
+      `,
+      [purchaseRequestId, receiptVoucherId, purchaseOrderItemIds],
+    )
+    const orderItemsById = new Map(
+      orderItemsResult.rows.map((item) => [Number(item.id), item]),
+    )
+
+    if (orderItemsById.size !== purchaseOrderItemIds.length) {
+      await client.query("ROLLBACK")
+      transactionStarted = false
+      return res.status(400).json({
+        message: "Un ou plusieurs articles ne font pas partie de cette demande.",
+      })
+    }
+
+    const submittedPurchaseOrderIds = new Set(
+      orderItemsResult.rows.map((item) => Number(item.purchase_order_id)),
+    )
+    if (
+      submittedPurchaseOrderIds.size !== 1 ||
+      (existingPurchaseOrderIds.size > 0 &&
+        !existingPurchaseOrderIds.has([...submittedPurchaseOrderIds][0]))
+    ) {
+      await client.query("ROLLBACK")
+      transactionStarted = false
+      return res.status(400).json({
+        message:
+          "Un bon de réception ne peut contenir que les articles d'un même bon de commande.",
+      })
+    }
+
+    const submittedItemIds: number[] = []
+    for (const item of normalizedItems) {
+      const orderItem = orderItemsById.get(item.purchase_order_item_id!)
+      const orderedQuantity = Number(orderItem.ordered_quantity)
+      const receivedByOtherVouchers = Number(
+        orderItem.received_by_other_vouchers,
+      )
+
+      if (
+        Number(orderItem.purchase_request_item_id) !==
+          item.purchase_request_item_id ||
+        item.received_quantity! + receivedByOtherVouchers > orderedQuantity
+      ) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
+        return res.status(400).json({
+          message:
+            "La quantité reçue dépasse la quantité commandée pour un ou plusieurs articles.",
+        })
+      }
+
+      if (item.id) {
+        const existingItem = existingItemsById.get(item.id)
+        if (
+          !existingItem ||
+          Number(existingItem.purchase_order_item_id) !==
+            item.purchase_order_item_id
+        ) {
+          await client.query("ROLLBACK")
+          transactionStarted = false
+          return res.status(400).json({
+            message: "Un article du bon de réception est invalide.",
+          })
+        }
+
+        await client.query(
+          `
+          UPDATE portal.receipt_voucher_items
+          SET
+            purchase_request_item_id = $3,
+            quantity = $4,
+            received_quantity = $5,
+            comment = $6,
+            updated_at = now()
+          WHERE id = $1 AND receipt_voucher_id = $2
+          `,
+          [
+            item.id,
+            receiptVoucherId,
+            item.purchase_request_item_id,
+            orderedQuantity,
+            item.received_quantity,
+            item.comment,
+          ],
+        )
+        submittedItemIds.push(item.id)
+      } else {
+        const insertedItem = await client.query(
+          `
+          INSERT INTO portal.receipt_voucher_items (
+            receipt_voucher_id,
+            purchase_request_item_id,
+            purchase_order_item_id,
+            quantity,
+            received_quantity,
+            comment
+          )
+          VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING id
+          `,
+          [
+            receiptVoucherId,
+            item.purchase_request_item_id,
+            item.purchase_order_item_id,
+            orderedQuantity,
+            item.received_quantity,
+            item.comment,
+          ],
+        )
+        submittedItemIds.push(Number(insertedItem.rows[0].id))
+      }
+    }
+
+    await client.query(
+      `
+      DELETE FROM portal.receipt_voucher_items
+      WHERE receipt_voucher_id = $1
+        AND NOT (id = ANY($2::bigint[]))
+      `,
+      [receiptVoucherId, submittedItemIds],
+    )
+
+    const receivedAt = cleanText(req.body?.received_at)
+    if (receivedAt && Number.isNaN(new Date(receivedAt).getTime())) {
+      await client.query("ROLLBACK")
+      transactionStarted = false
+      return res.status(400).json({ message: "La date de réception est invalide." })
+    }
+
+    const updatedVoucherResult = await client.query(
+      `
+      UPDATE portal.receipt_vouchers
+      SET
+        received_by_name = $2,
+        received_by_email = $3,
+        buyer_phone = $4,
+        received_at = COALESCE($5::timestamptz, received_at),
+        receipt_note = $6,
+        supplier_name = $7,
+        supplier_address_snapshot = $8,
+        supplier_phone = $9,
+        delivery_method = $10,
+        updated_at = now()
+      WHERE id = $1
+      RETURNING *
+      `,
+      [
+        receiptVoucherId,
+        receivedByName,
+        cleanText(req.body?.received_by_email),
+        cleanText(req.body?.buyer_phone),
+        receivedAt,
+        cleanText(req.body?.receipt_note),
+        cleanText(req.body?.supplier_name),
+        cleanText(req.body?.supplier_address_snapshot),
+        cleanText(req.body?.supplier_phone),
+        cleanText(req.body?.delivery_method),
+      ],
+    )
+
+    const totalsResult = await client.query(
+      `
+      SELECT
+        COALESCE(requested.total, 0)::numeric AS requested_total,
+        COALESCE(ordered.total, 0)::numeric AS ordered_total,
+        COALESCE(received.total, 0)::numeric AS received_total
+      FROM (
+        SELECT SUM(quantity)::numeric AS total
+        FROM portal.purchase_request_items
+        WHERE purchase_request_id = $1
+      ) requested
+      CROSS JOIN (
+        SELECT SUM(poi.ordered_quantity)::numeric AS total
+        FROM portal.purchase_orders po
+        INNER JOIN portal.purchase_order_items poi ON poi.purchase_order_id = po.id
+        WHERE po.purchase_request_id = $1
+      ) ordered
+      CROSS JOIN (
+        SELECT SUM(rvi.received_quantity)::numeric AS total
+        FROM portal.receipt_vouchers rv
+        INNER JOIN portal.receipt_voucher_items rvi ON rvi.receipt_voucher_id = rv.id
+        WHERE rv.purchase_request_id = $1
+      ) received
+      `,
+      [purchaseRequestId],
+    )
+    const totals = totalsResult.rows[0]
+    const requestedTotal = Number(totals.requested_total)
+    const orderedTotal = Number(totals.ordered_total)
+    const receivedTotal = Number(totals.received_total)
+    const nextRequestStatus =
+      requestedTotal > 0 &&
+      orderedTotal >= requestedTotal &&
+      receivedTotal >= orderedTotal
+        ? "received"
+        : "partially_received"
+
+    await client.query(
+      `UPDATE portal.purchase_requests SET status = $2, updated_at = now() WHERE id = $1`,
+      [purchaseRequestId, nextRequestStatus],
+    )
+
+    await client.query("COMMIT")
+    transactionStarted = false
+
+    return res.json({
+      receipt_voucher: updatedVoucherResult.rows[0],
+      status: nextRequestStatus,
+    })
+  } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK").catch(() => undefined)
+    }
+    console.error("Update receipt voucher error:", error)
+    return res.status(500).json({ message: "Unable to update receipt voucher" })
   } finally {
     client.release()
   }
