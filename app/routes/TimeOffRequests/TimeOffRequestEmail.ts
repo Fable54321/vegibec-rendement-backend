@@ -2,7 +2,7 @@ import { sendEmail } from "../Visitors/Utils/testSMTP";
 
 export const TIME_OFF_REQUEST_EMAIL_RECIPIENTS = [ 
   "programmation@vegibec.com",
-  "timothebissonnette@gmail.com"
+  "directionrh@vegibec.com",
 ];
 const TIME_OFF_APPROVAL_BASE_URL =
   "https://vegibec-portail.com/approbation-conge";
