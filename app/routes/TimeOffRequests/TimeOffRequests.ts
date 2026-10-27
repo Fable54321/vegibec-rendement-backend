@@ -10,6 +10,7 @@ import { requireAppRole } from "../../middleware/auth";
 import {
   sendNewTimeOffRequestEmailSafely,
   sendTimeOffReviewEmailSafely,
+  sendUpcomingTimeOffEmail,
 } from "./TimeOffRequestEmail";
 
 const router = Router();
@@ -312,7 +313,7 @@ router.get("/calendar", canRead, async (req, res) => {
          (requests.requester_user_id = $3)::boolean AS is_own_request
        FROM portal.time_off_request requests
        LEFT JOIN public.users users ON users.id = requests.requester_user_id
-       WHERE requests.status = 'approved'
+       WHERE requests.status IN ('approved', 'pending')
          AND EXISTS (
            SELECT 1
            FROM unnest(requests.requested_dates) AS dates(requested_date)
@@ -326,6 +327,67 @@ router.get("/calendar", canRead, async (req, res) => {
     return res.json({ data: result.rows });
   } catch (error) {
     return sendDbError(res, error);
+  }
+});
+
+/** POST /time-off/next-7-days/email (admins only) */
+router.post("/next-7-days/email", canReview, async (req, res) => {
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Un objet JSON est attendu" });
+
+  try {
+    const recipient = requiredEmail(req.body.email);
+    const result = await pool.query(
+      `SELECT
+         requests.id,
+         requests.requester_user_id,
+         requests.guest_name AS name,
+         requests.guest_email AS email,
+         requests.status,
+         ARRAY(
+           SELECT requested_date
+           FROM unnest(requests.requested_dates) AS dates(requested_date)
+           WHERE requested_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 6
+           ORDER BY requested_date
+         ) AS requested_dates,
+         users.name AS user_name,
+         users.surname,
+         users.username
+       FROM portal.time_off_request requests
+       LEFT JOIN public.users users ON users.id = requests.requester_user_id
+       WHERE requests.status IN ('approved', 'pending')
+         AND EXISTS (
+           SELECT 1
+           FROM unnest(requests.requested_dates) AS dates(requested_date)
+           WHERE requested_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 6
+         )
+       ORDER BY requests.requested_dates[1], requests.id`,
+    );
+    const periodResult = await pool.query(
+      `SELECT CURRENT_DATE::text AS from_date, (CURRENT_DATE + 6)::text AS to_date`,
+    );
+    const { from_date, to_date } = periodResult.rows[0];
+    const requests = result.rows.map(({ user_name, ...request }) => ({
+      ...request,
+      name: user_name ?? request.name,
+    }));
+
+    await sendUpcomingTimeOffEmail(requests, from_date, to_date, recipient);
+
+    return res.json({
+      message: "Courriel des congés à venir envoyé",
+      recipient,
+      from: from_date,
+      to: to_date,
+      request_count: requests.length,
+    });
+  } catch (error) {
+    if (error instanceof ValidationError)
+      return res.status(400).json({ error: error.message });
+    console.error("Upcoming time-off email failed:", error);
+    return res.status(500).json({
+      error: "Impossible d'envoyer le courriel des congés à venir",
+    });
   }
 });
 
