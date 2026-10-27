@@ -781,11 +781,7 @@ router.patch("/:id/status", async (req, res) => {
       })
     }
 
-    if (cancellationReason.length < 3) {
-      return res.status(400).json({
-        message: "A cancellation reason is required",
-      })
-    }
+   
 
     await client.query("BEGIN")
     transactionStarted = true
