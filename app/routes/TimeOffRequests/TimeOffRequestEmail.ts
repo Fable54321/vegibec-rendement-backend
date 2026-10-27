@@ -1,6 +1,9 @@
 import { sendEmail } from "../Visitors/Utils/testSMTP";
 
-export const TIME_OFF_REQUEST_EMAIL_RECIPIENT = "programmation@vegibec.com";
+export const TIME_OFF_REQUEST_EMAIL_RECIPIENTS = [ 
+  "programmation@vegibec.com",
+  "timothebissonnette@gmail.com"
+];
 const TIME_OFF_APPROVAL_BASE_URL =
   "https://vegibec-portail.com/approbation-conge";
 
@@ -222,7 +225,7 @@ export const sendNewTimeOffRequestEmailSafely = async (
   try {
     const email = buildNewTimeOffRequestEmail(request, requester);
     const emailInfo = await sendEmail({
-      to: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+      to: TIME_OFF_REQUEST_EMAIL_RECIPIENTS,
       fromLabel: "Vegibec - Demandes de congé",
       subject: email.subject,
       text: email.text,
@@ -231,7 +234,7 @@ export const sendNewTimeOffRequestEmailSafely = async (
 
     console.log("Time off request email relay response:", {
       requestId: request.id,
-      to: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+      to: TIME_OFF_REQUEST_EMAIL_RECIPIENTS,
       messageId: emailInfo.messageId,
       accepted: emailInfo.accepted,
       rejected: emailInfo.rejected,
@@ -240,7 +243,7 @@ export const sendNewTimeOffRequestEmailSafely = async (
   } catch (error) {
     console.error("Time off request email failed:", {
       requestId: request.id,
-      to: TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+      to: TIME_OFF_REQUEST_EMAIL_RECIPIENTS,
       error,
     });
   }

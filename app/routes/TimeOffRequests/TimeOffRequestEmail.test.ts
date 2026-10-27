@@ -4,7 +4,7 @@ import {
   buildNewTimeOffRequestEmail,
   buildTimeOffApprovalUrl,
   buildTimeOffReviewEmail,
-  TIME_OFF_REQUEST_EMAIL_RECIPIENT,
+  TIME_OFF_REQUEST_EMAIL_RECIPIENTS,
 } from "./TimeOffRequestEmail";
 
 test("builds the new time-off request notification", () => {
@@ -23,7 +23,7 @@ test("builds the new time-off request notification", () => {
     },
   );
 
-  assert.equal(TIME_OFF_REQUEST_EMAIL_RECIPIENT, "programmation@vegibec.com");
+  assert.equal(TIME_OFF_REQUEST_EMAIL_RECIPIENTS, "programmation@vegibec.com");
   assert.match(email.subject, /Tremblay Marie/);
   assert.match(email.text, /20 octobre 2026/);
   assert.match(email.text, /Banque de vacances/);
