@@ -1484,7 +1484,8 @@ router.get("/:id", async (req, res) => {
         COALESCE(item_totals.requested_total_price, 0)::numeric AS requested_total_price,
         COALESCE(item_totals.buyer_confirmed_total_price, 0)::numeric AS buyer_confirmed_total_price,
         COALESCE(item_totals.requested_total_quantity, 0)::numeric AS requested_total_quantity,
-        COALESCE(purchased_items.purchased_total_quantity, 0)::numeric AS purchased_total_quantity
+        COALESCE(purchased_items.purchased_total_quantity, 0)::numeric AS purchased_total_quantity,
+        receipt_totals.received_at
 
       FROM portal.purchase_requests pr
 
@@ -1521,6 +1522,15 @@ router.get("/:id", async (req, res) => {
         GROUP BY po.purchase_request_id
       ) purchased_items
         ON purchased_items.purchase_request_id = pr.id
+
+      LEFT JOIN (
+        SELECT
+          purchase_request_id,
+          MAX(received_at) AS received_at
+        FROM portal.receipt_vouchers
+        GROUP BY purchase_request_id
+      ) receipt_totals
+        ON receipt_totals.purchase_request_id = pr.id
 
       WHERE pr.id = $1
 
