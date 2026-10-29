@@ -28,6 +28,17 @@ function ensureRecurringColumns() {
   return recurringColumnsReady
 }
 
+let manualStatusColumnsReady: Promise<void> | null = null
+function ensureManualStatusColumns() {
+  manualStatusColumnsReady ??= pool.query(`
+    ALTER TABLE portal.purchase_requests
+      ADD COLUMN IF NOT EXISTS completed_at timestamptz NULL,
+      ADD COLUMN IF NOT EXISTS completed_by_name text NULL,
+      ADD COLUMN IF NOT EXISTS completed_by_email text NULL
+  `).then(() => undefined)
+  return manualStatusColumnsReady
+}
+
 function cleanRecurringText(value: unknown) {
   if (typeof value !== "string") return null
   const cleaned = value.trim()
@@ -50,6 +61,7 @@ type PurchaseRequestStatus =
   | "purchased"
   | "partially_received"
   | "received"
+  | "completed"
   | "cancelled"
 
 
@@ -121,6 +133,14 @@ function getAvailableAction(
         label: "Voir les bons de réception",
         href: `/purchase-journal/${id}`,
         kind: "view_receipt_vouchers",
+        disabled: false,
+      }
+
+    case "completed":
+      return {
+        label: "Voir le détail",
+        href: `/purchase-journal/${id}`,
+        kind: "completed",
         disabled: false,
       }
 
@@ -368,6 +388,7 @@ function getDelegationSelectSql(whereClause: string) {
 router.get("/", async (req, res) => {
   try {
     await ensureRecurringColumns()
+    await ensureManualStatusColumns()
 
     const { status } = req.query
 
@@ -401,6 +422,9 @@ router.get("/", async (req, res) => {
         pr.cancelled_by_name,
         pr.cancelled_by_email,
         pr.cancellation_reason,
+        pr.completed_at,
+        pr.completed_by_name,
+        pr.completed_by_email,
         pr.updated_at,
 
         COALESCE(items.item_count, 0)::int AS item_count,
@@ -719,6 +743,12 @@ router.get("/", async (req, res) => {
 
         cancellation_reason: row.cancellation_reason,
 
+        completed_at: row.completed_at,
+
+        completed_by_name: row.completed_by_name,
+
+        completed_by_email: row.completed_by_email,
+
         status_label: getPurchaseRequestStatusLabel(row.status),
 
         available_action: getAvailableAction(
@@ -761,6 +791,8 @@ router.patch("/:id/status", async (req, res) => {
       return res.status(401).json({ message: "Not authenticated" })
     }
 
+    await ensureManualStatusColumns()
+
     const purchaseRequestId = Number(req.params.id)
     const status = req.body?.status
     const cancellationReason =
@@ -773,11 +805,10 @@ router.patch("/:id/status", async (req, res) => {
     }
 
     // Workflow statuses are normally derived from buyer, approval, purchase,
-    // and receipt actions. The journal only permits the manual terminal state
-    // needed when an open request has been abandoned.
-    if (status !== "cancelled") {
+    // and receipt actions. The journal only permits explicit terminal states.
+    if (status !== "cancelled" && status !== "completed") {
       return res.status(400).json({
-        message: "Only cancellation can be set manually from the journal",
+        message: "Only cancellation or completion can be set manually from the journal",
       })
     }
 
@@ -803,14 +834,14 @@ router.patch("/:id/status", async (req, res) => {
     }
 
     if (
-      ["cancelled", "rejected", "received"].includes(
+      ["cancelled", "completed", "rejected", "received"].includes(
         requestResult.rows[0].status,
       )
     ) {
       await client.query("ROLLBACK")
       transactionStarted = false
       return res.status(409).json({
-        message: "This purchase request can no longer be cancelled",
+        message: "This purchase request is already closed",
       })
     }
 
@@ -824,40 +855,65 @@ router.patch("/:id/status", async (req, res) => {
       [req.user.id],
     )
     const user = userResult.rows[0]
-    const cancelledByName =
+    const changedByName =
       [user?.name, user?.surname].filter(Boolean).join(" ").trim() ||
       req.user.username
-    const cancelledByEmail = user?.email ?? null
+    const changedByEmail = user?.email ?? null
 
-    const updateResult = await client.query(
-      `
-      UPDATE portal.purchase_requests
-      SET
-        status = 'cancelled',
-        cancelled_at = now(),
-        cancelled_by_name = $2,
-        cancelled_by_email = $3,
-        cancellation_reason = $4,
-        updated_at = now()
-      WHERE id = $1
-      RETURNING
-        id,
-        status,
-        cancelled_at,
-        cancelled_by_name,
-        cancelled_by_email,
-        cancellation_reason
-      `,
-      [
-        purchaseRequestId,
-        cancelledByName,
-        cancelledByEmail,
-        cancellationReason,
-      ],
-    )
+    const updateResult = status === "completed"
+      ? await client.query(
+        `
+        UPDATE portal.purchase_requests
+        SET
+          status = 'completed',
+          completed_at = now(),
+          completed_by_name = $2,
+          completed_by_email = $3,
+          updated_at = now()
+        WHERE id = $1
+        RETURNING
+          id,
+          status,
+          cancelled_at,
+          cancelled_by_name,
+          cancelled_by_email,
+          cancellation_reason,
+          completed_at,
+          completed_by_name,
+          completed_by_email
+        `,
+        [purchaseRequestId, changedByName, changedByEmail],
+      )
+      : await client.query(
+        `
+        UPDATE portal.purchase_requests
+        SET
+          status = 'cancelled',
+          cancelled_at = now(),
+          cancelled_by_name = $2,
+          cancelled_by_email = $3,
+          cancellation_reason = $4,
+          updated_at = now()
+        WHERE id = $1
+        RETURNING
+          id,
+          status,
+          cancelled_at,
+          cancelled_by_name,
+          cancelled_by_email,
+          cancellation_reason,
+          completed_at,
+          completed_by_name,
+          completed_by_email
+        `,
+        [purchaseRequestId, changedByName, changedByEmail, cancellationReason],
+      )
 
     // Preserve items that already belong to a purchase order, while closing
     // every unpurchased item so it cannot reappear in an active buying flow.
+    const closedItemReason = status === "completed"
+      ? "Demande terminée manuellement"
+      : cancellationReason
     await client.query(
       `
       UPDATE portal.purchase_request_items
@@ -873,7 +929,7 @@ router.patch("/:id/status", async (req, res) => {
           WHERE poi.purchase_request_item_id = portal.purchase_request_items.id
         )
       `,
-      [purchaseRequestId, cancellationReason],
+      [purchaseRequestId, closedItemReason],
     )
 
     await client.query("COMMIT")
@@ -1274,6 +1330,7 @@ router.post("/:id/action-link", async (req, res) => {
       action.kind === "view_receipt_vouchers" ||
       action.kind === "rejected" ||
       action.kind === "cancelled" ||
+      action.kind === "completed" ||
       action.kind === "view_cancellation_reason"
     ) {
       return res.status(400).json({
@@ -1456,6 +1513,8 @@ router.get("/:id", async (req, res) => {
   const client = await pool.connect()
 
   try {
+    await ensureManualStatusColumns()
+
     const id = Number(req.params.id)
 
     if (!Number.isInteger(id) || id <= 0) {
@@ -1913,6 +1972,9 @@ router.get("/:id", async (req, res) => {
 cancelled_by_name: request.cancelled_by_name,
 cancelled_by_email: request.cancelled_by_email,
 cancellation_reason: request.cancellation_reason,
+        completed_at: request.completed_at,
+        completed_by_name: request.completed_by_name,
+        completed_by_email: request.completed_by_email,
         status_label: getPurchaseRequestStatusLabel(request.status),
 
         available_action: getAvailableAction(request.status, request.id),

@@ -164,12 +164,23 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
 
     await client.query("BEGIN")
     const orderResult = await client.query(
-      "SELECT id, purchase_request_id FROM portal.purchase_orders WHERE id = $1 FOR UPDATE",
+      `SELECT po.id, po.purchase_request_id, pr.status AS purchase_request_status
+       FROM portal.purchase_orders po
+       INNER JOIN portal.purchase_requests pr ON pr.id = po.purchase_request_id
+       WHERE po.id = $1
+       FOR UPDATE OF po, pr`,
       [purchaseOrderId],
     )
     if (!orderResult.rowCount) {
       await client.query("ROLLBACK")
       return res.status(404).json({ message: "Purchase order not found" })
+    }
+
+    if (orderResult.rows[0].purchase_request_status === "completed") {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        message: "This purchase request has been completed and can no longer be modified",
+      })
     }
 
     const submittedItemIds: number[] = []

@@ -458,7 +458,7 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
     }
 
     const purchaseRequestId = Number(voucherResult.rows[0].purchase_request_id)
-    if (["cancelled", "rejected"].includes(voucherResult.rows[0].purchase_request_status)) {
+    if (["cancelled", "completed", "rejected"].includes(voucherResult.rows[0].purchase_request_status)) {
       await client.query("ROLLBACK")
       transactionStarted = false
       return res.status(409).json({

@@ -1506,6 +1506,7 @@ export const getPurchaseRequestStatusLabel = (
     partially_purchased: "Partiellement achetée",
     admin_on_wait: "Mise en attente par Lynda",
     purchased: "Achetée",
+    completed: "Terminée",
     cancelled: "Annulée",
   }
 
