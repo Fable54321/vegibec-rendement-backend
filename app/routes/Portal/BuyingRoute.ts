@@ -164,7 +164,10 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
 
     await client.query("BEGIN")
     const orderResult = await client.query(
-      `SELECT po.id, po.purchase_request_id, pr.status AS purchase_request_status
+      `SELECT
+         po.id,
+         po.purchase_request_id,
+         pr.status AS purchase_request_status
        FROM portal.purchase_orders po
        INNER JOIN portal.purchase_requests pr ON pr.id = po.purchase_request_id
        WHERE po.id = $1
@@ -180,6 +183,36 @@ router.patch("/purchase-orders/:purchaseOrderId", async (req, res) => {
       await client.query("ROLLBACK")
       return res.status(409).json({
         message: "This purchase request has been completed and can no longer be modified",
+      })
+    }
+
+    // Check receipt totals only after acquiring the request lock. Receipt creation
+    // and editing use the same lock, so this statement sees any receipt that
+    // finished while this update was waiting.
+    const receiptCompletionResult = await client.query(
+      `SELECT
+         EXISTS (
+           SELECT 1
+           FROM portal.purchase_order_items existing_item
+           WHERE existing_item.purchase_order_id = $1
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM portal.purchase_order_items existing_item
+           WHERE existing_item.purchase_order_id = $1
+             AND COALESCE((
+               SELECT SUM(receipt_item.received_quantity)
+               FROM portal.receipt_voucher_items receipt_item
+               WHERE receipt_item.purchase_order_item_id = existing_item.id
+             ), 0) < existing_item.ordered_quantity
+         ) AS is_fully_received`,
+      [purchaseOrderId],
+    )
+
+    if (receiptCompletionResult.rows[0].is_fully_received) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        message: "A fully received purchase order can no longer be modified",
       })
     }
 

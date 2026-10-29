@@ -34,7 +34,8 @@ function ensureManualStatusColumns() {
     ALTER TABLE portal.purchase_requests
       ADD COLUMN IF NOT EXISTS completed_at timestamptz NULL,
       ADD COLUMN IF NOT EXISTS completed_by_name text NULL,
-      ADD COLUMN IF NOT EXISTS completed_by_email text NULL
+      ADD COLUMN IF NOT EXISTS completed_by_email text NULL,
+      ADD COLUMN IF NOT EXISTS completion_reason text NULL
   `).then(() => undefined)
   return manualStatusColumnsReady
 }
@@ -425,6 +426,7 @@ router.get("/", async (req, res) => {
         pr.completed_at,
         pr.completed_by_name,
         pr.completed_by_email,
+        pr.completion_reason,
         pr.updated_at,
 
         COALESCE(items.item_count, 0)::int AS item_count,
@@ -749,6 +751,8 @@ router.get("/", async (req, res) => {
 
         completed_by_email: row.completed_by_email,
 
+        completion_reason: row.completion_reason,
+
         status_label: getPurchaseRequestStatusLabel(row.status),
 
         available_action: getAvailableAction(
@@ -798,6 +802,10 @@ router.patch("/:id/status", async (req, res) => {
     const cancellationReason =
       typeof req.body?.cancellation_reason === "string"
         ? req.body.cancellation_reason.trim()
+        : ""
+    const completionReason =
+      typeof req.body?.completion_reason === "string"
+        ? req.body.completion_reason.trim()
         : ""
 
     if (!Number.isInteger(purchaseRequestId) || purchaseRequestId <= 0) {
@@ -869,6 +877,7 @@ router.patch("/:id/status", async (req, res) => {
           completed_at = now(),
           completed_by_name = $2,
           completed_by_email = $3,
+          completion_reason = $4,
           updated_at = now()
         WHERE id = $1
         RETURNING
@@ -880,9 +889,10 @@ router.patch("/:id/status", async (req, res) => {
           cancellation_reason,
           completed_at,
           completed_by_name,
-          completed_by_email
+          completed_by_email,
+          completion_reason
         `,
-        [purchaseRequestId, changedByName, changedByEmail],
+        [purchaseRequestId, changedByName, changedByEmail, completionReason],
       )
       : await client.query(
         `
@@ -904,7 +914,8 @@ router.patch("/:id/status", async (req, res) => {
           cancellation_reason,
           completed_at,
           completed_by_name,
-          completed_by_email
+          completed_by_email,
+          completion_reason
         `,
         [purchaseRequestId, changedByName, changedByEmail, cancellationReason],
       )
@@ -912,7 +923,7 @@ router.patch("/:id/status", async (req, res) => {
     // Preserve items that already belong to a purchase order, while closing
     // every unpurchased item so it cannot reappear in an active buying flow.
     const closedItemReason = status === "completed"
-      ? "Demande terminée manuellement"
+      ? completionReason || "Demande terminée manuellement"
       : cancellationReason
     await client.query(
       `
@@ -1670,6 +1681,7 @@ router.get("/:id", async (req, res) => {
         po.purchased_at,
 
         po.purchased_at AS ordered_at,
+        receipt_completion.is_fully_received,
         receipt_completion.fully_received_at,
 
         COALESCE(order_totals.subtotal_price, 0)::numeric AS subtotal_price,
@@ -1706,6 +1718,9 @@ router.get("/:id", async (req, res) => {
       LEFT JOIN (
         SELECT
           order_items.purchase_order_id,
+          BOOL_AND(
+            COALESCE(receipts.received_quantity, 0) >= order_items.ordered_quantity
+          ) AS is_fully_received,
           CASE
             WHEN BOOL_AND(
               COALESCE(receipts.received_quantity, 0) >= order_items.ordered_quantity
@@ -1975,6 +1990,7 @@ cancellation_reason: request.cancellation_reason,
         completed_at: request.completed_at,
         completed_by_name: request.completed_by_name,
         completed_by_email: request.completed_by_email,
+        completion_reason: request.completion_reason,
         status_label: getPurchaseRequestStatusLabel(request.status),
 
         available_action: getAvailableAction(request.status, request.id),
