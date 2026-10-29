@@ -547,18 +547,7 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
         orderItem.received_by_other_vouchers,
       )
 
-      if (
-        Number(orderItem.purchase_request_item_id) !==
-          item.purchase_request_item_id ||
-        item.received_quantity! + receivedByOtherVouchers > orderedQuantity
-      ) {
-        await client.query("ROLLBACK")
-        transactionStarted = false
-        return res.status(400).json({
-          message:
-            "La quantité reçue dépasse la quantité commandée pour un ou plusieurs articles.",
-        })
-      }
+    
 
       if (item.id) {
         const existingItem = existingItemsById.get(item.id)
