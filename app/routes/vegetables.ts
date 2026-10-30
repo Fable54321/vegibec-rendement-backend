@@ -30,7 +30,8 @@ router.get(
         is_generic,
         is_generic_for_display,
         is_active,
-        generic_display_group_id
+        generic_display_group_id,
+        spanish_display_name,
       FROM vegetables
       ORDER BY vegetable
     `);
