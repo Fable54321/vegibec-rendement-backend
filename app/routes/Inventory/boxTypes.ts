@@ -31,6 +31,40 @@ router.get("/", async (_req, res) => {
   }
 });
 
+// GET box types for a specific vegetable
+router.get("/vegetable/:vegetableId", async (req, res) => {
+  try {
+    const vegetableId = Number(req.params.vegetableId);
+
+    if (!Number.isInteger(vegetableId)) {
+      return res.status(400).json({
+        error: "Invalid vegetable ID.",
+      });
+    }
+
+    const result = await pool.query<BoxType>(
+      `
+      SELECT
+        id,
+        box_type,
+        vegetable_id
+      FROM inventory.box_types
+      WHERE vegetable_id = $1
+      ORDER BY box_type ASC
+      `,
+      [vegetableId],
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching box types by vegetable:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch box types.",
+    });
+  }
+});
+
 // GET one box type
 router.get("/:id", async (req, res) => {
   try {
@@ -66,40 +100,6 @@ router.get("/:id", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to fetch box type.",
-    });
-  }
-});
-
-// GET box types for a specific vegetable
-router.get("/vegetable/:vegetableId", async (req, res) => {
-  try {
-    const vegetableId = Number(req.params.vegetableId);
-
-    if (!Number.isInteger(vegetableId)) {
-      return res.status(400).json({
-        error: "Invalid vegetable ID.",
-      });
-    }
-
-    const result = await pool.query<BoxType>(
-      `
-      SELECT
-        id,
-        box_type,
-        vegetable_id
-      FROM inventory.box_types
-      WHERE vegetable_id = $1
-      ORDER BY box_type ASC
-      `,
-      [vegetableId],
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching box types by vegetable:", error);
-
-    res.status(500).json({
-      error: "Failed to fetch box types.",
     });
   }
 });
