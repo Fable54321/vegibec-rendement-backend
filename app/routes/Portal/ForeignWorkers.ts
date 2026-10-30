@@ -22,6 +22,39 @@ const upload = multer({
 });
 
 const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+const personalPictureUrlCacheTtlMs = 4 * 60 * 1000;
+const personalPictureUrlCache = new Map<
+  string,
+  {
+    url: string;
+    expiresAt: number;
+  }
+>();
+
+const getCachedPersonalPictureUrl = async (
+  key: string | null | undefined
+) => {
+  if (!key) {
+    return null;
+  }
+
+  const now = Date.now();
+  const cachedUrl = personalPictureUrlCache.get(key);
+
+  if (cachedUrl && cachedUrl.expiresAt > now) {
+    return cachedUrl.url;
+  }
+
+  const url = await getSignedUrlForKey(key);
+
+  personalPictureUrlCache.set(key, {
+    url,
+    expiresAt: now + personalPictureUrlCacheTtlMs,
+  });
+
+  return url;
+};
+
 const printableContractsBatchSize = Math.min(
   50,
   Math.max(
@@ -70,7 +103,8 @@ router.get(
           fwi.debut_date,
 
           fwd.job_id_1,
-          fwd.job_id_2
+          fwd.job_id_2,
+          fwd.personal_picture_key
 
         FROM public.users u
 
@@ -84,7 +118,16 @@ router.get(
         `
       );
 
-      return res.status(200).json(result.rows);
+      const workersWithPictureUrls = await Promise.all(
+        result.rows.map(async (worker) => ({
+          ...worker,
+          personal_picture_url: await getCachedPersonalPictureUrl(
+            worker.personal_picture_key
+          ),
+        }))
+      );
+
+      return res.status(200).json(workersWithPictureUrls);
     } catch (err) {
       console.error("Error fetching foreign workers:", err);
 
