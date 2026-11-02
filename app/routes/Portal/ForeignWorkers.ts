@@ -66,7 +66,21 @@ const printableContractsBatchSize = Math.min(
     1,
     Number.parseInt(process.env.PRINTABLE_CONTRACTS_BATCH_SIZE || "10", 10) || 10
   )
-);
+); 
+
+router.get("/job-list", requireAppRole("main", ["admin", "user", "guest"]), async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+              djl.*
+            FROM foreign_workers_schedule.detailed_job_list djl
+        `);
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("Error fetching job list:", error);
+        res.status(500).json({ error: "Failed to fetch job list" });
+    }
+})
 
 
 router.get(
