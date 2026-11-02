@@ -25,3 +25,5 @@ router.post("/", writeRoles, async (req, res) => {
         console.error(error)
     }
 })
+
+export default router;

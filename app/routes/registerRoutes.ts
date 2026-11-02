@@ -24,7 +24,11 @@ import pictureTransferRoute from "./PictureTransfer/PictureTransfer";
 import qualityPicturesRoute from "./PictureTransfer/QualityPictures";
 import buyingRoute from "./Portal/BuyingRoute";
 import fileTransferRoute from "./Portal/FileTransfer";
+
 import foreignWorkersRoute from "./Portal/ForeignWorkers";
+import workersNotesRoute from "./Portal/WorkerNotes";
+
+
 import portalRoute from "./Portal/Portal";
 import purchaseDraftsRoute from "./Portal/PurchaseDrafts";
 import purchaseJournalRoute from "./Portal/PurchaseJournal";
@@ -150,8 +154,11 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/task-categories", taskCategoriesRoute);
   app.use("/losses-tracking", lossesTrackingRoute);
   app.use("/portal/visitors-info", visitorsInfoRoute);
+
   app.use("/portal", portalRoute);
   app.use("/portal/foreign-workers", foreignWorkersRoute);
+  app.use("/notes", workersNotesRoute)
+
   app.use("/evaluation", evaluationRoute);
   app.use("/evaluation-new", evaluationNewRouter);
   app.use("/warehouse", warehouseProductsRoute);
