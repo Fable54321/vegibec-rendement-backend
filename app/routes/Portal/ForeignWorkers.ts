@@ -22,7 +22,10 @@ const upload = multer({
 });
 
 const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+const personalPictureUrlTtlSeconds = 5 * 60;
 const personalPictureUrlCacheTtlMs = 4 * 60 * 1000;
+const personalPictureUrlTtlMs = personalPictureUrlTtlSeconds * 1000;
+const maxPersonalPictureUrlsPerBatch = 50;
 const personalPictureUrlCache = new Map<
   string,
   {
@@ -45,7 +48,9 @@ const getCachedPersonalPictureUrl = async (
     return cachedUrl.url;
   }
 
-  const url = await getSignedUrlForKey(key);
+  const url = await getSignedUrlForKey(key, {
+    expiresIn: personalPictureUrlTtlSeconds,
+  });
 
   personalPictureUrlCache.set(key, {
     url,
@@ -133,6 +138,93 @@ router.get(
 
       return res.status(500).json({
         error: "Erreur lors de la récupération des travailleurs",
+      });
+    }
+  }
+);
+
+router.post(
+  "/foreign-workers/personal-picture-urls",
+  requireAnyAppRole([
+    { appSlug: "main", allowedRoles: ["admin", "user", "guest"] },
+    { appSlug: "evaluacion", allowedRoles: ["admin", "user"] },
+  ]),
+  async (req, res) => {
+    try {
+      const requestedWorkerIds: unknown = req.body?.workerIds;
+
+      if (
+        !Array.isArray(requestedWorkerIds) ||
+        requestedWorkerIds.length === 0 ||
+        requestedWorkerIds.length > maxPersonalPictureUrlsPerBatch ||
+        requestedWorkerIds.some(
+          (workerId) =>
+            typeof workerId !== "number" ||
+            !Number.isInteger(workerId) ||
+            workerId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error: `workerIds doit contenir entre 1 et ${maxPersonalPictureUrlsPerBatch} identifiants valides`,
+        });
+      }
+
+      const workerIds = [...new Set(requestedWorkerIds as number[])];
+      const result = await pool.query<{
+        worker_id: number;
+        personal_picture_key: string | null;
+      }>(
+        `
+        SELECT
+          u.id AS worker_id,
+          fwd.personal_picture_key
+        FROM public.users u
+        INNER JOIN public.foreign_workers_info fwi
+          ON fwi.user_id = u.id
+        LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
+          ON fwd.user_id = u.id
+        WHERE u.id = ANY($1::int[])
+        `,
+        [workerIds]
+      );
+
+      const pictures = await Promise.all(
+        result.rows.map(async (worker) => {
+          if (!worker.personal_picture_key) {
+            return {
+              workerId: Number(worker.worker_id),
+              personalPictureUrl: null,
+              expiresAt: null,
+            };
+          }
+
+          const signedAt = Date.now();
+          const personalPictureUrl = await getSignedUrlForKey(
+            worker.personal_picture_key,
+            { expiresIn: personalPictureUrlTtlSeconds }
+          );
+
+          personalPictureUrlCache.set(worker.personal_picture_key, {
+            url: personalPictureUrl,
+            expiresAt: signedAt + personalPictureUrlCacheTtlMs,
+          });
+
+          return {
+            workerId: Number(worker.worker_id),
+            personalPictureUrl,
+            expiresAt: new Date(
+              signedAt + personalPictureUrlTtlMs
+            ).toISOString(),
+          };
+        })
+      );
+
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({ pictures });
+    } catch (err) {
+      console.error("Error refreshing worker personal picture URLs:", err);
+      return res.status(500).json({
+        error: "Erreur lors de l'actualisation des photos des travailleurs",
       });
     }
   }
