@@ -8,6 +8,29 @@ const readRoles = requireAppRole("main", ["admin", "user", "guest"])
 const writeRoles = requireAppRole("main", ["admin", "user", "guest"])
 
 
+
+router.get("/", readRoles, async () => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        wn.*,
+        u.name AS author_name,
+        u.surname AS author_surname
+      FROM portal.worker_notes wn
+      LEFT JOIN public.users u
+        ON u.id = wn.created_by_user_id
+      ORDER BY wn.created_at DESC, wn.id DESC
+      `
+    );
+
+    return rows;
+  } catch (error) {
+    console.error("Erreur récupération notes:", error);
+  }
+
+});
+
 router.get("/:workerId", readRoles, async (req, res) => {
   try {
     const workerId = Number(req.params.workerId);
