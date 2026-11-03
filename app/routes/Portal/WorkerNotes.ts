@@ -43,10 +43,18 @@ router.get("/:workerId", readRoles, async (req, res) => {
   }
 });
 
-router.get("/my-notes", readRoles, async (req, res) => {
+router.get("/my-notes/:workerId", readRoles, async (req, res) => {
   try {
     if (!req.user) {
       return res.status(401).json({ message: "Non authentifié" });
+    }
+
+    const workerId = Number(req.params.workerId);
+
+    if (!Number.isInteger(workerId) || workerId <= 0) {
+      return res.status(400).json({
+        message: "Identifiant du travailleur invalide",
+      });
     }
 
     const { rows } = await pool.query(
@@ -59,9 +67,10 @@ router.get("/my-notes", readRoles, async (req, res) => {
       LEFT JOIN public.users u
         ON u.id = wn.created_by_user_id
       WHERE wn.created_by_user_id = $1
+        AND wn.worker_id = $2
       ORDER BY wn.created_at DESC, wn.id DESC
       `,
-      [req.user.id]
+      [req.user.id, workerId]
     );
 
     return res.status(200).json(rows);
@@ -72,7 +81,7 @@ router.get("/my-notes", readRoles, async (req, res) => {
       message: "Erreur lors de la récupération des notes",
     });
   }
-});   
+});
   
 
 router.post("/", writeRoles, async (req, res) => {
