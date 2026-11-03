@@ -31,8 +31,8 @@ const allowedOrigins = [
   "https://frigos.vegibec-portail.com",
   "https://campo.vegibec-portail.com",
   "https://conges.vegibec-portail.com",
-  "https://vegibec-shared.netlify.app/",
-  "https://rv.vegibec-portail.com/login"
+  "https://vegibec-shared.netlify.app",
+  "https://rv.vegibec-portail.com"
 ];
 
 const defaultJsonParser = express.json();
