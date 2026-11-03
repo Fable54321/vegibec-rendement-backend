@@ -9,7 +9,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"])
 
 
 
-router.get("/", readRoles, async () => {
+router.get("/", readRoles, async (_req, res) => {
   try {
     const { rows } = await pool.query(
       `
@@ -24,9 +24,13 @@ router.get("/", readRoles, async () => {
       `
     );
 
-    return rows;
+    return res.status(200).json(rows);
   } catch (error) {
     console.error("Erreur récupération notes:", error);
+
+    return res.status(500).json({
+      message: "Erreur lors de la récupération des notes",
+    });
   }
 
 });
