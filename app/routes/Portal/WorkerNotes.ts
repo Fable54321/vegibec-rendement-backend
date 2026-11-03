@@ -43,6 +43,38 @@ router.get("/:workerId", readRoles, async (req, res) => {
   }
 });
 
+router.get("/my-notes", readRoles, async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Non authentifié" });
+    }
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        wn.*,
+        u.name AS author_name,
+        u.surname AS author_surname
+      FROM portal.worker_notes wn
+      LEFT JOIN public.users u
+        ON u.id = wn.created_by_user_id
+      WHERE wn.created_by_user_id = $1
+      ORDER BY wn.created_at DESC, wn.id DESC
+      `,
+      [req.user.id]
+    );
+
+    return res.status(200).json(rows);
+  } catch (error) {
+    console.error("Erreur récupération notes:", error);
+
+    return res.status(500).json({
+      message: "Erreur lors de la récupération des notes",
+    });
+  }
+});   
+  
+
 router.post("/", writeRoles, async (req, res) => {
   try {
     if (!req.user) {
