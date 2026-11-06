@@ -19,7 +19,10 @@ const columns = `
   box_type_id,
   harvester_id,
   created_at,
-  harvest_lot_number
+  harvest_lot_number,
+  status,
+  finalized_at,
+  received_at
 `;
 
 const editableFields = [

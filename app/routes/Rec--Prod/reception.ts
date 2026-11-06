@@ -50,6 +50,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
           h.harvesting_date,
           h.harvesting_time,
           h.finalized_at,
+          h.received_at,
           h.amount_of_boxes,
           COALESCE(received.received_boxes, 0)::integer AS already_received_boxes,
           (h.amount_of_boxes - COALESCE(received.received_boxes, 0))::integer
@@ -61,6 +62,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
           GROUP BY harvesting_id
         ) received ON received.harvesting_id = h.id
         WHERE h.status = 'finalized'
+          AND h.received_at IS NULL
           AND h.harvest_lot_number IS NOT NULL
           AND h.amount_of_boxes > COALESCE(received.received_boxes, 0)
         ORDER BY h.finalized_at DESC NULLS LAST, h.id DESC
@@ -214,6 +216,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
           id::text AS id,
           harvest_lot_number::text AS harvest_lot_number,
           status,
+          received_at,
           amount_of_boxes
         FROM trackability.harvesting_tracking
         WHERE id = ANY($1::bigint[])
@@ -236,6 +239,10 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
         if (harvest.status !== "finalized") {
           await client.query("ROLLBACK");
           return res.status(409).json({ error: `Harvest ${entry.harvestingId} is not finalized` });
+        }
+        if (harvest.received_at !== null) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: `Harvest ${entry.harvestingId} was already received` });
         }
         if (harvest.harvest_lot_number === null) {
           await client.query("ROLLBACK");
@@ -298,6 +305,23 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
           [receipt.id, entry.harvestingId, entry.receivedBoxes],
         );
       }
+
+      // A partially received harvest remains available. Mark it received only
+      // once all harvested boxes have been linked to receipt entries.
+      await client.query(
+        `
+        UPDATE trackability.harvesting_tracking h
+        SET received_at = $2::timestamptz
+        WHERE h.id = ANY($1::bigint[])
+          AND h.received_at IS NULL
+          AND h.amount_of_boxes <= (
+            SELECT COALESCE(SUM(e.received_boxes), 0)
+            FROM trackability.harvest_receipt_entries e
+            WHERE e.harvesting_id = h.id
+          )
+        `,
+        [ids, receipt.received_at],
+      );
 
       await client.query("COMMIT");
       return res.status(201).json({
