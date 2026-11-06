@@ -16,7 +16,7 @@ const columns = `
   vegetable_id,
   product_id,
   amount_of_boxes,
-  box_type,
+  box_type_id,
   harvester_id,
   created_at,
   harvest_lot_number
@@ -30,7 +30,7 @@ const editableFields = [
   "vegetable_id",
   "product_id",
   "amount_of_boxes",
-  "box_type",
+  "box_type_id",
   "harvester_id",
   "harvest_lot_number"
 ] as const;
@@ -44,7 +44,7 @@ const requiredFields: EditableField[] = [
   "harvesting_time",
   "vegetable_id",
   "amount_of_boxes",
-  "box_type",
+  "box_type_id",
   "harvester_id",
   "harvest_lot_number"
 ];
@@ -158,11 +158,11 @@ function validateField(
   }
 
   if (
-    field === "box_type"
+    field === "box_type_id"
   ) {
-    return isNonEmptyString(value)
+    return parsePositiveInteger(value) !== null
       ? null
-      : `${field} must be non-empty `;
+      : `box_type_id must be a positive integer`;
   }
 
   return null;
@@ -185,7 +185,7 @@ function normalizeValue(
 
   if (
     
-    field === "box_type"
+    field === "box_type_id"
    
   ) {
     return typeof value === "string"
