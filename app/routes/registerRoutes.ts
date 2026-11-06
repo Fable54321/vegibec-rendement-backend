@@ -64,6 +64,7 @@ import harvestingRoute from "./Trackability/harvesting";
 import cropPlanRoute from "./Trackability/Planification/cropPlan";
 import genericPlanRoute from "./Trackability/Planification/genericPlan";
 import seedInventoryRoutes from "./Trackability/SeedInventory/seedInventoryRoutes";
+import receivingRoute from "./Rec--Prod/reception";
 
 import timeOffRoute, {
   publicTimeOffRouter,
@@ -197,6 +198,11 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/rooms", roomsRoute);
   app.use("/purchase-journal", purchaseJournalRoute);
   app.use("/purchase-drafts", purchaseDraftsRoute);
+
+
+
+  app.use("/reveive", receivingRoute);
+
 }
 
 export function registerRoutes(app: Express): void {
