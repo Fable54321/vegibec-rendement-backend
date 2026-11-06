@@ -4,8 +4,8 @@ import type { Pool, PoolClient } from "pg";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
 
-const readRoles = requireAppRole("reception", ["admin", "user", "guest"]);
-const writeRoles = requireAppRole("reception", ["admin", "user", "guest"]);
+const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
+const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
 
   const router = Router();
 
