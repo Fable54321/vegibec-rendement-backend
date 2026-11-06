@@ -428,7 +428,7 @@ router.patch("/:id", writeRoles, async (req, res) => {
 });
 
 
-// DELETE
+
 
 router.delete("/:id", writeRoles, async (req, res) => {
   const id = parsePositiveInteger(req.params.id);
