@@ -19,7 +19,7 @@ const columns = `
   box_type,
   harvester_id,
   created_at,
-  harvest_lot_number,
+  harvest_lot_number
 `;
 
 const editableFields = [
@@ -32,7 +32,7 @@ const editableFields = [
   "amount_of_boxes",
   "box_type",
   "harvester_id",
-  "harvest_lot_number",
+  "harvest_lot_number"
 ] as const;
 
 type EditableField = (typeof editableFields)[number];
