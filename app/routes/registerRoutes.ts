@@ -201,7 +201,7 @@ function registerProtectedRoutes(app: Express): void {
 
 
 
-  app.use("/reveive", receivingRoute);
+  app.use("/receive", receivingRoute);
 
 }
 
