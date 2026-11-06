@@ -4,7 +4,7 @@ import { requireAppRole } from "../../middleware/auth";
 
 const router = Router();
 
-const readRoles = requireAppRole("recolte", ["admin", "user", "guest"]);
+const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
 const writeRoles = requireAppRole("recolte", ["admin", "user", "guest"]);
 
 const columns = `
@@ -18,7 +18,8 @@ const columns = `
   amount_of_boxes,
   box_type,
   harvester_id,
-  created_at
+  created_at,
+  harvest_lot_number,
 `;
 
 const editableFields = [
@@ -31,6 +32,7 @@ const editableFields = [
   "amount_of_boxes",
   "box_type",
   "harvester_id",
+  "harvest_lot_number",
 ] as const;
 
 type EditableField = (typeof editableFields)[number];
@@ -44,6 +46,7 @@ const requiredFields: EditableField[] = [
   "amount_of_boxes",
   "box_type",
   "harvester_id",
+  "harvest_lot_number"
 ];
 
 
