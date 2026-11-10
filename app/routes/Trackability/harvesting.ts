@@ -334,16 +334,22 @@ router.post("/", writeRoles, async (req, res) => {
     .join(", ");
 
   try {
-    const result = await pool.query(
-      `
-      INSERT INTO trackability.harvesting_tracking (
-        ${providedFields.join(", ")}
-      )
-      VALUES (${placeholders})
-      RETURNING ${columns}
-      `,
-      values,
-    );
+  const result = await pool.query(
+  `
+  INSERT INTO trackability.harvesting_tracking (
+    ${providedFields.join(", ")},
+    status,
+    finalized_at
+  )
+  VALUES (
+    ${placeholders},
+    'finalized',
+    NOW()
+  )
+  RETURNING ${columns}
+  `,
+  values,
+);
 
     return res.status(201).json(result.rows[0]);
   } catch (error) {
