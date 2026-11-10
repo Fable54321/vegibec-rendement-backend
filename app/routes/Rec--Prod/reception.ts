@@ -6,6 +6,7 @@ import { requireAppRole } from "../../middleware/auth";
 
 const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
 const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
+const LABELS_PER_PALLET = 2;
 
   const router = Router();
 
@@ -151,7 +152,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
    * POST /
    * Body:
    * {
-   *   "number_of_pallets": 10,
+   *   "number_of_labels": 20,
    *   "harvesting_entries": [
    *     { "harvesting_id": "101", "received_boxes": 140 },
    *     { "harvesting_id": "102", "received_boxes": 210 }
@@ -163,12 +164,18 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
    * req.user.id, not the request body.
    */
   router.post("/", writeRoles, async (req, res) => {
-    const numberOfPallets = positiveInt(req.body?.number_of_pallets);
+    const numberOfLabels = positiveInt(req.body?.number_of_labels);
     const rawEntries: unknown = req.body?.harvesting_entries;
 
-    if (!numberOfPallets) {
-      return res.status(400).json({ error: "number_of_pallets must be a positive integer" });
+    if (!numberOfLabels) {
+      return res.status(400).json({ error: "number_of_labels must be a positive integer" });
     }
+    if (numberOfLabels % LABELS_PER_PALLET !== 0) {
+      return res.status(400).json({
+        error: `number_of_labels must be a multiple of ${LABELS_PER_PALLET}`,
+      });
+    }
+    const numberOfPallets = numberOfLabels / LABELS_PER_PALLET;
     if (!Array.isArray(rawEntries) || rawEntries.length === 0) {
       return res.status(400).json({ error: "harvesting_entries must be a non-empty array" });
     }
@@ -285,13 +292,13 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
       const receiptResult = await client.query(
         `
         INSERT INTO trackability.harvest_receipts
-          (harvest_lot_number, received_by_user_id, number_of_pallets)
-        VALUES ($1, $2, $3)
+          (harvest_lot_number, received_by_user_id, number_of_pallets, labels_per_pallet)
+        VALUES ($1, $2, $3, $4)
         RETURNING id::text AS id, harvest_lot_number, received_by_user_id,
                   number_of_pallets, labels_per_pallet,
                   received_at, created_at
         `,
-        [lotNumber, receivedByUserId, numberOfPallets],
+        [lotNumber, receivedByUserId, numberOfPallets, LABELS_PER_PALLET],
       );
       const receipt = receiptResult.rows[0];
 
@@ -326,7 +333,7 @@ const writeRoles = requireAppRole("main", ["admin", "user", "guest"]);
       await client.query("COMMIT");
       return res.status(201).json({
         ...receipt,
-        number_of_labels: receipt.number_of_pallets * receipt.labels_per_pallet,
+        number_of_labels: numberOfLabels,
         total_received_boxes: entries.reduce((sum, entry) => sum + entry.receivedBoxes, 0),
         harvesting_entries: entries.map((entry) => ({
           harvesting_id: entry.harvestingId,
