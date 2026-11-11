@@ -65,6 +65,7 @@ import cropPlanRoute from "./Trackability/Planification/cropPlan";
 import genericPlanRoute from "./Trackability/Planification/genericPlan";
 import seedInventoryRoutes from "./Trackability/SeedInventory/seedInventoryRoutes";
 import receivingRoute from "./Rec--Prod/reception";
+import productionRoutes from "./Rec--Prod/Production";
 
 import timeOffRoute, {
   publicTimeOffRouter,
@@ -202,6 +203,7 @@ function registerProtectedRoutes(app: Express): void {
 
 
   app.use("/receive", receivingRoute);
+  app.use("/production", productionRoutes);
 
 }
 
