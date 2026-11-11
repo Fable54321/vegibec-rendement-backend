@@ -7,6 +7,7 @@ import {
   buildContractSession,
   getContractAccessDetails,
 } from "../../Utils/ContractHelpers/buildContracSession";
+import { resolveSigningDate } from "./signingDate";
 
 
 const router = Router();
@@ -269,7 +270,7 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
 
   try {
     const contractId = Number(req.params.id);
-    const { acceptedTerms, signedName } = req.body;
+    const { acceptedTerms, signedName, signedAt: requestedSignedAt } = req.body;
 
     if (!Number.isInteger(contractId) || contractId <= 0) {
       return res.status(400).json({ error: "ID de contrat invalide" });
@@ -279,6 +280,12 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
       return res.status(400).json({
         error: "Vous devez accepter le contrat avant de signer",
       });
+    }
+
+    const signingDateResult = resolveSigningDate(requestedSignedAt);
+
+    if (!signingDateResult.ok) {
+      return res.status(400).json({ error: signingDateResult.error });
     }
 
     await client.query("BEGIN");
@@ -335,7 +342,7 @@ router.post("/foreign-worker-contract/:id/sign", async (req, res) => {
 
     const draftPdfBuffer = await getBufferFromS3(draftPdfKey);
 
-    const signedAt = new Date();
+    const signedAt = signingDateResult.date;
 
     const finalPdfBuffer = await applySignatureToContract({
       pdfBuffer: draftPdfBuffer,
@@ -515,7 +522,11 @@ router.post("/foreign-worker-contract/session/sign-all/by-pin", async (req, res)
   let transactionStarted = false;
 
   try {
-    const { acceptedTerms, signedName } = req.body ?? {};
+    const {
+      acceptedTerms,
+      signedName,
+      signedAt: requestedSignedAt,
+    } = req.body ?? {};
     const pin = req.body?.pin;
     const normalizedPin = normalizePin(pin);
 
@@ -539,6 +550,12 @@ router.post("/foreign-worker-contract/session/sign-all/by-pin", async (req, res)
       return res.status(400).json({
         error: "Le nom du signataire est requis",
       });
+    }
+
+    const signingDateResult = resolveSigningDate(requestedSignedAt);
+
+    if (!signingDateResult.ok) {
+      return res.status(400).json({ error: signingDateResult.error });
     }
 
     const fullWorker = await getWorkerFullByPin(normalizedPin);
@@ -605,7 +622,7 @@ router.post("/foreign-worker-contract/session/sign-all/by-pin", async (req, res)
       [sessionSignatureKey, unsignedContractIds, fullWorker.user_id]
     );
 
-    const signedAt = new Date();
+    const signedAt = signingDateResult.date;
     const signedContracts = [];
 
     for (const contract of contracts) {
