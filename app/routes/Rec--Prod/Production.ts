@@ -6,7 +6,7 @@ import { requireAppRole } from "../../middleware/auth";
 /**
  * Mount at /production (or your preferred prefix).
  * Assumes the three production tables from the agreed SQL, plus:
- * trackability.receipts, trackability.receipt_items,
+ * trackability.harvest_receipts, trackability.receipt_items,
  * trackability.harvesting_tracking (product_id = public.raw_product.id).
  *
  * Inventory is derived: incoming boxes minus inputs of COMPLETED productions.
@@ -188,7 +188,7 @@ async function resolveSource(
       SELECT r.id, COUNT(DISTINCT h.product_id)::int AS product_count,
              MIN(h.product_id)::int AS raw_product_id,
              COALESCE(SUM(ri.received_boxes), 0)::bigint AS received_boxes
-      FROM trackability.receipts r
+      FROM trackability.harvest_receipts r
       LEFT JOIN trackability.receipt_items ri ON ri.receipt_id = r.id
       LEFT JOIN trackability.harvesting_tracking h ON h.id = ri.harvesting_id
       WHERE r.id = $1
@@ -245,7 +245,7 @@ async function readProduction(db: Pick<PoolClient, "query">, id: number) {
       SELECT pi.*, r.harvest_lot_number AS input_harvest_lot_number,
              src.output_lot_number AS input_production_lot_number
       FROM trackability.production_inputs pi
-      LEFT JOIN trackability.receipts r ON r.id = pi.receipt_id
+      LEFT JOIN trackability.harvest_receipts r ON r.id = pi.receipt_id
       LEFT JOIN trackability.production_outputs src ON src.id = pi.source_production_output_id
       WHERE pi.production_id = $1 ORDER BY pi.id
     `,
@@ -268,7 +268,7 @@ WITH receipt_stock AS (
          MIN(h.product_id)::int AS raw_product_id, NULL::int AS finished_product_id,
          COUNT(DISTINCT h.product_id)::int AS product_count,
          COALESCE(SUM(ri.received_boxes),0)::bigint AS incoming_boxes
-  FROM trackability.receipts r
+  FROM trackability.harvest_receipts r
   JOIN trackability.receipt_items ri ON ri.receipt_id = r.id
   JOIN trackability.harvesting_tracking h ON h.id = ri.harvesting_id
   GROUP BY r.id, r.harvest_lot_number
@@ -748,7 +748,7 @@ router.get(
     FROM trackability.production_outputs o
     JOIN trackability.productions p ON p.id=o.production_id
     LEFT JOIN trackability.production_inputs pi ON pi.production_id=p.id
-    LEFT JOIN trackability.receipts r ON r.id=pi.receipt_id
+    LEFT JOIN trackability.harvest_receipts r ON r.id=pi.receipt_id
     LEFT JOIN trackability.production_outputs prior ON prior.id=pi.source_production_output_id
     WHERE o.output_lot_number=$1 ORDER BY pi.id
   `,
@@ -789,7 +789,7 @@ router.get(
     FROM upstream u
     JOIN trackability.production_outputs o ON o.id=u.output_id
     JOIN trackability.production_inputs pi ON pi.production_id=o.production_id
-    JOIN trackability.receipts r ON r.id=pi.receipt_id
+    JOIN trackability.harvest_receipts r ON r.id=pi.receipt_id
     ORDER BY r.harvest_lot_number
   `,
       [lot],
