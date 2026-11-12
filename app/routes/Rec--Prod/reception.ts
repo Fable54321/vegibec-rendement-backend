@@ -47,6 +47,7 @@ const LABELS_PER_PALLET = 2;
           h.field_id,
           h.vegetable_id,
           h.product_id,
+          h.team_leader_user_id,
           h.product_id AS product_reference_id,
           pr.raw_product_id,
           pr.finished_product_id,
