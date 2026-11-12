@@ -47,6 +47,16 @@ const LABELS_PER_PALLET = 2;
           h.field_id,
           h.vegetable_id,
           h.product_id,
+          h.product_id AS product_reference_id,
+          pr.raw_product_id,
+          pr.finished_product_id,
+          CASE
+            WHEN pr.raw_product_id IS NOT NULL AND pr.finished_product_id IS NULL
+              THEN 'raw_product'
+            WHEN pr.finished_product_id IS NOT NULL AND pr.raw_product_id IS NULL
+              THEN 'finished_product'
+          END AS product_source,
+          COALESCE(pr.raw_product_id, pr.finished_product_id) AS source_product_id,
           h.box_type_id,
           h.harvesting_date,
           h.harvesting_time,
@@ -57,6 +67,7 @@ const LABELS_PER_PALLET = 2;
           (h.amount_of_boxes - COALESCE(received.received_boxes, 0))::integer
             AS remaining_boxes
         FROM trackability.harvesting_tracking h
+        JOIN trackability.product_reference pr ON pr.id = h.product_id
         LEFT JOIN (
           SELECT harvesting_id, SUM(received_boxes) AS received_boxes
           FROM trackability.harvest_receipt_entries
@@ -66,6 +77,7 @@ const LABELS_PER_PALLET = 2;
           AND h.received_at IS NULL
           AND h.harvest_lot_number IS NOT NULL
           AND h.amount_of_boxes > COALESCE(received.received_boxes, 0)
+          AND (pr.raw_product_id IS NULL) <> (pr.finished_product_id IS NULL)
         ORDER BY h.finalized_at DESC NULLS LAST, h.id DESC
       `);
       return res.json(rows);
@@ -87,11 +99,35 @@ const LABELS_PER_PALLET = 2;
           (r.number_of_pallets * r.labels_per_pallet) AS number_of_labels,
           r.received_at,
           r.created_at,
+          CASE WHEN COUNT(DISTINCT h.product_id) = 1
+            THEN MIN(h.product_id)
+          END AS product_reference_id,
+          CASE WHEN COUNT(DISTINCT h.product_id) = 1
+            THEN MIN(pr.raw_product_id)
+          END AS raw_product_id,
+          CASE WHEN COUNT(DISTINCT h.product_id) = 1
+            THEN MIN(pr.finished_product_id)
+          END AS finished_product_id,
+          CASE
+            WHEN COUNT(DISTINCT h.product_id) <> 1 THEN 'mixed_or_missing'
+            WHEN MIN(pr.raw_product_id) IS NOT NULL
+              AND MIN(pr.finished_product_id) IS NULL THEN 'raw_product'
+            WHEN MIN(pr.finished_product_id) IS NOT NULL
+              AND MIN(pr.raw_product_id) IS NULL THEN 'finished_product'
+            ELSE 'invalid_reference'
+          END AS product_source,
+          CASE WHEN COUNT(DISTINCT h.product_id) = 1
+            THEN COALESCE(MIN(pr.raw_product_id), MIN(pr.finished_product_id))
+          END AS source_product_id,
           COALESCE(SUM(e.received_boxes), 0)::integer AS total_received_boxes,
           COUNT(e.id)::integer AS harvesting_entry_count
         FROM trackability.harvest_receipts r
         LEFT JOIN trackability.harvest_receipt_entries e
           ON e.receipt_id = r.id
+        LEFT JOIN trackability.harvesting_tracking h
+          ON h.id = e.harvesting_id
+        LEFT JOIN trackability.product_reference pr
+          ON pr.id = h.product_id
         GROUP BY r.id
         ORDER BY r.received_at DESC, r.id DESC
         LIMIT 200
@@ -128,12 +164,24 @@ const LABELS_PER_PALLET = 2;
                 'field_id', h.field_id,
                 'vegetable_id', h.vegetable_id,
                 'product_id', h.product_id,
+                'product_reference_id', h.product_id,
+                'raw_product_id', pr.raw_product_id,
+                'finished_product_id', pr.finished_product_id,
+                'product_source', CASE
+                  WHEN pr.raw_product_id IS NOT NULL AND pr.finished_product_id IS NULL
+                    THEN 'raw_product'
+                  WHEN pr.finished_product_id IS NOT NULL AND pr.raw_product_id IS NULL
+                    THEN 'finished_product'
+                END,
+                'source_product_id', COALESCE(pr.raw_product_id, pr.finished_product_id),
                 'box_type_id', h.box_type_id
               ) ORDER BY h.id
             )
             FROM trackability.harvest_receipt_entries e
             JOIN trackability.harvesting_tracking h
               ON h.id = e.harvesting_id
+            LEFT JOIN trackability.product_reference pr
+              ON pr.id = h.product_id
             WHERE e.receipt_id = r.id
           ), '[]'::jsonb) AS harvesting_entries
         FROM trackability.harvest_receipts r
@@ -220,15 +268,20 @@ const LABELS_PER_PALLET = 2;
       const harvestResult = await client.query(
         `
         SELECT
-          id::text AS id,
-          harvest_lot_number::text AS harvest_lot_number,
-          status,
-          received_at,
-          amount_of_boxes
-        FROM trackability.harvesting_tracking
-        WHERE id = ANY($1::bigint[])
-        ORDER BY id
-        FOR UPDATE
+          h.id::text AS id,
+          h.harvest_lot_number::text AS harvest_lot_number,
+          h.product_id,
+          pr.raw_product_id,
+          pr.finished_product_id,
+          h.status,
+          h.received_at,
+          h.amount_of_boxes
+        FROM trackability.harvesting_tracking h
+        LEFT JOIN trackability.product_reference pr
+          ON pr.id = h.product_id
+        WHERE h.id = ANY($1::bigint[])
+        ORDER BY h.id
+        FOR UPDATE OF h
         `,
         [ids],
       );
@@ -241,6 +294,7 @@ const LABELS_PER_PALLET = 2;
         harvestResult.rows.map((row) => [row.id, row]),
       );
       const lotNumbers = new Set<string>();
+      const productReferenceIds = new Set<number>();
       for (const entry of entries) {
         const harvest = harvestById.get(entry.harvestingId);
         if (harvest.status !== "finalized") {
@@ -255,11 +309,26 @@ const LABELS_PER_PALLET = 2;
           await client.query("ROLLBACK");
           return res.status(409).json({ error: `Harvest ${entry.harvestingId} has no lot number` });
         }
+        const hasRawProduct = harvest.raw_product_id !== null;
+        const hasFinishedProduct = harvest.finished_product_id !== null;
+        if (harvest.product_id === null || hasRawProduct === hasFinishedProduct) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            error: `Harvest ${entry.harvestingId} does not have one unambiguous product reference`,
+          });
+        }
         lotNumbers.add(harvest.harvest_lot_number);
+        productReferenceIds.add(harvest.product_id);
       }
       if (lotNumbers.size !== 1) {
         await client.query("ROLLBACK");
         return res.status(400).json({ error: "All harvesting entries must share the same lot number" });
+      }
+      if (productReferenceIds.size !== 1) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "All harvesting entries in one receipt must reference the same product",
+        });
       }
 
       // Must run after locking harvest rows, inside the same transaction.
@@ -301,6 +370,7 @@ const LABELS_PER_PALLET = 2;
         [lotNumber, receivedByUserId, numberOfPallets, LABELS_PER_PALLET],
       );
       const receipt = receiptResult.rows[0];
+      const receiptProduct = harvestResult.rows[0];
 
       for (const entry of entries) {
         await client.query(
@@ -333,6 +403,15 @@ const LABELS_PER_PALLET = 2;
       await client.query("COMMIT");
       return res.status(201).json({
         ...receipt,
+        product_reference_id: receiptProduct.product_id,
+        raw_product_id: receiptProduct.raw_product_id,
+        finished_product_id: receiptProduct.finished_product_id,
+        product_source:
+          receiptProduct.raw_product_id !== null
+            ? "raw_product"
+            : "finished_product",
+        source_product_id:
+          receiptProduct.raw_product_id ?? receiptProduct.finished_product_id,
         number_of_labels: numberOfLabels,
         total_received_boxes: entries.reduce((sum, entry) => sum + entry.receivedBoxes, 0),
         harvesting_entries: entries.map((entry) => ({

@@ -6,8 +6,8 @@ import { requireAppRole } from "../../middleware/auth";
 /**
  * Mount at /production (or your preferred prefix).
  * Assumes the three production tables from the agreed SQL, plus:
- * trackability.harvest_receipts, trackability.receipt_items,
- * trackability.harvesting_tracking (product_id = public.raw_product.id).
+ * trackability.harvest_receipts, trackability.harvest_receipt_entries,
+ * trackability.harvesting_tracking (product_id = trackability.product_reference.id).
  *
  * Inventory is derived: incoming boxes minus inputs of COMPLETED productions.
  * Draft edits do NOT change stock. Negative balances are allowed and warned about.
@@ -175,7 +175,9 @@ async function lockedDraft(db: PoolClient, id: number) {
   return production;
 }
 
-// A receiving record can contain entries, but all must belong to ONE raw product.
+// A receiving record can contain entries, but all must belong to ONE product
+// reference. Resolve that reference to its typed source instead of guessing from
+// an ID that may exist in both source tables.
 // Never trust a product ID supplied by the client for an input: derive it from source.
 async function resolveSource(
   db: PoolClient,
@@ -186,26 +188,37 @@ async function resolveSource(
     const { rows } = await db.query(
       `
       SELECT r.id, COUNT(DISTINCT h.product_id)::int AS product_count,
-             MIN(h.product_id)::int AS raw_product_id,
+             MIN(pr.raw_product_id)::int AS raw_product_id,
+             MIN(pr.finished_product_id)::int AS finished_product_id,
+             COUNT(*) FILTER (
+               WHERE h.product_id IS NULL
+                  OR (pr.raw_product_id IS NULL) = (pr.finished_product_id IS NULL)
+             )::int AS invalid_product_count,
              COALESCE(SUM(ri.received_boxes), 0)::bigint AS received_boxes
       FROM trackability.harvest_receipts r
       LEFT JOIN trackability.harvest_receipt_entries ri ON ri.receipt_id = r.id
       LEFT JOIN trackability.harvesting_tracking h ON h.id = ri.harvesting_id
+      LEFT JOIN trackability.product_reference pr ON pr.id = h.product_id
       WHERE r.id = $1
       GROUP BY r.id
     `,
       [source.receipt_id],
     );
     if (!rows[0]) throw new HttpError(404, "Receipt not found");
-    if (rows[0].product_count !== 1 || rows[0].raw_product_id === null) {
+    if (
+      rows[0].product_count !== 1 ||
+      rows[0].invalid_product_count !== 0 ||
+      (rows[0].raw_product_id === null) ===
+        (rows[0].finished_product_id === null)
+    ) {
       throw new HttpError(
         409,
-        "Receipt must contain harvesting entries for exactly one raw product",
+        "Receipt must contain harvesting entries for exactly one unambiguous product",
       );
     }
     return {
       raw_product_id: rows[0].raw_product_id,
-      finished_product_id: null,
+      finished_product_id: rows[0].finished_product_id,
     };
   }
   const { rows } = await db.query(
@@ -227,6 +240,14 @@ async function resolveSource(
       409,
       "Source production must be completed before it can be used",
     );
+  if (
+    (row.raw_product_id === null) === (row.finished_product_id === null)
+  ) {
+    throw new HttpError(
+      409,
+      "Source production output does not have one unambiguous product",
+    );
+  }
   return {
     raw_product_id: row.raw_product_id,
     finished_product_id: row.finished_product_id,
@@ -243,7 +264,12 @@ async function readProduction(db: Pick<PoolClient, "query">, id: number) {
     db.query(
       `
       SELECT pi.*, r.harvest_lot_number AS input_harvest_lot_number,
-             src.output_lot_number AS input_production_lot_number
+              src.output_lot_number AS input_production_lot_number,
+              CASE
+                WHEN pi.raw_product_id IS NOT NULL THEN 'raw_product'
+                WHEN pi.finished_product_id IS NOT NULL THEN 'finished_product'
+              END AS product_source,
+              COALESCE(pi.raw_product_id, pi.finished_product_id) AS source_product_id
       FROM trackability.production_inputs pi
       LEFT JOIN trackability.harvest_receipts r ON r.id = pi.receipt_id
       LEFT JOIN trackability.production_outputs src ON src.id = pi.source_production_output_id
@@ -252,7 +278,14 @@ async function readProduction(db: Pick<PoolClient, "query">, id: number) {
       [id],
     ),
     db.query(
-      "SELECT * FROM trackability.production_outputs WHERE production_id = $1",
+      `SELECT o.*,
+              CASE
+                WHEN o.raw_product_id IS NOT NULL THEN 'raw_product'
+                WHEN o.finished_product_id IS NOT NULL THEN 'finished_product'
+              END AS product_source,
+              COALESCE(o.raw_product_id, o.finished_product_id) AS source_product_id
+       FROM trackability.production_outputs o
+       WHERE o.production_id = $1`,
       [id],
     ),
   ]);
@@ -265,14 +298,17 @@ const inventorySQL = `
 WITH receipt_stock AS (
   SELECT r.id AS source_id, 'receipt'::text AS source_type,
          r.harvest_lot_number AS lot_number,
-         MIN(h.product_id)::int AS raw_product_id, NULL::int AS finished_product_id,
+         MIN(pr.raw_product_id)::int AS raw_product_id,
+         MIN(pr.finished_product_id)::int AS finished_product_id,
          COUNT(DISTINCT h.product_id)::int AS product_count,
          COALESCE(SUM(ri.received_boxes),0)::bigint AS incoming_boxes
   FROM trackability.harvest_receipts r
   JOIN trackability.harvest_receipt_entries ri ON ri.receipt_id = r.id
   JOIN trackability.harvesting_tracking h ON h.id = ri.harvesting_id
+  JOIN trackability.product_reference pr ON pr.id = h.product_id
   GROUP BY r.id, r.harvest_lot_number
   HAVING COUNT(DISTINCT h.product_id) = 1
+     AND BOOL_AND((pr.raw_product_id IS NULL) <> (pr.finished_product_id IS NULL))
 ),
 output_stock AS (
   SELECT o.id AS source_id, 'production_output'::text AS source_type,
@@ -282,6 +318,7 @@ output_stock AS (
   FROM trackability.production_outputs o
   JOIN trackability.productions p ON p.id = o.production_id
   WHERE p.status = 'completed'
+    AND (o.raw_product_id IS NULL) <> (o.finished_product_id IS NULL)
 ),
 sources AS (
   SELECT * FROM receipt_stock UNION ALL SELECT * FROM output_stock
@@ -298,6 +335,11 @@ usage AS (
 )
 SELECT s.source_id, s.source_type, s.lot_number,
        s.raw_product_id, s.finished_product_id,
+       CASE
+         WHEN s.raw_product_id IS NOT NULL THEN 'raw_product'
+         WHEN s.finished_product_id IS NOT NULL THEN 'finished_product'
+       END AS product_source,
+       COALESCE(s.raw_product_id, s.finished_product_id) AS source_product_id,
        s.incoming_boxes, COALESCE(u.consumed_boxes,0)::bigint AS consumed_boxes,
        COALESCE(u.open_boxes,0)::bigint AS open_boxes,
        (s.incoming_boxes - COALESCE(u.consumed_boxes,0))::bigint AS available_boxes,
@@ -336,7 +378,13 @@ router.get(
     const { rows } = await pool.query(
       `
     SELECT p.*, o.id AS output_id, o.output_lot_number, o.raw_product_id,
-           o.finished_product_id, o.produced_boxes, o.number_of_pallets
+           o.finished_product_id,
+           CASE
+             WHEN o.raw_product_id IS NOT NULL THEN 'raw_product'
+             WHEN o.finished_product_id IS NOT NULL THEN 'finished_product'
+           END AS product_source,
+           COALESCE(o.raw_product_id, o.finished_product_id) AS source_product_id,
+           o.produced_boxes, o.number_of_pallets
     FROM trackability.productions p
     LEFT JOIN trackability.production_outputs o ON o.production_id = p.id
     WHERE ($1::text IS NULL OR p.status = $1)
@@ -560,7 +608,15 @@ router.put(
           pallets,
         ],
       );
-      return rows[0];
+      return {
+        ...rows[0],
+        product_source:
+          rows[0].raw_product_id !== null
+            ? "raw_product"
+            : "finished_product",
+        source_product_id:
+          rows[0].raw_product_id ?? rows[0].finished_product_id,
+      };
     });
     res.json(result);
   }),
