@@ -189,7 +189,7 @@ async function resolveSource(
              MIN(h.product_id)::int AS raw_product_id,
              COALESCE(SUM(ri.received_boxes), 0)::bigint AS received_boxes
       FROM trackability.harvest_receipts r
-      LEFT JOIN trackability.receipt_items ri ON ri.receipt_id = r.id
+      LEFT JOIN trackability.harvest_receipt_entries ri ON ri.receipt_id = r.id
       LEFT JOIN trackability.harvesting_tracking h ON h.id = ri.harvesting_id
       WHERE r.id = $1
       GROUP BY r.id
@@ -269,7 +269,7 @@ WITH receipt_stock AS (
          COUNT(DISTINCT h.product_id)::int AS product_count,
          COALESCE(SUM(ri.received_boxes),0)::bigint AS incoming_boxes
   FROM trackability.harvest_receipts r
-  JOIN trackability.receipt_items ri ON ri.receipt_id = r.id
+  JOIN trackability.harvest_receipt_entries ri ON ri.receipt_id = r.id
   JOIN trackability.harvesting_tracking h ON h.id = ri.harvesting_id
   GROUP BY r.id, r.harvest_lot_number
   HAVING COUNT(DISTINCT h.product_id) = 1
