@@ -13,6 +13,7 @@ import {
   optimizeRoundTrip,
 } from "../Transports/routeOptimizer.service";
 import { getHereFinalRoute } from "../Transports/hereRouting.service";
+import { resolveTransportDocumentDate } from "./transportDocumentDate";
 
 interface OptimizeRouteBody {
   locations: RouteLocation[];
@@ -36,7 +37,7 @@ ITEM TABLE COLUMN RULE (highest priority for products): identify the table heade
 
 TOTAL WEIGHT RULE (highest priority for totalWeight): locate the shaded summary/footer row directly below the final item row. It begins with the printed label "Poids total" (or "Total weight"). Read only the number in that same summary row immediately to the right of that label. Spaces are thousands separators: for example, "187 440" means totalWeight 187440. Never use any number from the vertical "Lot #" column above it; those repeated eight-digit lot numbers are unrelated to weight. Never infer or calculate totalWeight from product quantities, catalog weights, totals elsewhere on the page, or lot numbers. If the number beside the explicit label cannot be read, return null.
 
-LOADING DATE RULE (highest priority for loadedDate): locate the outlined rectangle labelled "Chargé" (also accept "Charge", "Loaded", or "Loading date"). Read the handwritten or printed date inside that rectangle, not dates elsewhere on the document. Return it as YYYY-MM-DD. Interpret an ambiguous numeric date in the expected French/Canadian day-month-year order. If the rectangle or its date is unreadable, return null; never substitute the order, delivery, printing, or current date.
+LOADING DATE RULE (highest priority for loadedDate): on the Vegibec "Chargement voyage" form, locate the top-left cell of the outlined header table labelled "Shipping / Chargé". Read the printed date directly below that label in the same cell (for example, 2026-11-13) and return it as YYYY-MM-DD. Do not confuse it with "Chargement #", "Chargé chez", an order date, a delivery date, or any other date elsewhere on the document. Also accept an equivalent field labelled "Loaded" or "Loading date" on other forms. If this specific field is unreadable, return null; never substitute another date or the current date.
 
 For every item-table row, extract code only from Code, lotNumber only from Lot #, name only from Item, quantityLabel exactly from Qté à charger (for example 3x80), quantity as calculated total units (3x80 = 240), pallets as the numeric value from that row's Palette column, and palletType as its label such as Peco. The top-level pallets must be the sum of the numeric Palette column, not a quantity or the last row. Extract totalWeight only from the value printed next to "Poids total" / "Total weight" on the document; return the numeric pound value and do not calculate it from item rows. Also extract the PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected.`;
 
@@ -77,6 +78,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
       const content = openRouterPayload?.choices?.[0]?.message?.content;
       if (typeof content !== "string") throw new Error("OpenRouter returned no document analysis");
       const parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+      const rawText = typeof parsed.rawText === "string" ? parsed.rawText : content;
       res.json({
         clientName: typeof parsed.clientName === "string" ? parsed.clientName : null,
         address: typeof parsed.address === "string" ? parsed.address : null,
@@ -84,10 +86,10 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
         province: typeof parsed.province === "string" ? parsed.province : null,
         postalCode: typeof parsed.postalCode === "string" ? parsed.postalCode : null,
         customerPo: typeof parsed.customerPo === "string" ? parsed.customerPo : null,
-        loadedDate: validDateOnly(parsed.loadedDate) ? parsed.loadedDate : null,
+        loadedDate: resolveTransportDocumentDate(parsed.loadedDate, rawText),
         pallets: Number.isSafeInteger(Number(parsed.pallets)) ? Number(parsed.pallets) : null,
         totalWeight: Number.isFinite(Number(parsed.totalWeight)) ? Number(parsed.totalWeight) : null,
-        rawText: typeof parsed.rawText === "string" ? parsed.rawText : content,
+        rawText,
         products: Array.isArray(parsed.products) ? parsed.products.slice(0, 100).map((product: any) => ({ code: typeof product?.code === "string" ? product.code : null, lotNumber: typeof product?.lotNumber === "string" ? product.lotNumber : null, name: typeof product?.name === "string" ? product.name : null, quantityLabel: typeof product?.quantityLabel === "string" ? product.quantityLabel : null, quantity: Number.isFinite(Number(product?.quantity)) ? Number(product.quantity) : null, pallets: Number.isFinite(Number(product?.pallets)) ? Number(product.pallets) : null, palletType: typeof product?.palletType === "string" ? product.palletType : null, unit: typeof product?.unit === "string" ? product.unit : null })) : [],
         recognitionProvider: "openrouter",
         recognitionModel: openRouterPayload.model,
@@ -131,7 +133,7 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
     const parsed = JSON.parse(outputText);
     res.json({
       ...parsed,
-      loadedDate: validDateOnly(parsed?.loadedDate) ? parsed.loadedDate : null,
+      loadedDate: resolveTransportDocumentDate(parsed?.loadedDate, parsed?.rawText),
     });
   } catch (error) {
     console.error("OpenAI transport document analysis error:", error);
