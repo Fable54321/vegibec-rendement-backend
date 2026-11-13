@@ -41,6 +41,22 @@ const generatedImageJsonParser = express.json({ limit: "50mb" });
 const documentScanJsonParser = express.json({ limit: "15mb" });
 const routePlanJsonParser = express.json({ limit: "10mb" });
 
+const isAllowedOrigin = (origin: string | undefined) =>
+  !origin || allowedOrigins.includes(origin);
+
+const rejectDisallowedOrigin: express.RequestHandler = (req, res, next) => {
+  const origin = req.get("origin");
+  if (isAllowedOrigin(origin)) return next();
+
+  console.warn("[CORS] Blocked request", {
+    origin,
+    method: req.method,
+    path: req.path,
+    userAgent: req.get("user-agent") ?? null,
+  });
+  return res.status(403).json({ error: "Origin not allowed" });
+};
+
 const jsonParser: express.RequestHandler = (req, res, next) => {
   if (req.path.endsWith("/get-url/generated-images")) {
     return generatedImageJsonParser(req, res, next);
@@ -74,17 +90,14 @@ const jsonParserErrorHandler: express.ErrorRequestHandler = (
 };
 
 export function configureHttp(app: Express): void {
+  app.use(rejectDisallowedOrigin);
   app.use(jsonParser);
   app.use(jsonParserErrorHandler);
   app.use(cookieParser());
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
-          return callback(null, true);
-        }
-
-        return callback(new Error("Not allowed by CORS policy"));
+        return callback(null, isAllowedOrigin(origin));
       },
       credentials: true,
     }),

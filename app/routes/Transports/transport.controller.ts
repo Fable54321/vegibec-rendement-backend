@@ -240,6 +240,26 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
   }
 }
 
+export async function deleteScanSession(req: Request, res: Response): Promise<void> {
+  try {
+    await ensureTransportScanTables();
+    const result = await pool.query(
+      `DELETE FROM logistics.transport_scan_sessions
+       WHERE token = $1 AND owner_user_id = $2
+       RETURNING token`,
+      [req.params.token, req.user!.id],
+    );
+    if (!result.rows.length) {
+      res.status(404).json({ error: "Scan session not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error("Delete transport scan session error:", error);
+    res.status(500).json({ error: "Unable to cancel scan session" });
+  }
+}
+
 export async function addScanSessionItem(req: Request, res: Response): Promise<void> {
   try {
     await ensureTransportScanTables();

@@ -13,6 +13,7 @@ import {
   resolveClientLocations,
   createScanSession,
   getScanSession,
+  deleteScanSession,
   addScanSessionItem,
   resolveScanSessionItem,
   deleteScanSessionItem,
@@ -96,6 +97,7 @@ router.patch("/route-plans/:planId", portalAccess, updateSavedRoutePlan);
 router.delete("/route-plans/:planId", portalAccess, deleteSavedRoutePlan);
 router.post("/scan-sessions", portalAccess, createScanSession);
 router.get("/scan-sessions/:token", portalAccess, getScanSession);
+router.delete("/scan-sessions/:token", portalAccess, deleteScanSession);
 router.post("/scan-sessions/:token/items", portalAccess, addScanSessionItem);
 router.patch(
   "/scan-sessions/:token/items/:itemId",
