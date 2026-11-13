@@ -3,8 +3,8 @@ import path from "path";
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from "pdf-lib";
 import { pool } from "../db";
 
-type ClientAddress = { client_name: string; client_number: string | null; site_number: string | number | null; address: string; city: string; postal_code: string; province: string | null; country: string | null };
-type Product = { id: number; full_name: string; product_code: string | null; weight: string | number | null };
+type ClientAddress = { client_id: number; address_id: number; client_name: string; client_number: string | null; site_number: string | number | null; address: string; city: string; postal_code: string; province: string | null; country: string | null };
+type Product = { id: number; full_name: string; product_code: string; weight: string | number; qty_per_pallet: number };
 type ManifestEntry = Awaited<ReturnType<typeof generateDocument>>;
 const outputDirectory = path.join(process.cwd(), "public", "generated", "transport-samples");
 const manifestPath = path.join(outputDirectory, "manifest.json");
@@ -23,7 +23,7 @@ const drawBarcode = (page: PDFPage, value: string, x: number, y: number, width: 
   bits.forEach((bit, index) => { const current = barWidth * (bit === "1" ? 1.3 : 0.65); if (index % 2 === 0 || bit === "1") page.drawRectangle({ x: cursor, y, width: current, height, color: black }); cursor += barWidth * 1.5; });
 };
 
-async function generateDocument(index: number, client: ClientAddress, products: Product[], usedTripNumbers: Set<string>) {
+async function generateDocument(index: number, client: ClientAddress, products: Product[], usedTripNumbers: Set<string>, shippingDate: string) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([paper.width, paper.height]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -33,10 +33,9 @@ async function generateDocument(index: number, client: ClientAddress, products: 
   while (usedTripNumbers.has(tripNumber));
   usedTripNumbers.add(tripNumber);
   const po = String(2000000000 + Math.floor(Math.random() * 7999999999));
-  const shippingDate = new Date(Date.now() + index * 86_400_000).toISOString().slice(0, 10);
   const rows = products.slice(0, 4 + (index % 3)).map((product, rowIndex) => {
     const pallets = 1 + ((index + rowIndex * 3) % 6);
-    const perPallet = randomFrom([30, 40, 44, 49, 60, 80]);
+    const perPallet = product.qty_per_pallet;
     const quantity = pallets * perPallet;
     const unitWeight = Number(product.weight) || 0;
     return { ...product, pallets, perPallet, quantity, unitWeight, lineWeight: quantity * unitWeight, palletType: randomFrom(["Peco", "CPC", "Ordinaire"]) };
@@ -71,7 +70,7 @@ async function generateDocument(index: number, client: ClientAddress, products: 
   ["Code", "Lot #", "Item", "Qté à charger", "Qté chargé", "Palette"].forEach((heading, headingIndex) => drawText(page, regular, heading, columns[headingIndex], 477, 7, bold));
   let y = 455;
   rows.forEach((row) => {
-    drawText(page, regular, row.product_code ?? "—", columns[0], y, 8);
+    drawText(page, regular, row.product_code, columns[0], y, 8);
     drawText(page, regular, String(26290000 + row.id), columns[1], y, 7);
     drawText(page, regular, truncate(row.full_name, 43), columns[2], y, 7.5);
     drawText(page, regular, `${row.pallets}x${row.perPallet}`, columns[3], y, 8, bold);
@@ -91,7 +90,7 @@ async function generateDocument(index: number, client: ClientAddress, products: 
 
   const filename = `chargement-test-${String(index + 1).padStart(2, "0")}-${tripNumber}.pdf`;
   await fs.writeFile(path.join(outputDirectory, filename), await pdf.save());
-  return { filename, tripNumber, client: client.client_name, address: `${client.address}, ${client.city} ${client.postal_code}`, totalPallets, totalQuantity, totalWeight: Math.round(totalWeight), rows: rows.map((row) => ({ code: row.product_code, product: row.full_name, quantityToLoad: `${row.pallets}x${row.perPallet}`, quantity: row.quantity, pallets: row.pallets, palletType: row.palletType, unitWeight: row.unitWeight })) };
+  return { filename, tripNumber, shippingDate, clientId: client.client_id, addressId: client.address_id, client: client.client_name, address: `${client.address}, ${client.city} ${client.postal_code}`, totalPallets, totalQuantity, totalWeight: Math.round(totalWeight), rows: rows.map((row) => ({ finishedProductId: row.id, code: row.product_code, product: row.full_name, quantityPerPallet: row.qty_per_pallet, quantityToLoad: `${row.pallets}x${row.perPallet}`, quantity: row.quantity, pallets: row.pallets, palletType: row.palletType, unitWeight: row.unitWeight })) };
 }
 
 async function main() {
@@ -100,9 +99,10 @@ async function main() {
   try { existingManifest = JSON.parse(await fs.readFile(manifestPath, "utf8")); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 
-  const clients = await pool.query<ClientAddress>(`SELECT c.name AS client_name, c.client_number, a.site_number, a.address, a.city, a.postal_code, a.province, a.country FROM sales.clients c JOIN sales.clients_addresses a ON a.client_id = c.id WHERE a.address IS NOT NULL AND a.city IS NOT NULL AND a.postal_code IS NOT NULL ORDER BY random() LIMIT $1`, [samplesToGenerate]);
-  const products = await pool.query<Product>(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true AND product_code IS NOT NULL AND weight IS NOT NULL AND weight > 0 ORDER BY random() LIMIT 60`);
+  const clients = await pool.query<ClientAddress>(`SELECT c.id AS client_id, a.id AS address_id, c.name AS client_name, c.client_number, a.site_number, a.address, a.city, a.postal_code, a.province, a.country FROM sales.clients c JOIN sales.clients_addresses a ON a.client_id = c.id WHERE a.address IS NOT NULL AND a.city IS NOT NULL AND a.postal_code IS NOT NULL ORDER BY random() LIMIT $1`, [samplesToGenerate]);
+  const products = await pool.query<Product>(`SELECT id, full_name, product_code, weight, qty_per_pallet FROM public.finished_product WHERE is_active = true AND product_code IS NOT NULL AND weight IS NOT NULL AND weight > 0 AND qty_per_pallet IS NOT NULL AND qty_per_pallet > 0 ORDER BY random() LIMIT 60`);
   if (clients.rows.length < samplesToGenerate || products.rows.length < 10) throw new Error("Not enough clients, addresses, or positive-weight products to generate samples.");
+  const shippingDate = process.env.TRANSPORT_SAMPLE_DATE ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   const usedTripNumbers = new Set(existingManifest.map((entry) => entry.tripNumber));
   const generated: ManifestEntry[] = [];
@@ -110,7 +110,7 @@ async function main() {
     const documentIndex = existingManifest.length + sampleIndex;
     const productOffset = sampleIndex * 5;
     const orderedProducts = [...products.rows.slice(productOffset), ...products.rows.slice(0, productOffset)];
-    generated.push(await generateDocument(documentIndex, clients.rows[sampleIndex], orderedProducts, usedTripNumbers));
+    generated.push(await generateDocument(documentIndex, clients.rows[sampleIndex], orderedProducts, usedTripNumbers, shippingDate));
   }
   const manifest = [...existingManifest, ...generated];
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
