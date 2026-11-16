@@ -225,7 +225,8 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
     const items = await pool.query(
       `SELECT i.id, i.address_id, i.pallets, i.created_at, i.recognized_text,
               i.recognized_client_name, i.recognized_address, i.recognized_city,
-              i.recognized_postal_code, i.loaded_date, i.product_matches, i.estimated_weight, i.confirmed,
+              i.recognized_postal_code, i.loaded_date::text AS loaded_date,
+              i.product_matches, i.estimated_weight, i.confirmed,
               c.name AS client_name, a.site_name, a.site_number, a.city
        FROM logistics.transport_scan_items i
        LEFT JOIN sales.clients_addresses a ON a.id = i.address_id
@@ -323,7 +324,8 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
        (session_token, address_id, pallets, recognized_text, recognized_client_name,
         recognized_address, recognized_city, recognized_postal_code, product_matches, estimated_weight, loaded_date)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::date)
-       RETURNING id, address_id, pallets, created_at, product_matches, estimated_weight, loaded_date`,
+       RETURNING id, address_id, pallets, created_at, product_matches,
+                 estimated_weight, loaded_date::text AS loaded_date`,
       [req.params.token, addressId, pallets, recognizedText,
        req.body?.recognizedClientName || null, req.body?.recognizedAddress || null,
        req.body?.recognizedCity || null, req.body?.recognizedPostalCode || null,
@@ -364,7 +366,8 @@ export async function resolveScanSessionItem(req: Request, res: Response): Promi
        FROM logistics.transport_scan_sessions s, sales.clients_addresses a
        WHERE i.id = $1 AND i.session_token = $2 AND s.token = i.session_token
          AND s.owner_user_id = $3 AND s.expires_at > NOW() AND a.id = $4
-       RETURNING i.id, i.address_id, i.pallets, i.loaded_date, i.confirmed`,
+       RETURNING i.id, i.address_id, i.pallets,
+                 i.loaded_date::text AS loaded_date, i.confirmed`,
       [Number(req.params.itemId), req.params.token, req.user!.id, addressId, pallets, JSON.stringify(correctedProducts), estimatedWeight, loadedDate],
     );
     if (!result.rows.length) { res.status(404).json({ error: "Scan item or address not found" }); return; }
