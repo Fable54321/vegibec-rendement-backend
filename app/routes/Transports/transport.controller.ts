@@ -14,6 +14,10 @@ import {
 } from "../Transports/routeOptimizer.service";
 import { getHereFinalRoute } from "../Transports/hereRouting.service";
 import { resolveTransportDocumentDate } from "./transportDocumentDate";
+import {
+  normalizeProductCode,
+  resolveProductCode,
+} from "./transportProductCode";
 
 interface OptimizeRouteBody {
   locations: RouteLocation[];
@@ -34,6 +38,8 @@ const transportDocumentRecognitionPrompt = `Read this delivery/order document ca
 DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Ship to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
 
 ITEM TABLE COLUMN RULE (highest priority for products): identify the table headers first and follow each row vertically under those headers. The value in the "Code" column is the product code and is the only value that may be returned as code. The adjacent "Lot #" / "Lot" column is traceability data, never a product identifier: return it only as lotNumber and never copy it into code, even when it is numeric or looks like a product code. If the Code cell cannot be read confidently, return code as null; do not substitute the lot number, item number, quantity, or any other number. The product is defined by the Code cell, not by Lot # or the item description.
+
+PRODUCT CODE DIGIT RULE: inspect every digit in the Code cell at high detail, especially 6 versus 8. A 6 has an open upper curve/tail while an 8 has two closed loops. Do not default an unclear 6 to 8; use null when the digit cannot be distinguished confidently.
 
 TOTAL WEIGHT RULE (highest priority for totalWeight): locate the shaded summary/footer row directly below the final item row. It begins with the printed label "Poids total" (or "Total weight"). Read only the number in that same summary row immediately to the right of that label. Spaces are thousands separators: for example, "187 440" means totalWeight 187440. Never use any number from the vertical "Lot #" column above it; those repeated eight-digit lot numbers are unrelated to weight. Never infer or calculate totalWeight from product quantities, catalog weights, totals elsewhere on the page, or lot numbers. If the number beside the explicit label cannot be read, return null.
 
@@ -283,20 +289,28 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
     const products = await pool.query(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true`);
     const recognizedProducts = Array.isArray(req.body?.recognizedProducts) ? req.body.recognizedProducts.slice(0, 100) : [];
     const normalize = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    const normalizeCode = (value: unknown) => normalize(value).replace(/\s/g, "");
     const codeCounts = products.rows.reduce((counts: Map<string, number>, product) => {
-      const code = normalizeCode(product.product_code);
+      const code = normalizeProductCode(product.product_code);
       if (code) counts.set(code, (counts.get(code) ?? 0) + 1);
       return counts;
     }, new Map<string, number>());
     const productsByCode = new Map(products.rows
-      .map((product) => [normalizeCode(product.product_code), product] as const)
+      .map((product) => [normalizeProductCode(product.product_code), product] as const)
       .filter(([code]) => code.length > 0 && codeCounts.get(code) === 1));
     const productMatches = recognizedProducts.map((recognized: any) => {
-      const code = normalizeCode(recognized?.code);
+      const code = normalizeProductCode(recognized?.code);
       const words = normalize(recognized?.name).split(" ").filter((word) => word.length >= 3);
-      let match = code ? productsByCode.get(code) ?? null : null;
-      let matchMethod: "code" | "name" | null = match ? "code" : null;
+      const codeResolution = resolveProductCode(
+        recognized?.code,
+        recognized?.name,
+        productsByCode,
+      );
+      let match = codeResolution.product;
+      let matchMethod: "code" | "code-ocr-6-8" | "name" | null = match
+        ? codeResolution.corrected
+          ? "code-ocr-6-8"
+          : "code"
+        : null;
       // A recognized code is authoritative. If it is unknown, leave the line
       // unmatched for human confirmation instead of replacing it by name.
       if (!code && words.length) {
