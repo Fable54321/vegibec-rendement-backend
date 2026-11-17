@@ -23,6 +23,7 @@ import {
 import {
   createSavedRoutePlan,
   deleteSavedRoutePlan,
+  getSavedRoutePlan,
   listSavedRoutePlans,
   updateSavedRoutePlan,
 } from "./savedRoutePlans.controller";
@@ -92,6 +93,7 @@ router.get("/client-stops", portalAccess, getClientStops);
 router.post("/client-locations", portalAccess, resolveClientLocations);
 router.post("/optimize-route", portalAccess, optimizeRoute);
 router.get("/route-plans", portalAccess, listSavedRoutePlans);
+router.get("/route-plans/:planId", portalAccess, getSavedRoutePlan);
 router.post("/route-plans", portalAccess, createSavedRoutePlan);
 router.patch("/route-plans/:planId", portalAccess, updateSavedRoutePlan);
 router.delete("/route-plans/:planId", portalAccess, deleteSavedRoutePlan);

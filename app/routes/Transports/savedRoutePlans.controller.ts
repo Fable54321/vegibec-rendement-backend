@@ -62,6 +62,31 @@ export async function listSavedRoutePlans(_req: Request, res: Response): Promise
   }
 }
 
+export async function getSavedRoutePlan(req: Request, res: Response): Promise<void> {
+  try {
+    const { planId } = req.params;
+    if (!validUuid(planId)) {
+      res.status(400).json({ error: "A valid route plan ID is required" });
+      return;
+    }
+    await ensureTable();
+    const result = await pool.query(`
+      SELECT id, name, delivery_date, routes, items, created_at, updated_at
+      FROM logistics.transport_route_plans
+      WHERE id = $1::uuid
+      LIMIT 1
+    `, [planId]);
+    if (!result.rows.length) {
+      res.status(404).json({ error: "Saved route plan not found" });
+      return;
+    }
+    res.json(mapPlan(result.rows[0]));
+  } catch (error) {
+    console.error("Get saved route plan error:", error);
+    res.status(500).json({ error: "Failed to load saved route plan" });
+  }
+}
+
 export async function createSavedRoutePlan(req: Request, res: Response): Promise<void> {
   try {
     const { name, deliveryDate, routes, items, replacePlanIds = [] } = req.body ?? {};
