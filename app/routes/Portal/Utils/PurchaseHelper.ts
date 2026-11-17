@@ -12,7 +12,7 @@ const PURCHASE_TOKEN_EXPIRES_IN_DAYS = 14
 const RECEIPT_VOUCHER_TOKEN_EXPIRES_IN_DAYS = 14
 const PURCHASE_REQUEST_PICTURE_URL_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
 const PURCHASE_BUYER_NAME = "Ricardo"
-const PURCHASE_ADMIN_NAME = "Lynda"
+const PURCHASE_ADMIN_NAME = "Lynne"
 
 export type PictureEmailLink = {
   label: string
@@ -1356,7 +1356,7 @@ Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
     : ""
 
   return `
-Une demande d'achat est prête pour la décision de Lynda.
+Une demande d'achat est prête pour la décision de Lynne.
 
 Numéro de demande:
 #${displayRequestNumber}
@@ -1393,11 +1393,11 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: true,
 })}
 
-Lien de décision pour Lynda:
+Lien de décision pour Lynne:
 ${adminApprovalUrl}
 
 Prochaine étape:
-Lynda doit approuver, mettre en attente ou refuser la demande.
+Lynne doit approuver, mettre en attente ou refuser la demande.
   `.trim()
 }
 
@@ -1414,9 +1414,9 @@ export const buildAdminApprovalEmailHtml = (
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;">
-      <h2>Demande d'achat #${escapeHtml(displayRequestNumber)} prête pour Lynda</h2>
+      <h2>Demande d'achat #${escapeHtml(displayRequestNumber)} prête pour Lynne</h2>
 
-      <p>Lynda doit approuver, mettre en attente ou refuser cette demande.</p>
+      <p>Lynne doit approuver, mettre en attente ou refuser cette demande.</p>
 
       ${
         priceIncreaseInfo
@@ -1476,7 +1476,7 @@ export const buildAdminApprovalEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Lynda - approbation
+          Lynne - approbation
         </a>
       </p>
 
@@ -1499,12 +1499,12 @@ export const getPurchaseRequestStatusLabel = (
   const labels: Record<string, string> = {
     pending_buyer_validation: "En attente de validation par Ricardo",
     needs_requester_info: "Information demandée au demandeur",
-    pending_admin_approval: "En attente de décision par Lynda",
+    pending_admin_approval: "En attente de décision par Lynne",
     approved: "Approuvée",
     rejected: "Refusée",
     ready_to_purchase: "Prête à acheter",
     partially_purchased: "Partiellement achetée",
-    admin_on_wait: "Mise en attente par Lynda",
+    admin_on_wait: "Mise en attente par Lynne",
     purchased: "Achetée",
     completed: "Terminée",
     cancelled: "Annulée",
@@ -1556,7 +1556,7 @@ Prix confirmé: ${formatMoney(priceIncreaseInfo.confirmedTotalPrice)}
 Ricardo a confirmé le prix de la demande d'achat #${displayRequestNumber}.
 
 Prochaine décision:
-Lynda doit approuver ou refuser la demande.
+Lynne doit approuver ou refuser la demande.
 
 Résumé de la demande:
 
@@ -1598,7 +1598,7 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: true,
 })}
 
-Lien de décision pour Lynda:
+Lien de décision pour Lynne:
 ${adminApprovalUrl}
   `.trim()
 }
@@ -1623,7 +1623,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
         displayRequestNumber
       )}</h2>
 
-      <p>Lynda doit maintenant approuver ou refuser la demande.</p>
+      <p>Lynne doit maintenant approuver ou refuser la demande.</p>
 
       ${
         priceIncreaseInfo
@@ -1693,7 +1693,7 @@ export const buildBuyerPriceConfirmedEmailHtml = (
           rel="noopener noreferrer"
           style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;font-weight:700;"
         >
-          Lynda - approbation
+          Lynne - approbation
         </a>
       </p>
 
@@ -2033,7 +2033,7 @@ ${formatRequestItemsForEmail(items, {
   includeProductLinks: false,
 })}
 
-Si cette nouvelle date pose un problème, veuillez communiquer avec Ricardo ou Lynda.
+Si cette nouvelle date pose un problème, veuillez communiquer avec Ricardo ou Lynne.
 
 Merci,
 Vegibec
@@ -2077,7 +2077,7 @@ export const buildRequesterDateChangedEmailHtml = (
 
       <p>
         Si cette nouvelle date pose un problème, veuillez communiquer avec
-        Ricardo ou Lynda.
+        Ricardo ou Lynne.
         La réponse à ce courriel est dirigée vers leurs deux boîtes courriel.
       </p>
 

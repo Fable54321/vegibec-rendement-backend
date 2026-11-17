@@ -2112,7 +2112,7 @@ router.patch(
 
       if (
         cleanDirectApprovalApprover &&
-        !["Lynda", "Ricardo"].includes(cleanDirectApprovalApprover)
+        !["Lynne", "Ricardo"].includes(cleanDirectApprovalApprover)
       ) {
         await client.query("ROLLBACK")
         transactionStarted = false
@@ -2305,7 +2305,7 @@ router.patch(
 
         await sendPurchaseRequestEmailSafely(
           emailRecipients,
-          `Lynda - décision requise pour la demande d'achat #${displayRequestNumber}`,
+          `Lynne - décision requise pour la demande d'achat #${displayRequestNumber}`,
           buildAdminApprovalEmail(updatedRequest, adminApprovalUrl),
           buildAdminApprovalEmailHtml(updatedRequest, adminApprovalUrl)
         )
@@ -2555,8 +2555,8 @@ router.patch(
 
         await sendPurchaseRequestEmailSafely(
           await getPurchaseRequestReplyToRecipients(),
-          `Lynda - rappel pour la demande d'achat #${displayRequestNumber} mise en attente`,
-          `La demande d'achat #${displayRequestNumber} a été mise en attente par Lynda.
+          `Lynne - rappel pour la demande d'achat #${displayRequestNumber} mise en attente`,
+          `La demande d'achat #${displayRequestNumber} a été mise en attente par Lynne.
 
 Produit :
 ${productDescriptions || "Non indiqué"}
@@ -2564,7 +2564,7 @@ ${productDescriptions || "Non indiqué"}
 Raison :
 ${updatedRequest.admin_note || "Aucune raison indiquée"}
 
-Le lien reste actif sans date d'expiration pendant la mise en attente. Lynda peut y retourner pour approuver ou refuser la demande :
+Le lien reste actif sans date d'expiration pendant la mise en attente. Lynne peut y retourner pour approuver ou refuser la demande :
 ${adminApprovalUrl}`,
         )
       }
@@ -2578,7 +2578,7 @@ ${adminApprovalUrl}`,
         await sendPurchaseRequestEmailSafely(
           requesterEmail,
           `Votre demande d'achat #${displayRequestNumber} a été mise en attente`,
-          `Votre demande d'achat #${displayRequestNumber} a été mise en attente par Lynda.
+          `Votre demande d'achat #${displayRequestNumber} a été mise en attente par Lynne.
 
 Produits :
 ${Array.isArray(updatedRequest.items)
