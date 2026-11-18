@@ -25,6 +25,7 @@ interface OptimizeRouteBody {
   departureTime?: string;
   traffic?: boolean;
   preserveOrder?: boolean;
+  matrixOnly?: boolean;
 }
 
 function validDateOnly(value: unknown): value is string {
@@ -419,7 +420,7 @@ export async function optimizeRoute(
   res: Response
 ): Promise<void> {
   try {
-    const { locations, departureTime, traffic, preserveOrder } = req.body;
+    const { locations, departureTime, traffic, preserveOrder, matrixOnly } = req.body;
 
     if (!Array.isArray(locations) || locations.length < 2) {
       res.status(400).json({
@@ -430,6 +431,22 @@ export async function optimizeRoute(
     }
 
     const matrixResult = await getRouteMatrix(locations);
+
+    if (matrixOnly) {
+      res.json({
+        route: locations,
+        routeIndexes: locations.map((_, index) => index),
+        legs: [],
+        totalDurationSeconds: 0,
+        totalDurationMinutes: 0,
+        durations: matrixResult.durations,
+        distances: matrixResult.distances,
+        routingProvider: "osrm",
+        trafficAware: false,
+        truckValidated: false,
+      });
+      return;
+    }
 
     const optimization = preserveOrder
       ? { route: locations.map((_, index) => index), totalDuration: locations.slice(0, -1).reduce((total, _, index) => total + (matrixResult.durations[index]?.[index + 1] ?? 0), 0) }
