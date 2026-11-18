@@ -14,6 +14,7 @@ import {
 } from "../Transports/routeOptimizer.service";
 import { getHereFinalRoute } from "../Transports/hereRouting.service";
 import { resolveTransportDocumentDate } from "./transportDocumentDate";
+import { normalizeTransportDocumentAnalysis } from "./transportDocumentAnalysis";
 import {
   normalizeProductCode,
   resolveProductCode,
@@ -35,7 +36,7 @@ function validDateOnly(value: unknown): value is string {
 
 const transportDocumentRecognitionPrompt = `Read this delivery/order document carefully. The photo is normally upright; mentally rotate it only when the text itself is clearly sideways or upside down. Preserve exact spelling and numbers.
 
-DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Ship to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
+DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Expédié à:", "Ship to:", "Shipped to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Sold to", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
 
 ITEM TABLE COLUMN RULE (highest priority for products): identify the table headers first and follow each row vertically under those headers. The value in the "Code" column is the product code and is the only value that may be returned as code. The adjacent "Lot #" / "Lot" column is traceability data, never a product identifier: return it only as lotNumber and never copy it into code, even when it is numeric or looks like a product code. If the Code cell cannot be read confidently, return code as null; do not substitute the lot number, item number, quantity, or any other number. The product is defined by the Code cell, not by Lot # or the item description.
 
@@ -45,7 +46,11 @@ TOTAL WEIGHT RULE (highest priority for totalWeight): locate the shaded summary/
 
 LOADING DATE RULE (highest priority for loadedDate): on the Vegibec "Chargement voyage" form, locate the top-left cell of the outlined header table labelled "Shipping / Chargé". Read the printed date directly below that label in the same cell (for example, 2026-11-13) and return it as YYYY-MM-DD. Do not confuse it with "Chargement #", "Chargé chez", an order date, a delivery date, or any other date elsewhere on the document. Also accept an equivalent field labelled "Loaded" or "Loading date" on other forms. If this specific field is unreadable, return null; never substitute another date or the current date.
 
-For every item-table row, extract code only from Code, lotNumber only from Lot #, name only from Item, quantityLabel exactly from Qté à charger (for example 3x80), quantity as calculated total units (3x80 = 240), pallets as the numeric value from that row's Palette column, and palletType as its label such as Peco. The top-level pallets must be the sum of the numeric Palette column, not a quantity or the last row. Extract totalWeight only from the value printed next to "Poids total" / "Total weight" on the document; return the numeric pound value and do not calculate it from item rows. Also extract the PO/reference and a faithful transcription. Never invent missing values; use null. French and English documents are expected.`;
+QUANTITY RULE (highest priority for quantity): copy the Qté à charger cell exactly into quantityLabel. Two formats are valid. If it is a multiplication expression such as "3x80" or "3 × 80", quantity is the calculated total 240. If it is already a total such as "50,00" or "50.0000", quantity is 50; do not multiply it by the pallet count. A comma in these French-form values is a decimal separator, so 50,00 = 50 and 1,00 = 1. Spaces are thousands separators. The shaded Total quantity and "Quantité total chargé" fields are document totals, not additional product rows.
+
+PALLET RULE: for every item row, pallets is only the numeric value from that row's Palette column and palletType is the adjacent label such as Peco, Chep, or Régulière. Parse a displayed pallet value such as "1,00" as 1. The top-level pallets must be the sum of the item rows' numeric Palette values, not the product quantity, shaded quantity total, or last row.
+
+For every item-table row, extract code only from Code, lotNumber only from Lot #, name only from Item, quantityLabel and quantity according to the quantity rule, and pallet information according to the pallet rule. Extract totalWeight only from the value printed next to "Poids total" / "Total weight" on the document; return the numeric pound value and do not calculate it from item rows. Extract customerPo specifically from the field labelled "PO" / "P.O."; do not substitute "No Com.", "Bon Com.", trip number, lot number, or barcode content. Also return a faithful transcription. Never invent missing values; use null. French and English documents are expected.`;
 
 export async function analyzeTransportDocument(req: Request, res: Response): Promise<void> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -84,19 +89,13 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
       const content = openRouterPayload?.choices?.[0]?.message?.content;
       if (typeof content !== "string") throw new Error("OpenRouter returned no document analysis");
       const parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
-      const rawText = typeof parsed.rawText === "string" ? parsed.rawText : content;
+      const normalized = normalizeTransportDocumentAnalysis(parsed, content);
       res.json({
-        clientName: typeof parsed.clientName === "string" ? parsed.clientName : null,
-        address: typeof parsed.address === "string" ? parsed.address : null,
-        city: typeof parsed.city === "string" ? parsed.city : null,
-        province: typeof parsed.province === "string" ? parsed.province : null,
-        postalCode: typeof parsed.postalCode === "string" ? parsed.postalCode : null,
-        customerPo: typeof parsed.customerPo === "string" ? parsed.customerPo : null,
-        loadedDate: resolveTransportDocumentDate(parsed.loadedDate, rawText),
-        pallets: Number.isSafeInteger(Number(parsed.pallets)) ? Number(parsed.pallets) : null,
-        totalWeight: Number.isFinite(Number(parsed.totalWeight)) ? Number(parsed.totalWeight) : null,
-        rawText,
-        products: Array.isArray(parsed.products) ? parsed.products.slice(0, 100).map((product: any) => ({ code: typeof product?.code === "string" ? product.code : null, lotNumber: typeof product?.lotNumber === "string" ? product.lotNumber : null, name: typeof product?.name === "string" ? product.name : null, quantityLabel: typeof product?.quantityLabel === "string" ? product.quantityLabel : null, quantity: Number.isFinite(Number(product?.quantity)) ? Number(product.quantity) : null, pallets: Number.isFinite(Number(product?.pallets)) ? Number(product.pallets) : null, palletType: typeof product?.palletType === "string" ? product.palletType : null, unit: typeof product?.unit === "string" ? product.unit : null })) : [],
+        ...normalized,
+        loadedDate: resolveTransportDocumentDate(
+          normalized.loadedDate,
+          normalized.rawText,
+        ),
         recognitionProvider: "openrouter",
         recognitionModel: openRouterPayload.model,
       });
@@ -137,9 +136,13 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
     const outputText = payload.output_text ?? payload.output?.flatMap((item: any) => item.content ?? []).find((item: any) => item.type === "output_text")?.text;
     if (!outputText) throw new Error("OpenAI returned no document analysis");
     const parsed = JSON.parse(outputText);
+    const normalized = normalizeTransportDocumentAnalysis(parsed, outputText);
     res.json({
-      ...parsed,
-      loadedDate: resolveTransportDocumentDate(parsed?.loadedDate, parsed?.rawText),
+      ...normalized,
+      loadedDate: resolveTransportDocumentDate(
+        normalized.loadedDate,
+        normalized.rawText,
+      ),
     });
   } catch (error) {
     console.error("OpenAI transport document analysis error:", error);
