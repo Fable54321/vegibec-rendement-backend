@@ -67,3 +67,32 @@ test("uses the recognized No Voyage value and falls back to the transcription", 
     "14067",
   );
 });
+
+test("preserves Cybertrace sales-order fields", () => {
+  const analysis = normalizeTransportDocumentAnalysis({
+    clientName: "33 - Forino Import Export inc.",
+    customerPo: "43366",
+    salesOrderNumber: "214114",
+    loadedDate: "2026-11-19",
+    pallets: 24,
+    totalWeight: "48 000",
+    rawText: "Commande de vente",
+    products: [
+      {
+        code: "380",
+        name: "Choux Vert 8/10 sac - Repollo Verde Bolsa",
+        quantityLabel: "960",
+        quantity: 960,
+        pallets: 24,
+        palletType: "Régulière",
+      },
+    ],
+  });
+
+  assert.equal(analysis.salesOrderNumber, "214114");
+  assert.equal(analysis.customerPo, "43366");
+  assert.equal(analysis.pallets, 24);
+  assert.equal(analysis.totalWeight, 48000);
+  assert.equal(analysis.products[0].code, "380");
+  assert.equal(analysis.products[0].quantity, 960);
+});

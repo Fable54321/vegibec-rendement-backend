@@ -38,6 +38,7 @@ export async function listSavedOrders(req: Request, res: Response): Promise<void
                    'recognized_city', i.recognized_city,
                    'recognized_postal_code', i.recognized_postal_code,
                    'recognized_voyage_number', i.recognized_voyage_number,
+                   'recognized_sales_order_number', i.recognized_sales_order_number,
                    'recognized_text', i.recognized_text
                  ) AS order_data,
                  i.created_at,

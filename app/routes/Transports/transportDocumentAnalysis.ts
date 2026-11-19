@@ -21,6 +21,7 @@ export type NormalizedTransportDocumentAnalysis = {
   province: string | null;
   postalCode: string | null;
   customerPo: string | null;
+  salesOrderNumber: string | null;
   voyageNumber: string | null;
   loadedDate: unknown;
   pallets: number | null;
@@ -106,6 +107,7 @@ export function normalizeTransportDocumentAnalysis(
     province: textOrNull(parsed?.province),
     postalCode: textOrNull(parsed?.postalCode),
     customerPo: textOrNull(parsed?.customerPo),
+    salesOrderNumber: textOrNull(parsed?.salesOrderNumber),
     voyageNumber,
     loadedDate: parsed?.loadedDate ?? null,
     pallets: integerOrNull(parsed?.pallets),

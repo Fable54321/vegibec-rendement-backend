@@ -41,6 +41,12 @@ function validDateOnly(value: unknown): value is string {
 
 const transportDocumentRecognitionPrompt = `Read this delivery/order document carefully. The photo is normally upright; mentally rotate it only when the text itself is clearly sideways or upside down. Preserve exact spelling and numbers.
 
+SUPPORTED LAYOUTS: recognize both of these formats. (1) Legacy Vegibec "Chargement voyage" printed forms, using all legacy rules below. (2) Cybertrace "Commande de vente" application screenshots. First identify the layout from its visible title and structure, then apply only the corresponding layout rules. Never mix values from the two layouts.
+
+CYBERTRACE SALES-ORDER SCREEN RULE (highest priority when the window title is "Commande de vente"): the large grid on the LEFT is only a list of many orders and must be ignored completely, including its highlighted row, customer names, dates, voyage numbers, PO values, and product-free columns. Read the selected order only from the detail panel on the RIGHT and its product table across the BOTTOM. The destination comes from the right-side "Expédié à" block; use the right-side "Vendu à" block only if "Expédié à" is empty. Extract salesOrderNumber from the right-side field "No bon de commande de vente". Extract customerPo from the right-side field "PO Client". Extract loadedDate from the date directly below the right-side label "Chargé". Extract voyageNumber only from the right-side field "Voyage" or "Prochain no de voyage"; when both are blank return null and never copy a voyage from the left grid.
+
+CYBERTRACE PRODUCT TABLE RULE: read product rows only from the BOTTOM table. Map "Code Produit" to code, "Description" to name, and "Quantité Commandée" to quantityLabel and quantity. Do not use "Quantité Expédiée" for planning. Return lotNumber as null because "No GL" is not a lot number. For pallets, use "Nb palette réel" when it is greater than zero; otherwise use "Prévu". Map "Type palette" to palletType. The top-level pallets is the sum of those selected per-row pallet values. Read totalWeight from the bottom summary labelled "Poids total estimé". Do not calculate it and do not read totals or values from the left order list.
+
 DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Expédié à:", "Ship to:", "Shipped to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Sold to", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
 
 ITEM TABLE COLUMN RULE (highest priority for products): identify the table headers first and follow each row vertically under those headers. The value in the "Code" column is the product code and is the only value that may be returned as code. The adjacent "Lot #" / "Lot" column is traceability data, never a product identifier: return it only as lotNumber and never copy it into code, even when it is numeric or looks like a product code. If the Code cell cannot be read confidently, return code as null; do not substitute the lot number, item number, quantity, or any other number. The product is defined by the Code cell, not by Lot # or the item description.
@@ -83,11 +89,11 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
             type: "object", additionalProperties: false,
             properties: {
               clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] },
-              province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, voyageNumber: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
+              province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, salesOrderNumber: { type: ["string", "null"] }, voyageNumber: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
               pallets: { type: ["integer", "null"] }, totalWeight: { type: ["number", "null"] }, rawText: { type: "string" },
               products: { type: "array", items: { type: "object", additionalProperties: false,
                 properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
-            }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "voyageNumber", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
+            }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "salesOrderNumber", "voyageNumber", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
           } } }, max_tokens: 2500,
         }),
       });
@@ -122,12 +128,12 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
           properties: {
             clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] },
             city: { type: ["string", "null"] }, province: { type: ["string", "null"] },
-            postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, voyageNumber: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
+            postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, salesOrderNumber: { type: ["string", "null"] }, voyageNumber: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
             pallets: { type: ["integer", "null"] }, totalWeight: { type: ["number", "null"] }, rawText: { type: "string" },
             products: { type: "array", items: { type: "object", additionalProperties: false,
               properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } },
               required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
-          }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "voyageNumber", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
+          }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "salesOrderNumber", "voyageNumber", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
         } } },
         max_output_tokens: 2500,
       }),
@@ -190,6 +196,7 @@ export async function ensureTransportScanTables(): Promise<void> {
       recognized_city TEXT,
       recognized_postal_code TEXT,
       recognized_voyage_number TEXT,
+      recognized_sales_order_number TEXT,
       loaded_date DATE,
       product_matches JSONB NOT NULL DEFAULT '[]'::jsonb,
       estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0,
@@ -203,6 +210,7 @@ export async function ensureTransportScanTables(): Promise<void> {
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_city TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_postal_code TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_voyage_number TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_sales_order_number TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS loaded_date DATE;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
@@ -247,6 +255,7 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
       `SELECT i.id, i.address_id, i.pallets, i.created_at, i.recognized_text,
               i.recognized_client_name, i.recognized_address, i.recognized_city,
               i.recognized_postal_code, i.recognized_voyage_number,
+              i.recognized_sales_order_number,
               i.loaded_date::text AS loaded_date,
               i.product_matches, i.estimated_weight, i.confirmed,
               c.name AS client_name, a.site_name, a.site_number, a.city
@@ -305,6 +314,11 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
     const recognizedVoyageNumber =
       extractTransportVoyageNumber(recognizedText) ??
       normalizeTransportVoyageNumber(req.body?.recognizedVoyageNumber);
+    const recognizedSalesOrderNumber =
+      typeof req.body?.recognizedSalesOrderNumber === "string" &&
+      req.body.recognizedSalesOrderNumber.trim()
+        ? req.body.recognizedSalesOrderNumber.trim().slice(0, 100)
+        : null;
     if (recognizedVoyageNumber) {
       const existingItems = await pool.query(
         `SELECT recognized_voyage_number, recognized_text
@@ -377,8 +391,9 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
       `INSERT INTO logistics.transport_scan_items
        (session_token, address_id, pallets, recognized_text, recognized_client_name,
         recognized_address, recognized_city, recognized_postal_code,
-        recognized_voyage_number, product_matches, estimated_weight, loaded_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::date)
+        recognized_voyage_number, recognized_sales_order_number, product_matches,
+        estimated_weight, loaded_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::date)
        ON CONFLICT (session_token, recognized_voyage_number)
          WHERE recognized_voyage_number IS NOT NULL DO NOTHING
        RETURNING id, address_id, pallets, created_at, product_matches,
@@ -387,7 +402,8 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
       [req.params.token, addressId, pallets, recognizedText,
        req.body?.recognizedClientName || null, req.body?.recognizedAddress || null,
        req.body?.recognizedCity || null, req.body?.recognizedPostalCode || null,
-       recognizedVoyageNumber, JSON.stringify(productMatches), estimatedWeight, loadedDate],
+       recognizedVoyageNumber, recognizedSalesOrderNumber,
+       JSON.stringify(productMatches), estimatedWeight, loadedDate],
     );
     if (!result.rows.length && recognizedVoyageNumber) {
       res.status(409).json({
