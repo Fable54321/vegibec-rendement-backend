@@ -135,18 +135,31 @@ export async function createSavedRoutePlan(req: Request, res: Response): Promise
 
 export async function updateSavedRoutePlan(req: Request, res: Response): Promise<void> {
   try {
-    const { routes } = req.body ?? {};
-    if (!Array.isArray(routes) || routes.length === 0) {
+    const { routes, items } = req.body ?? {};
+    if (!Array.isArray(routes) || routes.length === 0 || (items !== undefined && !Array.isArray(items))) {
       res.status(400).json({ error: "Routes are required" });
       return;
+    }
+    if (Array.isArray(items)) {
+      const duplicateVoyageNumbers = findDuplicateTransportVoyageNumbers(items);
+      if (duplicateVoyageNumbers.length > 0) {
+        res.status(409).json({
+          error: `El viaje ${duplicateVoyageNumbers[0]} aparece más de una vez en este plan.`,
+          code: "DUPLICATE_VOYAGE_NUMBER",
+          voyageNumber: duplicateVoyageNumbers[0],
+        });
+        return;
+      }
     }
     await ensureTable();
     const result = await pool.query(`
       UPDATE logistics.transport_route_plans
-      SET routes = $2::jsonb, updated_at = NOW()
+      SET routes = $2::jsonb,
+          items = COALESCE($3::jsonb, items),
+          updated_at = NOW()
       WHERE id = $1::uuid
       RETURNING id, name, delivery_date, routes, items, created_at, updated_at
-    `, [req.params.planId, JSON.stringify(routes)]);
+    `, [req.params.planId, JSON.stringify(routes), items === undefined ? null : JSON.stringify(items)]);
     if (!result.rows.length) {
       res.status(404).json({ error: "Saved route plan not found" });
       return;
