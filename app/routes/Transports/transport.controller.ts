@@ -47,6 +47,10 @@ CYBERTRACE SALES-ORDER SCREEN RULE (highest priority when the window title is "C
 
 CYBERTRACE PRODUCT TABLE RULE: read product rows only from the BOTTOM table. Map "Code Produit" to code, "Description" to name, and "Quantité Commandée" to quantityLabel and quantity. Do not use "Quantité Expédiée" for planning. Return lotNumber as null because "No GL" is not a lot number. For pallets, use "Nb palette réel" when it is greater than zero; otherwise use "Prévu". Map "Type palette" to palletType. The top-level pallets is the sum of those selected per-row pallet values. Read totalWeight from the bottom summary labelled "Poids total estimé". Do not calculate it and do not read totals or values from the left order list.
 
+MULTIPLE-IMAGE RULE: when several images are supplied, they are different views of the SAME document, never separate orders. The first image is the complete screenshot. The next image is an enlarged crop of the selected-order panel on the right. The final image is an enlarged crop of the bottom product table and footer. Use the complete screenshot to understand the layout, then use the enlarged crops as the source of truth for exact characters, digits, and decimal values. Do not duplicate rows or totals merely because they appear in both the complete image and a crop.
+
+ADDITIONAL CYBERTRACE PRECISION RULES: customerPo must preserve every leading zero exactly and must be returned as a string. For loadedDate, use only the date below "Chargé"; never use "Commandé", "Livré", "Expédié", or "Date modifié". Read every visible bottom product row by following each value vertically from its header. Do not confuse "Quantité Commandée" with the adjacent "Quantité Expédiée", "Prix Unitaire", "No GL", "Nb palette réel", or "Prévu" values. In the bottom summary, spaces are thousands separators. The enlarged crops supersede unclear characters in the complete screenshot.
+
 DESTINATION ADDRESS RULE (highest priority): clientName, address, city, province, and postalCode must come from the destination block immediately beside or below the label "Envoyé à :" (also accept "Envoye a:", "Expédié à:", "Ship to:", "Shipped to:", or "Deliver to:"). Treat the lines grouped with that label as one block. Do not use an address from "Envoyé par", "Expédié par", "Vendu à", "Sold to", "Facturé à", sender, supplier, warehouse, or company-header blocks. If the destination block is partly readable, return the readable destination fields and null for the others. If there is no destination label or the block is ambiguous, use null rather than selecting another visible address.
 
 ITEM TABLE COLUMN RULE (highest priority for products): identify the table headers first and follow each row vertically under those headers. The value in the "Code" column is the product code and is the only value that may be returned as code. The adjacent "Lot #" / "Lot" column is traceability data, never a product identifier: return it only as lotNumber and never copy it into code, even when it is numeric or looks like a product code. If the Code cell cannot be read confidently, return code as null; do not substitute the lot number, item number, quantity, or any other number. The product is defined by the Code cell, not by Lot # or the item description.
@@ -70,9 +74,24 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey && !openRouterApiKey) { res.status(503).json({ error: "La reconnaissance intelligente n’est pas configurée." }); return; }
   const imageDataUrl = typeof req.body?.imageDataUrl === "string" ? req.body.imageDataUrl : "";
-  if (!/^data:image\/(jpeg|png|webp);base64,/i.test(imageDataUrl) || imageDataUrl.length > 14_000_000) {
+  const detailImageDataUrls = Array.isArray(req.body?.detailImageDataUrls)
+    ? req.body.detailImageDataUrls
+        .filter((value: unknown): value is string => typeof value === "string")
+        .slice(0, 2)
+    : [];
+  const imageDataUrls = [imageDataUrl, ...detailImageDataUrls];
+  const validImageDataUrl = (value: string) =>
+    /^data:image\/(jpeg|png|webp);base64,/i.test(value) &&
+    value.length <= 14_000_000;
+  if (
+    !imageDataUrls.every(validImageDataUrl) ||
+    imageDataUrls.reduce((total, value) => total + value.length, 0) > 28_000_000
+  ) {
     res.status(400).json({ error: "Une image JPEG, PNG ou WebP valide est requise." }); return;
   }
+  const imageSetInstruction = detailImageDataUrls.length
+    ? "Image 1 is the complete screenshot. Image 2 is the enlarged selected-order panel. Image 3 is the enlarged product table and footer."
+    : "A single complete document image is supplied.";
   try {
     if (openRouterApiKey) {
       const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -81,8 +100,11 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
         body: JSON.stringify({
           model: process.env.OPENROUTER_VISION_MODEL || "dots-studio/dots-3-note-preview:free",
           messages: [{ role: "user", content: [
-            { type: "text", text: `${transportDocumentRecognitionPrompt}\nReturn JSON only.` },
-            { type: "image_url", image_url: { url: imageDataUrl } },
+            { type: "text", text: `${transportDocumentRecognitionPrompt}\n${imageSetInstruction}\nReturn JSON only.` },
+            ...imageDataUrls.map((url) => ({
+              type: "image_url",
+              image_url: { url },
+            })),
           ] }],
           reasoning: { effort: "none", exclude: true },
           response_format: { type: "json_schema", json_schema: { name: "transport_document", strict: true, schema: {
@@ -120,8 +142,12 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
       body: JSON.stringify({
         model: process.env.OPENAI_VISION_MODEL || "gpt-4o",
         input: [{ role: "user", content: [
-          { type: "input_text", text: transportDocumentRecognitionPrompt },
-          { type: "input_image", image_url: imageDataUrl, detail: "high" },
+          { type: "input_text", text: `${transportDocumentRecognitionPrompt}\n${imageSetInstruction}` },
+          ...imageDataUrls.map((url) => ({
+            type: "input_image",
+            image_url: url,
+            detail: "high",
+          })),
         ] }],
         text: { format: { type: "json_schema", name: "transport_document", strict: true, schema: {
           type: "object", additionalProperties: false,

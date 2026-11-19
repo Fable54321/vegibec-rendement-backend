@@ -38,7 +38,7 @@ const allowedOrigins = [
 
 const defaultJsonParser = express.json();
 const generatedImageJsonParser = express.json({ limit: "50mb" });
-const documentScanJsonParser = express.json({ limit: "15mb" });
+const documentScanJsonParser = express.json({ limit: "30mb" });
 const routePlanJsonParser = express.json({ limit: "10mb" });
 
 const isAllowedOrigin = (origin: string | undefined) =>
