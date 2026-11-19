@@ -48,3 +48,22 @@ test("normalizes the new loading-slip quantity without multiplying by pallets", 
   assert.equal(analysis.products[0].pallets, 1);
   assert.equal(analysis.products[0].palletType, "Régulière");
 });
+
+test("uses the recognized No Voyage value and falls back to the transcription", () => {
+  assert.equal(
+    normalizeTransportDocumentAnalysis({
+      voyageNumber: "14066",
+      rawText: "No Voyage\n99999",
+      products: [],
+    }).voyageNumber,
+    "14066",
+  );
+  assert.equal(
+    normalizeTransportDocumentAnalysis({
+      voyageNumber: null,
+      rawText: "Chargement voyage\nNo Voyage\n14067",
+      products: [],
+    }).voyageNumber,
+    "14067",
+  );
+});

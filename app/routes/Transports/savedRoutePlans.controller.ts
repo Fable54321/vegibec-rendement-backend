@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { Request, Response } from "express";
 
 import { pool } from "../../db";
+import { findDuplicateTransportVoyageNumbers } from "./transportVoyageNumber";
 
 let tablePromise: Promise<void> | null = null;
 
@@ -92,6 +93,15 @@ export async function createSavedRoutePlan(req: Request, res: Response): Promise
     const { name, deliveryDate, routes, items, replacePlanIds = [] } = req.body ?? {};
     if (typeof name !== "string" || !name.trim() || !validDate(deliveryDate) || !Array.isArray(routes) || routes.length === 0 || !Array.isArray(items) || !Array.isArray(replacePlanIds) || replacePlanIds.some((id) => !validUuid(id))) {
       res.status(400).json({ error: "A name, delivery date, routes and items are required" });
+      return;
+    }
+    const duplicateVoyageNumbers = findDuplicateTransportVoyageNumbers(items);
+    if (duplicateVoyageNumbers.length > 0) {
+      res.status(409).json({
+        error: `El viaje ${duplicateVoyageNumbers[0]} aparece más de una vez en este plan.`,
+        code: "DUPLICATE_VOYAGE_NUMBER",
+        voyageNumber: duplicateVoyageNumbers[0],
+      });
       return;
     }
     await ensureTable();

@@ -1,3 +1,8 @@
+import {
+  extractTransportVoyageNumber,
+  normalizeTransportVoyageNumber,
+} from "./transportVoyageNumber";
+
 type RecognizedTransportProduct = {
   code: string | null;
   lotNumber: string | null;
@@ -16,6 +21,7 @@ export type NormalizedTransportDocumentAnalysis = {
   province: string | null;
   postalCode: string | null;
   customerPo: string | null;
+  voyageNumber: string | null;
   loadedDate: unknown;
   pallets: number | null;
   totalWeight: number | null;
@@ -89,6 +95,9 @@ export function normalizeTransportDocumentAnalysis(
 ): NormalizedTransportDocumentAnalysis {
   const rawText =
     typeof parsed?.rawText === "string" ? parsed.rawText : rawTextFallback;
+  const voyageNumber =
+    normalizeTransportVoyageNumber(parsed?.voyageNumber) ??
+    extractTransportVoyageNumber(rawText);
 
   return {
     clientName: textOrNull(parsed?.clientName),
@@ -97,6 +106,7 @@ export function normalizeTransportDocumentAnalysis(
     province: textOrNull(parsed?.province),
     postalCode: textOrNull(parsed?.postalCode),
     customerPo: textOrNull(parsed?.customerPo),
+    voyageNumber,
     loadedDate: parsed?.loadedDate ?? null,
     pallets: integerOrNull(parsed?.pallets),
     totalWeight: parseTransportDecimal(parsed?.totalWeight),

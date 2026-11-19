@@ -19,6 +19,10 @@ import {
   normalizeProductCode,
   resolveProductCode,
 } from "./transportProductCode";
+import {
+  extractTransportVoyageNumber,
+  normalizeTransportVoyageNumber,
+} from "./transportVoyageNumber";
 
 interface OptimizeRouteBody {
   locations: RouteLocation[];
@@ -46,6 +50,8 @@ PRODUCT CODE DIGIT RULE: inspect every digit in the Code cell at high detail, es
 TOTAL WEIGHT RULE (highest priority for totalWeight): locate the shaded summary/footer row directly below the final item row. It begins with the printed label "Poids total" (or "Total weight"). Read only the number in that same summary row immediately to the right of that label. Spaces are thousands separators: for example, "187 440" means totalWeight 187440. Never use any number from the vertical "Lot #" column above it; those repeated eight-digit lot numbers are unrelated to weight. Never infer or calculate totalWeight from product quantities, catalog weights, totals elsewhere on the page, or lot numbers. If the number beside the explicit label cannot be read, return null.
 
 LOADING DATE RULE (highest priority for loadedDate): on the Vegibec "Chargement voyage" form, locate the top-left cell of the outlined header table labelled "Shipping / Chargé". Read the printed date directly below that label in the same cell (for example, 2026-11-13) and return it as YYYY-MM-DD. Do not confuse it with "Chargement #", "Chargé chez", an order date, a delivery date, or any other date elsewhere on the document. Also accept an equivalent field labelled "Loaded" or "Loading date" on other forms. If this specific field is unreadable, return null; never substitute another date or the current date.
+
+VOYAGE NUMBER RULE (highest priority for voyageNumber): on the Vegibec "Chargement voyage" form, locate the top-right heading labelled "No Voyage" and read the number printed directly underneath it (for example, 14066). Return only that voyage number. Never substitute "No client", "No Com.", "Bon Com.", "PO", "Chargement #", a lot number, or barcode content. If the value under "No Voyage" is unreadable, return null.
 
 QUANTITY RULE (highest priority for quantity): copy the Qté à charger cell exactly into quantityLabel. Two formats are valid. If it is a multiplication expression such as "3x80" or "3 × 80", quantity is the calculated total 240. If it is already a total such as "50,00" or "50.0000", quantity is 50; do not multiply it by the pallet count. A comma in these French-form values is a decimal separator, so 50,00 = 50 and 1,00 = 1. Spaces are thousands separators. The shaded Total quantity and "Quantité total chargé" fields are document totals, not additional product rows.
 
@@ -77,11 +83,11 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
             type: "object", additionalProperties: false,
             properties: {
               clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] },
-              province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
+              province: { type: ["string", "null"] }, postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, voyageNumber: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
               pallets: { type: ["integer", "null"] }, totalWeight: { type: ["number", "null"] }, rawText: { type: "string" },
               products: { type: "array", items: { type: "object", additionalProperties: false,
                 properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } }, required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
-            }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
+            }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "voyageNumber", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
           } } }, max_tokens: 2500,
         }),
       });
@@ -116,12 +122,12 @@ export async function analyzeTransportDocument(req: Request, res: Response): Pro
           properties: {
             clientName: { type: ["string", "null"] }, address: { type: ["string", "null"] },
             city: { type: ["string", "null"] }, province: { type: ["string", "null"] },
-            postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
+            postalCode: { type: ["string", "null"] }, customerPo: { type: ["string", "null"] }, voyageNumber: { type: ["string", "null"] }, loadedDate: { type: ["string", "null"] },
             pallets: { type: ["integer", "null"] }, totalWeight: { type: ["number", "null"] }, rawText: { type: "string" },
             products: { type: "array", items: { type: "object", additionalProperties: false,
               properties: { code: { type: ["string", "null"] }, lotNumber: { type: ["string", "null"] }, name: { type: ["string", "null"] }, quantityLabel: { type: ["string", "null"] }, quantity: { type: ["number", "null"] }, pallets: { type: ["number", "null"] }, palletType: { type: ["string", "null"] }, unit: { type: ["string", "null"] } },
               required: ["code", "lotNumber", "name", "quantityLabel", "quantity", "pallets", "palletType", "unit"] } },
-          }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
+          }, required: ["clientName", "address", "city", "province", "postalCode", "customerPo", "voyageNumber", "loadedDate", "pallets", "totalWeight", "rawText", "products"]
         } } },
         max_output_tokens: 2500,
       }),
@@ -183,6 +189,7 @@ export async function ensureTransportScanTables(): Promise<void> {
       recognized_address TEXT,
       recognized_city TEXT,
       recognized_postal_code TEXT,
+      recognized_voyage_number TEXT,
       loaded_date DATE,
       product_matches JSONB NOT NULL DEFAULT '[]'::jsonb,
       estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0,
@@ -195,6 +202,7 @@ export async function ensureTransportScanTables(): Promise<void> {
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_address TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_city TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_postal_code TEXT;
+    ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS recognized_voyage_number TEXT;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS loaded_date DATE;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS product_matches JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE logistics.transport_scan_items ADD COLUMN IF NOT EXISTS estimated_weight NUMERIC(14, 3) NOT NULL DEFAULT 0;
@@ -203,6 +211,9 @@ export async function ensureTransportScanTables(): Promise<void> {
     ALTER TABLE logistics.transport_scan_items ADD CONSTRAINT transport_scan_items_pallets_check CHECK (pallets BETWEEN 1 AND 999);
     CREATE INDEX IF NOT EXISTS transport_scan_items_session_idx
       ON logistics.transport_scan_items(session_token, id);
+    CREATE UNIQUE INDEX IF NOT EXISTS transport_scan_items_session_voyage_unique_idx
+      ON logistics.transport_scan_items(session_token, recognized_voyage_number)
+      WHERE recognized_voyage_number IS NOT NULL;
   `).then(() => undefined).catch((error) => { transportScanTablesPromise = null; throw error; });
   return transportScanTablesPromise;
 }
@@ -235,7 +246,8 @@ export async function getScanSession(req: Request, res: Response): Promise<void>
     const items = await pool.query(
       `SELECT i.id, i.address_id, i.pallets, i.created_at, i.recognized_text,
               i.recognized_client_name, i.recognized_address, i.recognized_city,
-              i.recognized_postal_code, i.loaded_date::text AS loaded_date,
+              i.recognized_postal_code, i.recognized_voyage_number,
+              i.loaded_date::text AS loaded_date,
               i.product_matches, i.estimated_weight, i.confirmed,
               c.name AS client_name, a.site_name, a.site_number, a.city
        FROM logistics.transport_scan_items i
@@ -290,6 +302,30 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
       if (!address.rows.length) { res.status(404).json({ error: "Client address not found" }); return; }
     }
     const recognizedText = typeof req.body?.recognizedText === "string" ? req.body.recognizedText.slice(0, 50000) : "";
+    const recognizedVoyageNumber =
+      extractTransportVoyageNumber(recognizedText) ??
+      normalizeTransportVoyageNumber(req.body?.recognizedVoyageNumber);
+    if (recognizedVoyageNumber) {
+      const existingItems = await pool.query(
+        `SELECT recognized_voyage_number, recognized_text
+         FROM logistics.transport_scan_items
+         WHERE session_token = $1`,
+        [req.params.token],
+      );
+      const alreadyScanned = existingItems.rows.some((item) =>
+        (normalizeTransportVoyageNumber(item.recognized_voyage_number) ??
+          extractTransportVoyageNumber(item.recognized_text)) ===
+        recognizedVoyageNumber,
+      );
+      if (alreadyScanned) {
+        res.status(409).json({
+          error: `El viaje ${recognizedVoyageNumber} ya está en esta sesión de escaneo.`,
+          code: "DUPLICATE_VOYAGE_NUMBER",
+          voyageNumber: recognizedVoyageNumber,
+        });
+        return;
+      }
+    }
     const products = await pool.query(`SELECT id, full_name, product_code, weight FROM public.finished_product WHERE is_active = true`);
     const recognizedProducts = Array.isArray(req.body?.recognizedProducts) ? req.body.recognizedProducts.slice(0, 100) : [];
     const normalize = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -340,15 +376,27 @@ export async function addScanSessionItem(req: Request, res: Response): Promise<v
     const result = await pool.query(
       `INSERT INTO logistics.transport_scan_items
        (session_token, address_id, pallets, recognized_text, recognized_client_name,
-        recognized_address, recognized_city, recognized_postal_code, product_matches, estimated_weight, loaded_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::date)
+        recognized_address, recognized_city, recognized_postal_code,
+        recognized_voyage_number, product_matches, estimated_weight, loaded_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::date)
+       ON CONFLICT (session_token, recognized_voyage_number)
+         WHERE recognized_voyage_number IS NOT NULL DO NOTHING
        RETURNING id, address_id, pallets, created_at, product_matches,
-                 estimated_weight, loaded_date::text AS loaded_date`,
+                 estimated_weight, recognized_voyage_number,
+                 loaded_date::text AS loaded_date`,
       [req.params.token, addressId, pallets, recognizedText,
        req.body?.recognizedClientName || null, req.body?.recognizedAddress || null,
        req.body?.recognizedCity || null, req.body?.recognizedPostalCode || null,
-       JSON.stringify(productMatches), estimatedWeight, loadedDate],
+       recognizedVoyageNumber, JSON.stringify(productMatches), estimatedWeight, loadedDate],
     );
+    if (!result.rows.length && recognizedVoyageNumber) {
+      res.status(409).json({
+        error: `El viaje ${recognizedVoyageNumber} ya está en esta sesión de escaneo.`,
+        code: "DUPLICATE_VOYAGE_NUMBER",
+        voyageNumber: recognizedVoyageNumber,
+      });
+      return;
+    }
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("Add transport scan item error:", error);

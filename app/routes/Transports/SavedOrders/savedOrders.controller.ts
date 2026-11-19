@@ -36,7 +36,9 @@ export async function listSavedOrders(req: Request, res: Response): Promise<void
                    'recognized_client_name', i.recognized_client_name,
                    'recognized_address', i.recognized_address,
                    'recognized_city', i.recognized_city,
-                   'recognized_postal_code', i.recognized_postal_code
+                   'recognized_postal_code', i.recognized_postal_code,
+                   'recognized_voyage_number', i.recognized_voyage_number,
+                   'recognized_text', i.recognized_text
                  ) AS order_data,
                  i.created_at,
                  COALESCE((
