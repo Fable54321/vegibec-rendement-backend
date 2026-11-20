@@ -26,6 +26,7 @@ router.get("/users/with-worksheet", requireAppRole("time", ["admin", "user", "gu
         u.email,
         u.name,
         u.surname,
+        u.is_active,
         u.uses_worksheet,
         COALESCE(
           json_agg(
