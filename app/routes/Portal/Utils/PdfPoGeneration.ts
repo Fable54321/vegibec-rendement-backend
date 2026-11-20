@@ -3,6 +3,7 @@ import path from "path"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 
 type PurchaseOrderPdfItem = {
+  is_purchase_note?: boolean
   item_code: string | null
   item_description: string | null
   ordered_quantity: number | string | null
@@ -26,6 +27,7 @@ type PurchaseOrderPdfData = {
   requested_delivery_date: string | null
   purchased_at: string | null
   supplier_reference: string | null
+  purchase_note: string | null
   invoice_number: string | null
   delivery_method: string | null
   shipping_address_snapshot: string | null
@@ -485,25 +487,30 @@ let itemYOffset = 0
 
 purchaseOrder.items.forEach((item) => {
   const y = ITEM_START_Y - itemYOffset
+  const isPurchaseNote = item.is_purchase_note === true
 
   const descriptionLines = splitDescriptionText(
     item.item_description,
     TABLE_COLUMNS.descriptionMaxWidth,
     TABLE_COLUMNS.descriptionMaxCharacters,
+    isPurchaseNote ? 5 : 3,
   )
 
-  const codeLines = splitDescriptionText(
-    item.item_code,
-    TABLE_COLUMNS.codeMaxWidth,
-    TABLE_COLUMNS.codeMaxCharacters,
-    2,
-  )
+  const codeLines = isPurchaseNote
+    ? ["Note"]
+    : splitDescriptionText(
+        item.item_code,
+        TABLE_COLUMNS.codeMaxWidth,
+        TABLE_COLUMNS.codeMaxCharacters,
+        2,
+      )
 
   codeLines.forEach((line, lineIndex) => {
     drawText(
       line,
       TABLE_COLUMNS.codeX,
       y - lineIndex * ITEM_DESCRIPTION_LINE_HEIGHT,
+      { bold: isPurchaseNote },
     )
   })
 
@@ -515,34 +522,39 @@ purchaseOrder.items.forEach((item) => {
     )
   })
 
-  drawRightAlignedText(
-    formatQuantity(item.ordered_quantity),
-    TABLE_COLUMNS.quantityRightX,
-    y,
-  )
+  if (!isPurchaseNote) {
+    drawRightAlignedText(
+      formatQuantity(item.ordered_quantity),
+      TABLE_COLUMNS.quantityRightX,
+      y,
+    )
 
-  drawFittedText(
-    item.ordered_unit,
-    TABLE_COLUMNS.unitX,
-    y,
-    TABLE_COLUMNS.unitMaxWidth,
-  )
+    drawFittedText(
+      item.ordered_unit,
+      TABLE_COLUMNS.unitX,
+      y,
+      TABLE_COLUMNS.unitMaxWidth,
+    )
 
-  drawRightAlignedText(
-    formatMoney(item.final_unit_price),
-    TABLE_COLUMNS.priceRightX,
-    y,
-  )
+    drawRightAlignedText(
+      formatMoney(item.final_unit_price),
+      TABLE_COLUMNS.priceRightX,
+      y,
+    )
 
-  drawRightAlignedText(
-    formatMoney(item.final_total_price),
-    TABLE_COLUMNS.amountRightX,
-    y,
-  )
+    drawRightAlignedText(
+      formatMoney(item.final_total_price),
+      TABLE_COLUMNS.amountRightX,
+      y,
+    )
+  }
 
   itemYOffset += ITEM_ROW_HEIGHT
 
-  if (descriptionLines.length === 3) {
+  if (isPurchaseNote && descriptionLines.length > 2) {
+    itemYOffset +=
+      (descriptionLines.length - 2) * ITEM_DESCRIPTION_LINE_HEIGHT
+  } else if (descriptionLines.length === 3) {
     itemYOffset += THREE_LINE_DESCRIPTION_EXTRA_SPACING
   }
 })
@@ -602,13 +614,34 @@ export const generatePurchaseOrderPdf = async (
   purchaseOrder: PurchaseOrderPdfData,
   language: "fr" | "en" = "fr",
 ) => {
-  if (purchaseOrder.items.length <= ITEMS_PER_PAGE) {
-    return generatePurchaseOrderPdfPage(purchaseOrder, language)
+  const purchaseNote = purchaseOrder.purchase_note?.trim()
+  const displayedItems = purchaseNote
+    ? [
+        ...purchaseOrder.items,
+        {
+          is_purchase_note: true,
+          item_code: null,
+          item_description: purchaseNote,
+          ordered_quantity: null,
+          ordered_unit: null,
+          number_of_pallets: null,
+          final_unit_price: null,
+          final_total_price: null,
+          location: null,
+        },
+      ]
+    : purchaseOrder.items
+
+  if (displayedItems.length <= ITEMS_PER_PAGE) {
+    return generatePurchaseOrderPdfPage(
+      { ...purchaseOrder, items: displayedItems },
+      language,
+    )
   }
 
   const chunks: PurchaseOrderPdfItem[][] = []
-  for (let index = 0; index < purchaseOrder.items.length; index += ITEMS_PER_PAGE) {
-    chunks.push(purchaseOrder.items.slice(index, index + ITEMS_PER_PAGE))
+  for (let index = 0; index < displayedItems.length; index += ITEMS_PER_PAGE) {
+    chunks.push(displayedItems.slice(index, index + ITEMS_PER_PAGE))
   }
 
   const output = await PDFDocument.create()
@@ -621,7 +654,7 @@ export const generatePurchaseOrderPdf = async (
       language,
       {
         showSummary: index === chunks.length - 1,
-        summaryItems: purchaseOrder.items,
+        summaryItems: displayedItems,
       },
     )
     const source = await PDFDocument.load(pageBytes)
