@@ -10,6 +10,7 @@ type ReceiptVoucherPdfItem = {
   received_quantity?: number | string | null
   ordered_unit?: string | null
   comment?: string | null
+  over_receipt_note?: string | null
   purchase_order_reference?: string | null
 }
 
@@ -114,14 +115,15 @@ const formatDateTime = (value: Date) => {
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
-// Leave enough room above the totals for rows with three wrapped description lines.
-const ITEMS_PER_PAGE = 7
+// An over-receipt note uses roughly the vertical space of a second item row.
+const ITEM_ROW_UNITS_PER_PAGE = 7
 
 const generateReceiptVoucherPdfPage = async (
   receiptVoucher: ReceiptVoucherPdfData,
   options?: {
     showSummary?: boolean
     summaryItems?: ReceiptVoucherPdfItem[]
+    hideHeaderReceiptNote?: boolean
   },
 ) => {
   const templatePath = path.resolve(
@@ -424,9 +426,15 @@ drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
     size: 9,
   })
 
-  drawFittedText(receiptVoucher.receipt_note, 235, 437, 178, {
-    size: 8,
-  })
+  const hasItemLevelReceiptNote =
+    options?.hideHeaderReceiptNote ??
+    receiptVoucher.items.some((item) => !!item.over_receipt_note)
+
+  if (!hasItemLevelReceiptNote) {
+    drawFittedText(receiptVoucher.receipt_note, 235, 437, 178, {
+      size: 8,
+    })
+  }
 
   const itemStartY = 392
   const rowHeight = 30
@@ -449,6 +457,15 @@ drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
       TABLE_COLUMNS.descriptionMaxWidth,
       TABLE_COLUMNS.descriptionMaxCharacters,
       3,
+    )
+    const overReceiptNoteLines = splitDescriptionText(
+      item.over_receipt_note
+        ? `Note de surréception : ${item.over_receipt_note}`
+        : null,
+      TABLE_COLUMNS.descriptionMaxWidth,
+      TABLE_COLUMNS.descriptionMaxCharacters,
+      6,
+      7,
     )
 
     drawFittedText(
@@ -501,10 +518,27 @@ drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
       },
     )
 
+    const descriptionLineCount = Math.max(descriptionLines.length, 1)
+    overReceiptNoteLines.forEach((line, index) => {
+      drawText(
+        line,
+        TABLE_COLUMNS.descriptionX,
+        y - descriptionLineCount * descriptionLineHeight - 2 - index * 9,
+        {
+          size: 7,
+          bold: true,
+        },
+      )
+    })
+
     yOffset += rowHeight
 
     if (descriptionLines.length === 3) {
       yOffset += threeLineDescriptionExtraSpacing
+    }
+
+    if (overReceiptNoteLines.length > 0) {
+      yOffset += overReceiptNoteLines.length * 9 + 4
     }
   })
 
@@ -540,18 +574,40 @@ drawText(formatDateIso(receiptVoucher.received_at), 400, 524, {
 export const generateReceiptVoucherPdf = async (
   receiptVoucher: ReceiptVoucherPdfData,
 ) => {
-  if (receiptVoucher.items.length <= ITEMS_PER_PAGE) {
-    return generateReceiptVoucherPdfPage(receiptVoucher)
+  const chunks: ReceiptVoucherPdfItem[][] = []
+  let currentChunk: ReceiptVoucherPdfItem[] = []
+  let currentChunkUnits = 0
+
+  for (const item of receiptVoucher.items) {
+    const itemUnits = item.over_receipt_note ? 3 : 1
+
+    if (
+      currentChunk.length > 0 &&
+      currentChunkUnits + itemUnits > ITEM_ROW_UNITS_PER_PAGE
+    ) {
+      chunks.push(currentChunk)
+      currentChunk = []
+      currentChunkUnits = 0
+    }
+
+    currentChunk.push(item)
+    currentChunkUnits += itemUnits
   }
 
-  const chunks: ReceiptVoucherPdfItem[][] = []
-  for (let index = 0; index < receiptVoucher.items.length; index += ITEMS_PER_PAGE) {
-    chunks.push(receiptVoucher.items.slice(index, index + ITEMS_PER_PAGE))
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk)
+  }
+
+  if (chunks.length <= 1) {
+    return generateReceiptVoucherPdfPage(receiptVoucher)
   }
 
   const output = await PDFDocument.create()
   const font = await output.embedFont(StandardFonts.Helvetica)
   const boldFont = await output.embedFont(StandardFonts.HelveticaBold)
+  const hasItemLevelReceiptNote = receiptVoucher.items.some(
+    (item) => !!item.over_receipt_note,
+  )
 
   for (let index = 0; index < chunks.length; index += 1) {
     const pageBytes = await generateReceiptVoucherPdfPage(
@@ -559,6 +615,7 @@ export const generateReceiptVoucherPdf = async (
       {
         showSummary: index === chunks.length - 1,
         summaryItems: receiptVoucher.items,
+        hideHeaderReceiptNote: hasItemLevelReceiptNote,
       },
     )
     const source = await PDFDocument.load(pageBytes)

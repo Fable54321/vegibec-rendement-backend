@@ -19,6 +19,8 @@ type ReceiptVoucherItemInput = {
   quantity?: number | string | null
   received_quantity?: number | string | null
   comment?: string | null
+  over_receipt_note?: string | null
+  over_receipt_confirmed?: boolean | null
 }
 
 type NormalizedReceiptVoucherUpdateItem = NormalizedReceiptVoucherItem & {
@@ -31,7 +33,11 @@ type NormalizedReceiptVoucherItem = {
   quantity: number | null
   received_quantity: number | null
   comment: string | null
+  over_receipt_note: string | null
+  over_receipt_confirmed: boolean
 }
+
+const MAX_OVER_RECEIPT_NOTE_LENGTH = 240
 
 const toPositiveNumber = (value: unknown) => {
   const numberValue =
@@ -105,6 +111,11 @@ const ensureReceiptVoucherDocumentColumn = async (client: PoolClient) => {
     ADD COLUMN IF NOT EXISTS supplier_address_snapshot text,
     ADD COLUMN IF NOT EXISTS supplier_phone text,
     ADD COLUMN IF NOT EXISTS delivery_method text
+  `)
+
+  await client.query(`
+    ALTER TABLE portal.receipt_voucher_items
+    ADD COLUMN IF NOT EXISTS over_receipt_note text
   `)
 }
 
@@ -411,6 +422,8 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
         quantity: toPositiveNumber(item.quantity),
         received_quantity: toPositiveNumber(item.received_quantity),
         comment: cleanText(item.comment),
+        over_receipt_note: cleanText(item.over_receipt_note),
+        over_receipt_confirmed: item.over_receipt_confirmed === true,
       }),
     )
 
@@ -427,6 +440,18 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
       })
     }
 
+    if (
+      normalizedItems.some(
+        (item) =>
+          (item.over_receipt_note?.length ?? 0) >
+          MAX_OVER_RECEIPT_NOTE_LENGTH,
+      )
+    ) {
+      return res.status(400).json({
+        message: `La note de surréception ne peut pas dépasser ${MAX_OVER_RECEIPT_NOTE_LENGTH} caractères.`,
+      })
+    }
+
     const purchaseOrderItemIds = normalizedItems.map(
       (item) => item.purchase_order_item_id!,
     )
@@ -436,6 +461,7 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
       })
     }
 
+    await ensureReceiptVoucherDocumentColumn(client)
     await client.query("BEGIN")
     transactionStarted = true
 
@@ -546,8 +572,21 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
       const receivedByOtherVouchers = Number(
         orderItem.received_by_other_vouchers,
       )
+      const isOverReceived =
+        item.received_quantity! + receivedByOtherVouchers > orderedQuantity
+      const overReceiptNote = isOverReceived ? item.over_receipt_note : null
 
-    
+      if (
+        isOverReceived &&
+        (!item.over_receipt_confirmed || !overReceiptNote)
+      ) {
+        await client.query("ROLLBACK")
+        transactionStarted = false
+        return res.status(400).json({
+          message:
+            "Confirmez la surréception et ajoutez une note pour chaque article reçu en trop.",
+        })
+      }
 
       if (item.id) {
         const existingItem = existingItemsById.get(item.id)
@@ -571,6 +610,7 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
             quantity = $4,
             received_quantity = $5,
             comment = $6,
+            over_receipt_note = $7,
             updated_at = now()
           WHERE id = $1 AND receipt_voucher_id = $2
           `,
@@ -581,6 +621,7 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
             orderedQuantity,
             item.received_quantity,
             item.comment,
+            overReceiptNote,
           ],
         )
         submittedItemIds.push(item.id)
@@ -593,9 +634,10 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
             purchase_order_item_id,
             quantity,
             received_quantity,
-            comment
+            comment,
+            over_receipt_note
           )
-          VALUES ($1, $2, $3, $4, $5, $6)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
           RETURNING id
           `,
           [
@@ -605,6 +647,7 @@ router.patch("/:receiptVoucherId", authMiddleware, async (req, res) => {
             orderedQuantity,
             item.received_quantity,
             item.comment,
+            overReceiptNote,
           ],
         )
         submittedItemIds.push(Number(insertedItem.rows[0].id))
@@ -844,8 +887,22 @@ const requestedDeliveryMethod = cleanText(delivery_method)
         quantity,
         received_quantity: receivedQuantity,
         comment: cleanText(item.comment),
+        over_receipt_note: cleanText(item.over_receipt_note),
+        over_receipt_confirmed: item.over_receipt_confirmed === true,
       }
     })
+
+    const overReceiptNoteTooLong = normalizedItems.some(
+      (item) =>
+        (item.over_receipt_note?.length ?? 0) >
+        MAX_OVER_RECEIPT_NOTE_LENGTH,
+    )
+
+    if (overReceiptNoteTooLong) {
+      return res.status(400).json({
+        message: `La note de surréception ne peut pas dépasser ${MAX_OVER_RECEIPT_NOTE_LENGTH} caractères.`,
+      })
+    }
 
     const invalidItem = normalizedItems.find(
       (item) => !item.purchase_request_item_id,
@@ -1081,6 +1138,7 @@ const requestedDeliveryMethod = cleanText(delivery_method)
       .map((item) => item.purchase_order_item_id)
       .filter((id): id is number => !!id)
     const uniquePurchaseOrderItemIds = [...new Set(purchaseOrderItemIds)]
+    const overReceivedPurchaseOrderItemIds = new Set<number>()
 
     if (uniquePurchaseOrderItemIds.length > 0) {
       const incomingReceivedByOrderItem: Record<number, number> = {}
@@ -1095,24 +1153,35 @@ const requestedDeliveryMethod = cleanText(delivery_method)
           item.received_quantity
       })
 
-      const overReceivedItem = uniquePurchaseOrderItemIds
+      uniquePurchaseOrderItemIds
         .map((id) => purchaseOrderItemsById.get(id))
-        .find((item) => {
-        const incomingQuantity = incomingReceivedByOrderItem[Number(item.id)] ?? 0
-        const orderedQuantity = Number(item.ordered_quantity || 0)
-        const alreadyReceivedQuantity = Number(
-          item.already_received_quantity || 0,
-        )
+        .filter(Boolean)
+        .forEach((item) => {
+          const incomingQuantity =
+            incomingReceivedByOrderItem[Number(item.id)] ?? 0
+          const orderedQuantity = Number(item.ordered_quantity || 0)
+          const alreadyReceivedQuantity = Number(
+            item.already_received_quantity || 0,
+          )
 
-        return incomingQuantity + alreadyReceivedQuantity > orderedQuantity
-      })
+          if (incomingQuantity + alreadyReceivedQuantity > orderedQuantity) {
+            overReceivedPurchaseOrderItemIds.add(Number(item.id))
+          }
+        })
 
-      if (overReceivedItem) {
+      const unconfirmedOverReceiptItem = hydratedItems.find(
+        (item) =>
+          item.purchase_order_item_id !== null &&
+          overReceivedPurchaseOrderItemIds.has(item.purchase_order_item_id) &&
+          (!item.over_receipt_confirmed || !item.over_receipt_note),
+      )
+
+      if (unconfirmedOverReceiptItem) {
         await client.query("ROLLBACK")
 
         return res.status(400).json({
           message:
-            "La quantité reçue dépasse la quantité restante pour un ou plusieurs articles.",
+            "Confirmez la surréception et ajoutez une note pour chaque article reçu en trop.",
         })
       }
     }
@@ -1313,9 +1382,10 @@ const voucherResult = await client.query(
           purchase_order_item_id,
           quantity,
           received_quantity,
-          comment
+          comment,
+          over_receipt_note
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
         `,
         [
@@ -1325,6 +1395,10 @@ const voucherResult = await client.query(
           item.quantity,
           item.received_quantity,
           item.comment,
+          item.purchase_order_item_id !== null &&
+          overReceivedPurchaseOrderItemIds.has(item.purchase_order_item_id)
+            ? item.over_receipt_note
+            : null,
         ],
       )
 
