@@ -31,10 +31,11 @@ router.get("/:lotNumber", readRoles, async (req, res) => {
       product_name: string;
       product_source: "raw_product" | "finished_product";
       lot_source: "harvesting_tracking" | "production_outputs";
+      available_boxes: number;
     }>(
       `
       WITH lot_matches AS (
-        SELECT DISTINCT
+        SELECT
           h.harvest_lot_number::text AS lot_number,
           COALESCE(rp.product_code::text, fp.product_code::text) AS product_code,
           COALESCE(rp.description::text, fp.full_name::text) AS product_name,
@@ -42,7 +43,8 @@ router.get("/:lotNumber", readRoles, async (req, res) => {
             WHEN pr.raw_product_id IS NOT NULL THEN 'raw_product'
             ELSE 'finished_product'
           END AS product_source,
-          'harvesting_tracking'::text AS lot_source
+          'harvesting_tracking'::text AS lot_source,
+          SUM(h.amount_of_boxes)::integer AS available_boxes
         FROM trackability.harvesting_tracking h
         JOIN trackability.product_reference pr
           ON pr.id = h.product_id
@@ -52,6 +54,14 @@ router.get("/:lotNumber", readRoles, async (req, res) => {
           ON fp.id = pr.finished_product_id
         WHERE h.harvest_lot_number = $2::bigint
           AND (pr.raw_product_id IS NULL) <> (pr.finished_product_id IS NULL)
+        GROUP BY
+          h.harvest_lot_number,
+          COALESCE(rp.product_code::text, fp.product_code::text),
+          COALESCE(rp.description::text, fp.full_name::text),
+          CASE
+            WHEN pr.raw_product_id IS NOT NULL THEN 'raw_product'
+            ELSE 'finished_product'
+          END
 
         UNION ALL
 
@@ -63,7 +73,8 @@ router.get("/:lotNumber", readRoles, async (req, res) => {
             WHEN o.raw_product_id IS NOT NULL THEN 'raw_product'
             ELSE 'finished_product'
           END AS product_source,
-          'production_outputs'::text AS lot_source
+          'production_outputs'::text AS lot_source,
+          o.produced_boxes::integer AS available_boxes
         FROM trackability.production_outputs o
         LEFT JOIN public.raw_product rp
           ON rp.id = o.raw_product_id
@@ -77,7 +88,8 @@ router.get("/:lotNumber", readRoles, async (req, res) => {
         product_code,
         product_name,
         product_source,
-        lot_source
+        lot_source,
+        available_boxes
       FROM lot_matches
       `,
       [lotNumber, harvestLotNumber],
