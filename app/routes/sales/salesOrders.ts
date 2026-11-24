@@ -42,12 +42,14 @@ const productLotsSql = `
     finished_product_id,
     lot_number,
     array_agg(DISTINCT source ORDER BY source) AS sources,
+    SUM(available_quantity)::bigint AS available_quantity,
     MAX(recorded_at) AS recorded_at
   FROM (
     SELECT
       pr.finished_product_id,
       h.harvest_lot_number::text AS lot_number,
       'harvesting_tracking'::text AS source,
+      COALESCE(h.amount_of_boxes, 0)::bigint AS available_quantity,
       (h.harvesting_date + h.harvesting_time)::timestamp AS recorded_at
     FROM trackability.harvesting_tracking h
     JOIN trackability.product_reference pr ON pr.id = h.product_id
@@ -59,6 +61,7 @@ const productLotsSql = `
       o.finished_product_id,
       o.output_lot_number::text AS lot_number,
       'production_outputs'::text AS source,
+      COALESCE(o.produced_boxes, 0)::bigint AS available_quantity,
       o.created_at AS recorded_at
     FROM trackability.production_outputs o
     WHERE o.finished_product_id = ANY($1::int[])
