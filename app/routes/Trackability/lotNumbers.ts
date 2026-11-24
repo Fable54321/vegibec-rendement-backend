@@ -30,6 +30,14 @@ const getAvailability = (value: unknown): boolean | null | undefined => {
   return undefined;
 };
 
+const getYear = (value: unknown): number | undefined => {
+  if (value === undefined || value === "") return new Date().getFullYear();
+  if (typeof value !== "string" || !/^\d{4}$/.test(value)) return undefined;
+
+  const year = Number(value);
+  return year >= 2000 && year <= 2100 ? year : undefined;
+};
+
 /**
  * Every created lot is journaled. It only becomes inventory after a harvest
  * receipt has been created or its production has been completed. Completed
@@ -254,6 +262,8 @@ export const lotJournalSql = `
     )
     AND ($2::text IS NULL OR product_source = $2)
     AND ($3::boolean IS NULL OR is_available = $3)
+    AND recorded_at >= make_date($4::int, 1, 1)
+    AND recorded_at < make_date($4::int + 1, 1, 1)
   ORDER BY recorded_at DESC NULLS LAST, lot_number DESC, lot_source
 `;
 
@@ -264,11 +274,13 @@ export const lotJournalSql = `
  *   q=lot/product text
  *   productSource=raw_product|finished_product
  *   available=true|false
+ *   year=YYYY (defaults to the current year)
  */
 router.get("/", readRoles, async (req, res) => {
   const query = getQueryText(req.query.q);
   const productSource = getProductSource(req.query.productSource);
   const available = getAvailability(req.query.available);
+  const year = getYear(req.query.year);
 
   if (query === null) {
     return res.status(400).json({
@@ -285,12 +297,18 @@ router.get("/", readRoles, async (req, res) => {
       error: "available must be true or false",
     });
   }
+  if (year === undefined) {
+    return res.status(400).json({
+      error: "year must be a four-digit year between 2000 and 2100",
+    });
+  }
 
   try {
     const { rows } = await pool.query(lotJournalSql, [
       query,
       productSource,
       available,
+      year,
     ]);
     return res.status(200).json(rows);
   } catch (error) {
