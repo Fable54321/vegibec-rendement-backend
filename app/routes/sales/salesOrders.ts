@@ -33,9 +33,69 @@ type ParsedItem = {
   plannedPallets: number | null;
   quantityPerPallet: number | null;
   palletType: string | null;
-  origin: string | null;
+  lotNumbers: string[] | null;
   packed: boolean;
 };
+
+const productLotsSql = `
+  SELECT
+    finished_product_id,
+    lot_number,
+    array_agg(DISTINCT source ORDER BY source) AS sources,
+    MAX(recorded_at) AS recorded_at
+  FROM (
+    SELECT
+      pr.finished_product_id,
+      h.harvest_lot_number::text AS lot_number,
+      'harvesting_tracking'::text AS source,
+      (h.harvesting_date + h.harvesting_time)::timestamp AS recorded_at
+    FROM trackability.harvesting_tracking h
+    JOIN trackability.product_reference pr ON pr.id = h.product_id
+    WHERE pr.finished_product_id = ANY($1::int[])
+
+    UNION ALL
+
+    SELECT
+      o.finished_product_id,
+      o.output_lot_number::text AS lot_number,
+      'production_outputs'::text AS source,
+      o.created_at AS recorded_at
+    FROM trackability.production_outputs o
+    WHERE o.finished_product_id = ANY($1::int[])
+  ) available_lots
+  GROUP BY finished_product_id, lot_number
+  ORDER BY recorded_at DESC, lot_number DESC
+`;
+
+const parseLotNumbers = (value: unknown): string[] | null => {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value) || value.length > 100) return null;
+
+  const lotNumbers = value.map(cleanText);
+  if (lotNumbers.some((lotNumber) => !lotNumber || lotNumber.length > 255)) {
+    return null;
+  }
+  return [...new Set(lotNumbers as string[])];
+};
+
+router.get("/product-lots", readRoles, async (req, res) => {
+  const finishedProductId = positiveId(req.query.finishedProductId);
+  if (!finishedProductId) {
+    return res
+      .status(400)
+      .json({ message: "Le produit sélectionné est invalide." });
+  }
+
+  try {
+    const result = await pool.query(productLotsSql, [[finishedProductId]]);
+    return res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching sales product lots:", error);
+    return res
+      .status(500)
+      .json({ message: "Impossible de charger les numéros de lot." });
+  }
+});
 
 router.get("/orders", readRoles, async (_req, res) => {
   try {
@@ -49,7 +109,9 @@ router.get("/orders", readRoles, async (_req, res) => {
           'discount_percent', i.discount_percent, 'line_total', i.line_total,
           'quantity_per_pallet', i.quantity_per_pallet,
           'actual_pallets', i.actual_pallets, 'planned_pallets', i.planned_pallets,
-          'pallet_type', i.pallet_type, 'origin', i.origin, 'packed', i.packed
+          'pallet_type', i.pallet_type, 'origin', i.origin,
+          'lot_numbers', COALESCE(string_to_array(NULLIF(i.origin, ''), ', '), ARRAY[]::text[]),
+          'packed', i.packed
         ) ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), '[]'::json) AS items
       FROM sales.orders o
       LEFT JOIN sales.order_items i ON i.order_id = o.id
@@ -100,15 +162,19 @@ router.post("/orders", writeRoles, async (req, res) => {
       !statuses.has(status) ||
       items.length === 0
     ) {
+      return res.status(400).json({
+        message:
+          "Vendu au, client, date de commande, date chargée, vendu par, statut et produits sont requis.",
+      });
+    }
+    if (
+      soldByUserIdValue !== "" &&
+      soldByUserIdValue != null &&
+      !soldByUserId
+    ) {
       return res
         .status(400)
-        .json({
-          message:
-            "Vendu au, client, date de commande, date chargée, vendu par, statut et produits sont requis.",
-        });
-    }
-    if (soldByUserIdValue !== "" && soldByUserIdValue != null && !soldByUserId) {
-      return res.status(400).json({ message: "Le vendeur sélectionné est invalide." });
+        .json({ message: "Le vendeur sélectionné est invalide." });
     }
 
     const parsedItems: ParsedItem[] = items.map((item: any) => ({
@@ -133,7 +199,13 @@ router.post("/orders", writeRoles, async (req, res) => {
           ? null
           : numberInRange(item.quantityPerPallet, 0),
       palletType: cleanText(item.palletType),
-      origin: cleanText(item.origin),
+      lotNumbers: parseLotNumbers(
+        item.lotNumbers === undefined
+          ? cleanText(item.origin)
+            ? [item.origin]
+            : []
+          : item.lotNumbers,
+      ),
       packed: Boolean(item.packed),
     }));
     if (
@@ -144,15 +216,14 @@ router.post("/orders", writeRoles, async (req, res) => {
           item.unitPrice === null ||
           item.discount === null ||
           item.actualPallets === null ||
+          item.lotNumbers === null ||
           !item.palletType,
       )
     ) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Un produit contient une quantité, un prix, un nombre de palettes réel ou un type de palette invalide.",
-        });
+      return res.status(400).json({
+        message:
+          "Un produit contient une quantité, un prix, un nombre de palettes réel ou un type de palette invalide.",
+      });
     }
 
     await db.query("BEGIN");
@@ -182,7 +253,9 @@ router.post("/orders", writeRoles, async (req, res) => {
       );
       if (!seller.rowCount) {
         await db.query("ROLLBACK");
-        return res.status(400).json({ message: "Le vendeur sélectionné est introuvable." });
+        return res
+          .status(400)
+          .json({ message: "Le vendeur sélectionné est introuvable." });
       }
       resolvedSellerName = [seller.rows[0].surname, seller.rows[0].name]
         .filter(Boolean)
@@ -226,12 +299,34 @@ router.post("/orders", writeRoles, async (req, res) => {
     );
     if (productMap.size !== new Set(productIds).size) {
       await db.query("ROLLBACK");
-      return res
-        .status(409)
-        .json({
-          message:
-            "Un produit n'est pas actif ou n'est pas relié à l'inventaire.",
+      return res.status(409).json({
+        message:
+          "Un produit n'est pas actif ou n'est pas relié à l'inventaire.",
+      });
+    }
+    const requestedLots = parsedItems.flatMap((item) =>
+      (item.lotNumbers ?? []).map((lotNumber) => ({
+        productId: item.productId!,
+        lotNumber,
+      })),
+    );
+    if (requestedLots.length) {
+      const availableLots = await db.query(productLotsSql, [productIds]);
+      const validLots = new Set(
+        availableLots.rows.map(
+          (lot) => `${Number(lot.finished_product_id)}\u0000${lot.lot_number}`,
+        ),
+      );
+      const invalidLot = requestedLots.find(
+        ({ productId, lotNumber }) =>
+          !validLots.has(`${productId}\u0000${lotNumber}`),
+      );
+      if (invalidLot) {
+        await db.query("ROLLBACK");
+        return res.status(400).json({
+          message: `Le lot ${invalidLot.lotNumber} n'est pas associé au produit sélectionné.`,
         });
+      }
     }
     const incompatibleProducts = products.rows.filter((product) => {
       const productType = String(product.product_type ?? "")
@@ -325,11 +420,15 @@ router.post("/orders", writeRoles, async (req, res) => {
           item.plannedPallets,
           item.quantityPerPallet,
           item.palletType,
-          item.origin,
+          (item.lotNumbers ?? []).join(", ") || null,
           item.packed,
         ],
       );
-      savedItems.push({ ...saved.rows[0], product_weight: product.weight });
+      savedItems.push({
+        ...saved.rows[0],
+        lot_numbers: item.lotNumbers ?? [],
+        product_weight: product.weight,
+      });
       const updated = await db.query(
         `UPDATE inventory.produce SET sold_qty=sold_qty+$2, balance_qty=balance_qty-$2 WHERE produce_id=$1 RETURNING sold_qty,balance_qty`,
         [item.productId, item.quantity],
@@ -401,7 +500,9 @@ router.patch("/orders/:id", writeRoles, async (req, res) => {
   if (has("soldTo")) {
     const soldTo = cleanText(body.soldTo);
     if (!soldTo || !["CAN", "Ã‰-U"].includes(soldTo)) {
-      return res.status(400).json({ message: "Le pays de vente est invalide." });
+      return res
+        .status(400)
+        .json({ message: "Le pays de vente est invalide." });
     }
     addAssignment("sold_to", soldTo);
   }
