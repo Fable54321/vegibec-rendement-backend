@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
+import { lotJournalSql } from "../Trackability/lotNumbers";
+import {
+  ensureSalesLotAllocationsTable,
+  type SalesLotSource,
+} from "./salesLotAllocations";
 
 const router = Router();
 const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
@@ -34,41 +39,20 @@ type ParsedItem = {
   quantityPerPallet: number | null;
   palletType: string | null;
   lotNumbers: string[] | null;
+  lotAllocations: ParsedLotAllocation[] | null;
   packed: boolean;
 };
 
-const productLotsSql = `
-  SELECT
-    finished_product_id,
-    lot_number,
-    array_agg(DISTINCT source ORDER BY source) AS sources,
-    SUM(available_quantity)::bigint AS available_quantity,
-    MAX(recorded_at) AS recorded_at
-  FROM (
-    SELECT
-      pr.finished_product_id,
-      h.harvest_lot_number::text AS lot_number,
-      'harvesting_tracking'::text AS source,
-      COALESCE(h.amount_of_boxes, 0)::bigint AS available_quantity,
-      (h.harvesting_date + h.harvesting_time)::timestamp AS recorded_at
-    FROM trackability.harvesting_tracking h
-    JOIN trackability.product_reference pr ON pr.id = h.product_id
-    WHERE pr.finished_product_id = ANY($1::int[])
+type ParsedLotAllocation = {
+  lotNumber: string;
+  lotSource: SalesLotSource;
+  quantity: number;
+};
 
-    UNION ALL
-
-    SELECT
-      o.finished_product_id,
-      o.output_lot_number::text AS lot_number,
-      'production_outputs'::text AS source,
-      COALESCE(o.produced_boxes, 0)::bigint AS available_quantity,
-      o.created_at AS recorded_at
-    FROM trackability.production_outputs o
-    WHERE o.finished_product_id = ANY($1::int[])
-  ) available_lots
-  GROUP BY finished_product_id, lot_number
-  ORDER BY recorded_at DESC, lot_number DESC
-`;
+const lotSources = new Set<SalesLotSource>([
+  "harvesting_tracking",
+  "production_outputs",
+]);
 
 const parseLotNumbers = (value: unknown): string[] | null => {
   if (value === undefined || value === null || value === "") return [];
@@ -81,6 +65,65 @@ const parseLotNumbers = (value: unknown): string[] | null => {
   return [...new Set(lotNumbers as string[])];
 };
 
+const parseLotAllocations = (value: unknown): ParsedLotAllocation[] | null => {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value) || value.length > 100) return null;
+
+  const allocations = new Map<string, ParsedLotAllocation>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return null;
+    }
+
+    const allocation = entry as Record<string, unknown>;
+    const lotNumber = cleanText(allocation.lotNumber);
+    const lotSource = cleanText(allocation.lotSource) as SalesLotSource | null;
+    const quantity = numberInRange(allocation.quantity, 0.001);
+    if (
+      !lotNumber ||
+      lotNumber.length > 255 ||
+      !lotSource ||
+      !lotSources.has(lotSource) ||
+      quantity === null
+    ) {
+      return null;
+    }
+
+    const key = `${lotSource}\u0000${lotNumber}`;
+    const current = allocations.get(key);
+    allocations.set(key, {
+      lotNumber,
+      lotSource,
+      quantity: (current?.quantity ?? 0) + quantity,
+    });
+  }
+
+  return [...allocations.values()];
+};
+
+const fetchAvailableProductLots = async (
+  query: (text: string, values: unknown[]) => Promise<{ rows: any[] }>,
+  finishedProductId: number,
+) => {
+  const result = await query(lotJournalSql, [
+    "",
+    "finished_product",
+    null,
+    null,
+    finishedProductId,
+    true,
+  ]);
+
+  return result.rows.map((lot) => ({
+    finished_product_id: Number(lot.product_id),
+    lot_number: String(lot.lot_number),
+    lot_source: lot.lot_source as SalesLotSource,
+    sources: [lot.lot_source] as SalesLotSource[],
+    recorded_at: lot.recorded_at,
+    available_quantity: lot.projected_available_quantity,
+  }));
+};
+
 router.get("/product-lots", readRoles, async (req, res) => {
   const finishedProductId = positiveId(req.query.finishedProductId);
   if (!finishedProductId) {
@@ -90,8 +133,12 @@ router.get("/product-lots", readRoles, async (req, res) => {
   }
 
   try {
-    const result = await pool.query(productLotsSql, [[finishedProductId]]);
-    return res.json(result.rows);
+    await ensureSalesLotAllocationsTable();
+    const lots = await fetchAvailableProductLots(
+      (text, values) => pool.query(text, values),
+      finishedProductId,
+    );
+    return res.json(lots);
   } catch (error) {
     console.error("Error fetching sales product lots:", error);
     return res
@@ -102,6 +149,7 @@ router.get("/product-lots", readRoles, async (req, res) => {
 
 router.get("/orders", readRoles, async (_req, res) => {
   try {
+    await ensureSalesLotAllocationsTable();
     const result = await pool.query(`
       SELECT o.*,
         COALESCE(json_agg(json_build_object(
@@ -113,7 +161,27 @@ router.get("/orders", readRoles, async (_req, res) => {
           'quantity_per_pallet', i.quantity_per_pallet,
           'actual_pallets', i.actual_pallets, 'planned_pallets', i.planned_pallets,
           'pallet_type', i.pallet_type, 'origin', i.origin,
-          'lot_numbers', COALESCE(string_to_array(NULLIF(i.origin, ''), ', '), ARRAY[]::text[]),
+          'lot_numbers', COALESCE(
+            (
+              SELECT array_agg(DISTINCT a.lot_number ORDER BY a.lot_number)
+              FROM sales.order_item_lot_allocations a
+              WHERE a.order_item_id = i.id
+            ),
+            string_to_array(NULLIF(i.origin, ''), ', '),
+            ARRAY[]::text[]
+          ),
+          'lot_allocations', COALESCE(
+            (
+              SELECT json_agg(json_build_object(
+                'lotNumber', a.lot_number,
+                'lotSource', a.lot_source,
+                'quantity', a.quantity
+              ) ORDER BY a.id)
+              FROM sales.order_item_lot_allocations a
+              WHERE a.order_item_id = i.id
+            ),
+            '[]'::json
+          ),
           'packed', i.packed
         ) ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), '[]'::json) AS items
       FROM sales.orders o
@@ -135,6 +203,7 @@ router.get("/orders", readRoles, async (_req, res) => {
 router.post("/orders", writeRoles, async (req, res) => {
   const db = await pool.connect();
   try {
+    await ensureSalesLotAllocationsTable();
     const clientId = positiveId(req.body?.clientId);
     const addressId = req.body?.clientAddressId
       ? positiveId(req.body.clientAddressId)
@@ -180,37 +249,48 @@ router.post("/orders", writeRoles, async (req, res) => {
         .json({ message: "Le vendeur sélectionné est invalide." });
     }
 
-    const parsedItems: ParsedItem[] = items.map((item: any) => ({
-      productId: positiveId(item.productId),
-      quantity: numberInRange(item.quantityOrdered, 0.001),
-      unitPrice: numberInRange(item.unitPrice, 0),
-      discount:
-        item.discount === "" || item.discount == null
-          ? 0
-          : numberInRange(item.discount, 0, 100),
-      glNumber: cleanText(item.glNumber),
-      actualPallets:
-        item.actualPallets === "" || item.actualPallets == null
-          ? null
-          : numberInRange(item.actualPallets, 0),
-      plannedPallets:
-        item.plannedPallets === "" || item.plannedPallets == null
-          ? null
-          : numberInRange(item.plannedPallets, 0),
-      quantityPerPallet:
-        item.quantityPerPallet === "" || item.quantityPerPallet == null
-          ? null
-          : numberInRange(item.quantityPerPallet, 0),
-      palletType: cleanText(item.palletType),
-      lotNumbers: parseLotNumbers(
-        item.lotNumbers === undefined
-          ? cleanText(item.origin)
-            ? [item.origin]
-            : []
-          : item.lotNumbers,
-      ),
-      packed: Boolean(item.packed),
-    }));
+    const parsedItems: ParsedItem[] = items.map((item: any) => {
+      const lotAllocations = parseLotAllocations(item.lotAllocations);
+      const allocationLotNumbers = lotAllocations?.map(
+        (allocation) => allocation.lotNumber,
+      );
+
+      return {
+        productId: positiveId(item.productId),
+        quantity: numberInRange(item.quantityOrdered, 0.001),
+        unitPrice: numberInRange(item.unitPrice, 0),
+        discount:
+          item.discount === "" || item.discount == null
+            ? 0
+            : numberInRange(item.discount, 0, 100),
+        glNumber: cleanText(item.glNumber),
+        actualPallets:
+          item.actualPallets === "" || item.actualPallets == null
+            ? null
+            : numberInRange(item.actualPallets, 0),
+        plannedPallets:
+          item.plannedPallets === "" || item.plannedPallets == null
+            ? null
+            : numberInRange(item.plannedPallets, 0),
+        quantityPerPallet:
+          item.quantityPerPallet === "" || item.quantityPerPallet == null
+            ? null
+            : numberInRange(item.quantityPerPallet, 0),
+        palletType: cleanText(item.palletType),
+        lotNumbers:
+          allocationLotNumbers && allocationLotNumbers.length > 0
+            ? [...new Set(allocationLotNumbers)]
+            : parseLotNumbers(
+                item.lotNumbers === undefined
+                  ? cleanText(item.origin)
+                    ? [item.origin]
+                    : []
+                  : item.lotNumbers,
+              ),
+        lotAllocations,
+        packed: Boolean(item.packed),
+      };
+    });
     if (
       parsedItems.some(
         (item) =>
@@ -220,12 +300,26 @@ router.post("/orders", writeRoles, async (req, res) => {
           item.discount === null ||
           item.actualPallets === null ||
           item.lotNumbers === null ||
+          item.lotAllocations === null ||
           !item.palletType,
       )
     ) {
       return res.status(400).json({
         message:
           "Un produit contient une quantité, un prix, un nombre de palettes réel ou un type de palette invalide.",
+      });
+    }
+    const overallocatedItemIndex = parsedItems.findIndex(
+      (item) =>
+        (item.lotAllocations ?? []).reduce(
+          (total, allocation) => total + allocation.quantity,
+          0,
+        ) >
+        item.quantity! + 0.000001,
+    );
+    if (overallocatedItemIndex !== -1) {
+      return res.status(400).json({
+        message: `La quantité attribuée aux lots du produit ${overallocatedItemIndex + 1} dépasse la quantité commandée.`,
       });
     }
 
@@ -307,29 +401,93 @@ router.post("/orders", writeRoles, async (req, res) => {
           "Un produit n'est pas actif ou n'est pas relié à l'inventaire.",
       });
     }
-    const requestedLots = parsedItems.flatMap((item) =>
-      (item.lotNumbers ?? []).map((lotNumber) => ({
-        productId: item.productId!,
-        lotNumber,
-      })),
-    );
-    if (requestedLots.length) {
-      const availableLots = await db.query(productLotsSql, [productIds]);
-      const validLots = new Set(
-        availableLots.rows.map(
-          (lot) => `${Number(lot.finished_product_id)}\u0000${lot.lot_number}`,
-        ),
-      );
-      const invalidLot = requestedLots.find(
-        ({ productId, lotNumber }) =>
-          !validLots.has(`${productId}\u0000${lotNumber}`),
-      );
-      if (invalidLot) {
-        await db.query("ROLLBACK");
-        return res.status(400).json({
-          message: `Le lot ${invalidLot.lotNumber} n'est pas associé au produit sélectionné.`,
+    const allocationTotals = new Map<
+      string,
+      ParsedLotAllocation & { productId: number }
+    >();
+    for (const item of parsedItems) {
+      for (const allocation of item.lotAllocations ?? []) {
+        const key = `${item.productId}\u0000${allocation.lotSource}\u0000${allocation.lotNumber}`;
+        const current = allocationTotals.get(key);
+        allocationTotals.set(key, {
+          ...allocation,
+          productId: item.productId!,
+          quantity: (current?.quantity ?? 0) + allocation.quantity,
         });
       }
+    }
+
+    const requestedAllocations = [...allocationTotals.values()].sort((a, b) =>
+      `${a.productId}\u0000${a.lotSource}\u0000${a.lotNumber}`.localeCompare(
+        `${b.productId}\u0000${b.lotSource}\u0000${b.lotNumber}`,
+      ),
+    );
+    for (const allocation of requestedAllocations) {
+      await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        `sales-lot:${allocation.productId}:${allocation.lotSource}:${allocation.lotNumber}`,
+      ]);
+    }
+
+    const legacyRequestedLots = parsedItems.flatMap((item) =>
+      item.lotAllocations?.length
+        ? []
+        : (item.lotNumbers ?? []).map((lotNumber) => ({
+            productId: item.productId!,
+            lotNumber,
+          })),
+    );
+    const lotProductIds = new Set([
+      ...requestedAllocations.map((allocation) => allocation.productId),
+      ...legacyRequestedLots.map((lot) => lot.productId),
+    ]);
+    const availableLots = (
+      await Promise.all(
+        [...lotProductIds].map((productId) =>
+          fetchAvailableProductLots(
+            (text, values) => db.query(text, values),
+            productId,
+          ),
+        ),
+      )
+    ).flat();
+    const availableByAllocation = new Map(
+      availableLots.map((lot) => [
+        `${lot.finished_product_id}\u0000${lot.lot_source}\u0000${lot.lot_number}`,
+        Number(lot.available_quantity),
+      ]),
+    );
+    const validLegacyLots = new Set(
+      availableLots.map(
+        (lot) => `${lot.finished_product_id}\u0000${lot.lot_number}`,
+      ),
+    );
+    const invalidLegacyLot = legacyRequestedLots.find(
+      ({ productId, lotNumber }) =>
+        !validLegacyLots.has(`${productId}\u0000${lotNumber}`),
+    );
+    if (invalidLegacyLot) {
+      await db.query("ROLLBACK");
+      return res.status(400).json({
+        message: `Le lot ${invalidLegacyLot.lotNumber} n'est pas associé au produit sélectionné ou n'est plus disponible.`,
+      });
+    }
+    const unavailableAllocation = requestedAllocations.find((allocation) => {
+      const available = availableByAllocation.get(
+        `${allocation.productId}\u0000${allocation.lotSource}\u0000${allocation.lotNumber}`,
+      );
+      return (
+        available === undefined || allocation.quantity > available + 0.000001
+      );
+    });
+    if (unavailableAllocation) {
+      await db.query("ROLLBACK");
+      const available =
+        availableByAllocation.get(
+          `${unavailableAllocation.productId}\u0000${unavailableAllocation.lotSource}\u0000${unavailableAllocation.lotNumber}`,
+        ) ?? 0;
+      return res.status(409).json({
+        message: `Le lot ${unavailableAllocation.lotNumber} ne contient que ${available.toLocaleString("fr-CA")} boîte(s) disponible(s).`,
+      });
     }
     const incompatibleProducts = products.rows.filter((product) => {
       const productType = String(product.product_type ?? "")
@@ -427,9 +585,33 @@ router.post("/orders", writeRoles, async (req, res) => {
           item.packed,
         ],
       );
+      for (const allocation of item.lotAllocations ?? []) {
+        await db.query(
+          `
+          INSERT INTO sales.order_item_lot_allocations (
+            order_id,
+            order_item_id,
+            finished_product_id,
+            lot_source,
+            lot_number,
+            quantity
+          )
+          VALUES ($1, $2, $3, $4, $5, $6)
+          `,
+          [
+            order.rows[0].id,
+            saved.rows[0].id,
+            item.productId,
+            allocation.lotSource,
+            allocation.lotNumber,
+            allocation.quantity,
+          ],
+        );
+      }
       savedItems.push({
         ...saved.rows[0],
         lot_numbers: item.lotNumbers ?? [],
+        lot_allocations: item.lotAllocations ?? [],
         product_weight: product.weight,
       });
       const updated = await db.query(

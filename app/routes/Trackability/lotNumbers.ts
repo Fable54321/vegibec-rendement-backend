@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
+import { ensureSalesLotAllocationsTable } from "../sales/salesLotAllocations";
 
 const router = Router();
 const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
@@ -110,6 +111,31 @@ export const lotJournalSql = `
     WHERE p.status <> 'cancelled'
     GROUP BY 1, 2
   ),
+  sales_usage AS (
+    SELECT
+      a.lot_source,
+      a.lot_number,
+      a.finished_product_id,
+      COALESCE(
+        SUM(a.quantity) FILTER (
+          WHERE o.status IN ('expedie', 'facture')
+        ),
+        0
+      )::numeric AS consumed_quantity,
+      COALESCE(
+        SUM(a.quantity) FILTER (
+          WHERE o.status IN ('a-faire', 'en-cours')
+        ),
+        0
+      )::numeric AS reserved_quantity
+    FROM sales.order_item_lot_allocations a
+    JOIN sales.orders o
+      ON o.id = a.order_id
+    GROUP BY
+      a.lot_source,
+      a.lot_number,
+      a.finished_product_id
+  ),
   receipt_inventory AS (
     SELECT
       s.lot_number,
@@ -137,25 +163,39 @@ export const lotJournalSql = `
       h.source_count,
       h.initial_quantity,
       COALESCE(r.incoming_quantity, 0)::bigint AS incoming_quantity,
-      COALESCE(r.consumed_quantity, 0)::bigint AS consumed_quantity,
-      COALESCE(r.reserved_quantity, 0)::bigint AS reserved_quantity,
+      (
+        COALESCE(r.consumed_quantity, 0)
+        + COALESCE(s.consumed_quantity, 0)
+      )::numeric AS consumed_quantity,
+      (
+        COALESCE(r.reserved_quantity, 0)
+        + COALESCE(s.reserved_quantity, 0)
+      )::numeric AS reserved_quantity,
       (
         COALESCE(r.incoming_quantity, 0)
         - COALESCE(r.consumed_quantity, 0)
-      )::bigint AS available_quantity,
+        - COALESCE(s.consumed_quantity, 0)
+      )::numeric AS available_quantity,
       (
         COALESCE(r.incoming_quantity, 0)
         - COALESCE(r.consumed_quantity, 0)
+        - COALESCE(s.consumed_quantity, 0)
         - COALESCE(r.reserved_quantity, 0)
-      )::bigint AS projected_available_quantity,
+        - COALESCE(s.reserved_quantity, 0)
+      )::numeric AS projected_available_quantity,
       h.source_statuses,
       CASE
         WHEN COALESCE(r.incoming_quantity, 0) = 0 THEN 'pending_receipt'
         WHEN COALESCE(r.incoming_quantity, 0)
-          - COALESCE(r.consumed_quantity, 0) <= 0 THEN 'unavailable'
+          - COALESCE(r.consumed_quantity, 0)
+          - COALESCE(s.consumed_quantity, 0) <= 0 THEN 'unavailable'
         WHEN COALESCE(r.incoming_quantity, 0)
           - COALESCE(r.consumed_quantity, 0)
-          - COALESCE(r.reserved_quantity, 0) <= 0 THEN 'reserved'
+          - COALESCE(s.consumed_quantity, 0)
+          - COALESCE(r.reserved_quantity, 0)
+          - COALESCE(s.reserved_quantity, 0) <= 0 THEN 'reserved'
+        WHEN COALESCE(r.reserved_quantity, 0)
+          + COALESCE(s.reserved_quantity, 0) > 0 THEN 'partially_reserved'
         ELSE 'available'
       END AS availability_status,
       GREATEST(h.recorded_at, r.recorded_at) AS recorded_at
@@ -164,6 +204,10 @@ export const lotJournalSql = `
       ON r.lot_number = h.lot_number
       AND r.raw_product_id IS NOT DISTINCT FROM h.raw_product_id
       AND r.finished_product_id IS NOT DISTINCT FROM h.finished_product_id
+    LEFT JOIN sales_usage s
+      ON s.lot_source = 'harvesting_tracking'
+      AND s.lot_number = h.lot_number
+      AND s.finished_product_id = h.finished_product_id
   ),
   production_journal AS (
     SELECT
@@ -178,34 +222,48 @@ export const lotJournalSql = `
         ELSE 0
       END::bigint AS incoming_quantity,
       CASE
-        WHEN p.status = 'completed' THEN COALESCE(u.consumed_quantity, 0)
+        WHEN p.status = 'completed' THEN
+          COALESCE(u.consumed_quantity, 0)
+          + COALESCE(s.consumed_quantity, 0)
         ELSE 0
-      END::bigint AS consumed_quantity,
+      END::numeric AS consumed_quantity,
       CASE
-        WHEN p.status = 'completed' THEN COALESCE(u.reserved_quantity, 0)
+        WHEN p.status = 'completed' THEN
+          COALESCE(u.reserved_quantity, 0)
+          + COALESCE(s.reserved_quantity, 0)
         ELSE 0
-      END::bigint AS reserved_quantity,
-      CASE
-        WHEN p.status = 'completed'
-          THEN o.produced_boxes - COALESCE(u.consumed_quantity, 0)
-        ELSE 0
-      END::bigint AS available_quantity,
+      END::numeric AS reserved_quantity,
       CASE
         WHEN p.status = 'completed'
           THEN o.produced_boxes
             - COALESCE(u.consumed_quantity, 0)
-            - COALESCE(u.reserved_quantity, 0)
+            - COALESCE(s.consumed_quantity, 0)
         ELSE 0
-      END::bigint AS projected_available_quantity,
+      END::numeric AS available_quantity,
+      CASE
+        WHEN p.status = 'completed'
+          THEN o.produced_boxes
+            - COALESCE(u.consumed_quantity, 0)
+            - COALESCE(s.consumed_quantity, 0)
+            - COALESCE(u.reserved_quantity, 0)
+            - COALESCE(s.reserved_quantity, 0)
+        ELSE 0
+      END::numeric AS projected_available_quantity,
       ARRAY[p.status]::text[] AS source_statuses,
       CASE
         WHEN p.status = 'cancelled' THEN 'cancelled'
         WHEN p.status = 'in_progress' THEN 'in_progress'
-        WHEN o.produced_boxes - COALESCE(u.consumed_quantity, 0) <= 0
+        WHEN o.produced_boxes
+          - COALESCE(u.consumed_quantity, 0)
+          - COALESCE(s.consumed_quantity, 0) <= 0
           THEN 'unavailable'
         WHEN o.produced_boxes
           - COALESCE(u.consumed_quantity, 0)
-          - COALESCE(u.reserved_quantity, 0) <= 0 THEN 'reserved'
+          - COALESCE(s.consumed_quantity, 0)
+          - COALESCE(u.reserved_quantity, 0)
+          - COALESCE(s.reserved_quantity, 0) <= 0 THEN 'reserved'
+        WHEN COALESCE(u.reserved_quantity, 0)
+          + COALESCE(s.reserved_quantity, 0) > 0 THEN 'partially_reserved'
         ELSE 'available'
       END AS availability_status,
       COALESCE(o.created_at, p.production_date::timestamp) AS recorded_at
@@ -215,6 +273,10 @@ export const lotJournalSql = `
     LEFT JOIN source_usage u
       ON u.lot_source = 'production_outputs'
       AND u.source_id = o.id
+    LEFT JOIN sales_usage s
+      ON s.lot_source = 'production_outputs'
+      AND s.lot_number = o.output_lot_number
+      AND s.finished_product_id = o.finished_product_id
     WHERE o.output_lot_number IS NOT NULL
       AND (o.raw_product_id IS NULL) <> (o.finished_product_id IS NULL)
   ),
@@ -262,8 +324,15 @@ export const lotJournalSql = `
     )
     AND ($2::text IS NULL OR product_source = $2)
     AND ($3::boolean IS NULL OR is_available = $3)
-    AND recorded_at >= make_date($4::int, 1, 1)
-    AND recorded_at < make_date($4::int + 1, 1, 1)
+    AND (
+      $4::int IS NULL
+      OR (
+        recorded_at >= make_date($4::int, 1, 1)
+        AND recorded_at < make_date($4::int + 1, 1, 1)
+      )
+    )
+    AND ($5::int IS NULL OR product_id = $5)
+    AND ($6::boolean IS NULL OR is_projected_available = $6)
   ORDER BY recorded_at DESC NULLS LAST, lot_number DESC, lot_source
 `;
 
@@ -304,11 +373,14 @@ router.get("/", readRoles, async (req, res) => {
   }
 
   try {
+    await ensureSalesLotAllocationsTable();
     const { rows } = await pool.query(lotJournalSql, [
       query,
       productSource,
       available,
       year,
+      null,
+      null,
     ]);
     return res.status(200).json(rows);
   } catch (error) {
