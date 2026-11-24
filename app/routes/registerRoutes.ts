@@ -61,6 +61,7 @@ import notificationsRoute from "./Notifications/NotificationRoutes";
 import finishedProductsRoute from "./Trackability/finishedProducts";
 import rawProductsRoute from "./Trackability/rawProducts";
 import harvestingRoute from "./Trackability/harvesting";
+import lotNumbersRoute from "./Trackability/lotNumbers";
 import scanLookupRoute from "./Trackability/scanLookup";
 import cropPlanRoute from "./Trackability/Planification/cropPlan";
 import genericPlanRoute from "./Trackability/Planification/genericPlan";
@@ -170,6 +171,7 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/equipment/harvesters", harvestersRoute);
 
   app.use("/trackability/harvesting", harvestingRoute);
+  app.use("/trackability/lot-numbers", lotNumbersRoute);
   app.use("/trackability/scan-lookup", scanLookupRoute);
   app.use("/trackability/crop-plans", cropPlanRoute);
   app.use("/trackability/generic-plans", genericPlanRoute);
