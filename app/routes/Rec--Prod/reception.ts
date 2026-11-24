@@ -219,12 +219,14 @@ const LABELS_PER_PALLET = 2;
     if (!numberOfLabels) {
       return res.status(400).json({ error: "number_of_labels must be a positive integer" });
     }
-    if (numberOfLabels % LABELS_PER_PALLET !== 0) {
+    const singleLabelReceipt = numberOfLabels === 1;
+    if (!singleLabelReceipt && numberOfLabels % LABELS_PER_PALLET !== 0) {
       return res.status(400).json({
-        error: `number_of_labels must be a multiple of ${LABELS_PER_PALLET}`,
+        error: `number_of_labels must be 1 or a multiple of ${LABELS_PER_PALLET}`,
       });
     }
-    const numberOfPallets = numberOfLabels / LABELS_PER_PALLET;
+    const labelsPerPallet = singleLabelReceipt ? 1 : LABELS_PER_PALLET;
+    const numberOfPallets = numberOfLabels / labelsPerPallet;
     if (!Array.isArray(rawEntries) || rawEntries.length === 0) {
       return res.status(400).json({ error: "harvesting_entries must be a non-empty array" });
     }
@@ -368,7 +370,7 @@ const LABELS_PER_PALLET = 2;
                   number_of_pallets, labels_per_pallet,
                   received_at, created_at
         `,
-        [lotNumber, receivedByUserId, numberOfPallets, LABELS_PER_PALLET],
+        [lotNumber, receivedByUserId, numberOfPallets, labelsPerPallet],
       );
       const receipt = receiptResult.rows[0];
       const receiptProduct = harvestResult.rows[0];
