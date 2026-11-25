@@ -89,6 +89,7 @@ import workersScheduleRoute from "./WorkersSchedule/WorkersSchedule";
 import employeesRoute from "./employees";
 import journalRoute from "./journal";
 import boxesRoute from "./Inventory/boxTypes";
+import palletRoutes from "./Pallets/pallets";
 
 function registerPublicRoutes(app: Express): void {
   app.get("/", async (_req, res) => {
@@ -208,6 +209,7 @@ function registerProtectedRoutes(app: Express): void {
 
   app.use("/receive", receivingRoute);
   app.use("/production", productionRoutes);
+  app.use("/pallets", palletRoutes);
 
 }
 
