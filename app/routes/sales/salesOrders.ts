@@ -1,11 +1,36 @@
 import { Router } from "express";
 import { pool } from "../../db";
 import { requireAppRole } from "../../middleware/auth";
-import { lotJournalSql } from "../Trackability/lotNumbers";
-import {
-  ensureSalesLotAllocationsTable,
-  type SalesLotSource,
-} from "./salesLotAllocations";
+import type { PoolClient } from "pg";
+
+type SalesLotSource = "harvesting_tracking" | "production_outputs";
+class SalesError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+const bigintId = (v: unknown): string | null => {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  if (typeof v === "number" && !Number.isSafeInteger(v)) return null;
+  const s = String(v);
+  return /^[1-9]\d{0,18}$/.test(s) && BigInt(s) <= 9223372036854775807n ? s : null;
+};
+const actorId = (v: unknown): number => {
+  const id = positiveId(v);
+  if (!id || id > 2147483647) throw new SalesError(401, "Utilisateur authentifié requis.");
+  return id;
+};
+async function beginWrite(db: PoolClient) {
+  await db.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+  await db.query("SELECT pg_advisory_xact_lock(7142, 1)");
+}
+function salesFailure(res: import("express").Response, error: unknown, fallback: string) {
+  if (error instanceof SalesError) return res.status(error.status).json({ message: error.message });
+  const pg = error as { code?: string; message?: string };
+  if (pg.code === "P0001") return res.status(409).json({ message: pg.message ?? "Opération refusée." });
+  if (["23505", "40001", "40P01"].includes(pg.code ?? "")) return res.status(409).json({ message: "Conflit de données. Veuillez réessayer." });
+  if (["23503", "23514", "23502", "22P02", "22003", "22007", "22008"].includes(pg.code ?? "")) return res.status(400).json({ message: "Données invalides ou référence introuvable." });
+  console.error(fallback, error);
+  return res.status(500).json({ message: fallback });
+}
 
 const router = Router();
 const readRoles = requireAppRole("main", ["admin", "user", "guest"]);
@@ -15,6 +40,7 @@ const sellingCompanies = new Set(["Vegibec", "Vegisol"]);
 const cleanText = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
 const positiveId = (value: unknown) =>
+  (typeof value === "number" || (typeof value === "string" && /^\d+$/.test(value))) &&
   Number.isSafeInteger(Number(value)) && Number(value) > 0
     ? Number(value)
     : null;
@@ -23,6 +49,7 @@ const numberInRange = (
   min: number,
   max = Number.MAX_SAFE_INTEGER,
 ) => {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= min && parsed <= max
     ? parsed
@@ -44,8 +71,9 @@ type ParsedItem = {
 };
 
 type ParsedLotAllocation = {
-  lotNumber: string;
-  lotSource: SalesLotSource;
+  lotId: string | null;
+  lotNumber: string | null;
+  lotSource: SalesLotSource | null;
   quantity: number;
 };
 
@@ -68,61 +96,58 @@ const parseLotNumbers = (value: unknown): string[] | null => {
 const parseLotAllocations = (value: unknown): ParsedLotAllocation[] | null => {
   if (value === undefined || value === null || value === "") return [];
   if (!Array.isArray(value) || value.length > 100) return null;
-
-  const allocations = new Map<string, ParsedLotAllocation>();
+  const allocations: ParsedLotAllocation[] = [];
   for (const entry of value) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return null;
-    }
-
-    const allocation = entry as Record<string, unknown>;
-    const lotNumber = cleanText(allocation.lotNumber);
-    const lotSource = cleanText(allocation.lotSource) as SalesLotSource | null;
-    const quantity = numberInRange(allocation.quantity, 0.001);
-    if (
-      !lotNumber ||
-      lotNumber.length > 255 ||
-      !lotSource ||
-      !lotSources.has(lotSource) ||
-      quantity === null
-    ) {
-      return null;
-    }
-
-    const key = `${lotSource}\u0000${lotNumber}`;
-    const current = allocations.get(key);
-    allocations.set(key, {
-      lotNumber,
-      lotSource,
-      quantity: (current?.quantity ?? 0) + quantity,
-    });
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const lotId = bigintId(entry.lotId ?? entry.lot_id);
+    const lotNumber = cleanText(entry.lotNumber);
+    const lotSource = cleanText(entry.lotSource) as SalesLotSource | null;
+    const quantity = numberInRange(entry.quantity, 1, 2147483647);
+    if ((entry.lotId != null || entry.lot_id != null) && !lotId) return null;
+    if ((!lotId && !lotNumber) || (lotNumber && lotNumber.length > 50) ||
+        (lotSource && !lotSources.has(lotSource)) || quantity === null || !Number.isInteger(quantity)) return null;
+    allocations.push({ lotId, lotNumber, lotSource, quantity });
   }
-
-  return [...allocations.values()];
+  return allocations;
 };
 
 const fetchAvailableProductLots = async (
   query: (text: string, values: unknown[]) => Promise<{ rows: any[] }>,
   finishedProductId: number,
 ) => {
-  const result = await query(lotJournalSql, [
-    "",
-    "finished_product",
-    null,
-    null,
-    finishedProductId,
-    true,
-  ]);
-
-  return result.rows.map((lot) => ({
-    finished_product_id: Number(lot.product_id),
-    lot_number: String(lot.lot_number),
-    lot_source: lot.lot_source as SalesLotSource,
-    sources: [lot.lot_source] as SalesLotSource[],
-    recorded_at: lot.recorded_at,
-    available_quantity: lot.projected_available_quantity,
-  }));
+  const { rows } = await query(`
+    SELECT lot_id::text AS lot_id, lot_id::text AS "lotId", lot_number, lot_type,
+           product_id AS product_reference_id, finished_product_id,
+           CASE WHEN lot_type = 'harvest' THEN 'harvesting_tracking' ELSE 'production_outputs' END AS lot_source,
+           created_at AS recorded_at, available_boxes AS available_quantity,
+           available_boxes, reserved_boxes
+    FROM trackability.lot_balances
+    WHERE finished_product_id = $1 AND available_boxes > 0
+    ORDER BY lot_date DESC, lot_id DESC
+  `, [finishedProductId]);
+  return rows.map(lot => ({ ...lot, sources: [lot.lot_source] }));
 };
+
+async function resolveAllocations(db: PoolClient, item: ParsedItem) {
+  const merged = new Map<string, { lotId: string; lotNumber: string; lotSource: SalesLotSource; quantity: number }>();
+  for (const allocation of item.lotAllocations ?? []) {
+    const { rows } = await db.query(`
+      SELECT l.id::text AS id, l.lot_number, l.lot_type, pr.finished_product_id
+      FROM trackability.lots l JOIN trackability.product_reference pr ON pr.id=l.product_id
+      WHERE ($1::bigint IS NULL OR l.id=$1) AND ($2::text IS NULL OR l.lot_number=$2)
+    `, [allocation.lotId, allocation.lotNumber]);
+    const lot = rows[0];
+    if (!lot || Number(lot.finished_product_id) !== item.productId)
+      throw new SalesError(400, "Le lot sélectionné ne correspond pas au produit.");
+    const lotSource: SalesLotSource = lot.lot_type === "harvest" ? "harvesting_tracking" : "production_outputs";
+    if (allocation.lotSource && allocation.lotSource !== lotSource)
+      throw new SalesError(400, "Source du lot invalide.");
+    const quantity = (merged.get(lot.id)?.quantity ?? 0) + allocation.quantity;
+    if (quantity > 2147483647) throw new SalesError(400, "Quantité du lot invalide.");
+    merged.set(lot.id, { lotId: lot.id, lotNumber: lot.lot_number, lotSource, quantity });
+  }
+  return [...merged.values()];
+}
 
 router.get("/product-lots", readRoles, async (req, res) => {
   const finishedProductId = positiveId(req.query.finishedProductId);
@@ -133,7 +158,6 @@ router.get("/product-lots", readRoles, async (req, res) => {
   }
 
   try {
-    await ensureSalesLotAllocationsTable();
     const lots = await fetchAvailableProductLots(
       (text, values) => pool.query(text, values),
       finishedProductId,
@@ -149,11 +173,10 @@ router.get("/product-lots", readRoles, async (req, res) => {
 
 router.get("/orders", readRoles, async (_req, res) => {
   try {
-    await ensureSalesLotAllocationsTable();
     const result = await pool.query(`
       SELECT o.*,
         COALESCE(json_agg(json_build_object(
-          'id', i.id, 'finished_product_id', i.finished_product_id,
+          'id', i.id::text, 'finished_product_id', i.finished_product_id,
           'product_name', i.product_name, 'product_code', i.product_code,
           'quantity_ordered', i.quantity_ordered, 'unit_price', i.unit_price,
           'product_weight', fp.weight,
@@ -164,20 +187,27 @@ router.get("/orders", readRoles, async (_req, res) => {
           'lot_numbers', COALESCE(
             (
               SELECT array_agg(DISTINCT a.lot_number ORDER BY a.lot_number)
-              FROM sales.order_item_lot_allocations a
-              WHERE a.order_item_id = i.id
+              FROM sales.order_item_lot_allocation_balances a
+              WHERE a.order_item_id = i.id AND a.reserved_boxes + a.shipped_boxes > 0
             ),
-            string_to_array(NULLIF(i.origin, ''), ', '),
             ARRAY[]::text[]
           ),
           'lot_allocations', COALESCE(
             (
               SELECT json_agg(json_build_object(
+                'id', a.allocation_id::text,
+                'lotId', a.lot_id::text,
                 'lotNumber', a.lot_number,
-                'lotSource', a.lot_source,
-                'quantity', a.quantity
-              ) ORDER BY a.id)
-              FROM sales.order_item_lot_allocations a
+                'lotSource', CASE WHEN a.lot_type = 'harvest' THEN 'harvesting_tracking' ELSE 'production_outputs' END,
+                'quantity', a.reserved_boxes + a.shipped_boxes,
+                'original_quantity', a.original_quantity,
+                'allocated_boxes', a.allocated_boxes,
+                'reserved_boxes', a.reserved_boxes,
+                'shipped_boxes', a.shipped_boxes,
+                'released_boxes', a.released_boxes,
+                'allocation_status', a.allocation_status
+              ) ORDER BY a.allocation_id)
+              FROM sales.order_item_lot_allocation_balances a
               WHERE a.order_item_id = i.id
             ),
             '[]'::json
@@ -201,13 +231,17 @@ router.get("/orders", readRoles, async (_req, res) => {
 });
 
 router.post("/orders", writeRoles, async (req, res) => {
-  const db = await pool.connect();
+  let db: PoolClient | undefined;
+  let discard = false;
   try {
-    await ensureSalesLotAllocationsTable();
+    db = await pool.connect();
     const clientId = positiveId(req.body?.clientId);
     const addressId = req.body?.clientAddressId
       ? positiveId(req.body.clientAddressId)
       : null;
+    if (req.body?.clientAddressId && !addressId) {
+      return res.status(400).json({ message: "Adresse invalide." });
+    }
     const manualShippingAddress = addressId
       ? null
       : cleanText(req.body?.shippingAddress);
@@ -249,10 +283,14 @@ router.post("/orders", writeRoles, async (req, res) => {
         .json({ message: "Le vendeur sélectionné est invalide." });
     }
 
+    if (items.some((item: unknown) => !item || typeof item !== "object" || Array.isArray(item))) {
+      return res.status(400).json({ message: "Produit invalide." });
+    }
+    const userId = actorId(req.user?.id);
     const parsedItems: ParsedItem[] = items.map((item: any) => {
       const lotAllocations = parseLotAllocations(item.lotAllocations);
-      const allocationLotNumbers = lotAllocations?.map(
-        (allocation) => allocation.lotNumber,
+      const allocationLotNumbers = lotAllocations?.flatMap(
+        (allocation) => allocation.lotNumber ? [allocation.lotNumber] : [],
       );
 
       return {
@@ -323,7 +361,7 @@ router.post("/orders", writeRoles, async (req, res) => {
       });
     }
 
-    await db.query("BEGIN");
+    await beginWrite(db);
     const client = await db.query(
       `
       SELECT c.id, c.name, c.client_number, c.representative,
@@ -341,6 +379,9 @@ router.post("/orders", writeRoles, async (req, res) => {
       return res.status(404).json({ message: "Client introuvable." });
     }
 
+    if (addressId && !client.rows[0].shipping_address) {
+      throw new SalesError(400, "Adresse introuvable pour ce client.");
+    }
     let resolvedSellerName = sellerName;
     let resolvedSoldByUserId = soldByUserId;
     if (soldByUserId) {
@@ -383,11 +424,9 @@ router.post("/orders", writeRoles, async (req, res) => {
     const productIds = parsedItems.map((item) => item.productId);
     const products = await db.query(
       `
-      SELECT fp.id, fp.full_name, fp.product_code, fp.product_type, fp.weight, ip.sold_qty, ip.balance_qty
+      SELECT fp.id, fp.full_name, fp.product_code, fp.product_type, fp.weight
       FROM public.finished_product fp
-      JOIN inventory.produce ip ON ip.produce_id=fp.id
       WHERE fp.id = ANY($1::int[]) AND fp.is_active=true
-      FOR UPDATE OF ip
     `,
       [productIds],
     );
@@ -398,97 +437,16 @@ router.post("/orders", writeRoles, async (req, res) => {
       await db.query("ROLLBACK");
       return res.status(409).json({
         message:
-          "Un produit n'est pas actif ou n'est pas relié à l'inventaire.",
+          "Un produit est introuvable ou inactif.",
       });
     }
-    const allocationTotals = new Map<
-      string,
-      ParsedLotAllocation & { productId: number }
-    >();
+    const resolvedAllocations: Awaited<ReturnType<typeof resolveAllocations>>[] = [];
     for (const item of parsedItems) {
-      for (const allocation of item.lotAllocations ?? []) {
-        const key = `${item.productId}\u0000${allocation.lotSource}\u0000${allocation.lotNumber}`;
-        const current = allocationTotals.get(key);
-        allocationTotals.set(key, {
-          ...allocation,
-          productId: item.productId!,
-          quantity: (current?.quantity ?? 0) + allocation.quantity,
-        });
-      }
+      if (!item.lotAllocations?.length && item.lotNumbers?.length)
+        throw new SalesError(400, "Une quantité est requise pour chaque lot sélectionné.");
+      resolvedAllocations.push(await resolveAllocations(db, item));
     }
 
-    const requestedAllocations = [...allocationTotals.values()].sort((a, b) =>
-      `${a.productId}\u0000${a.lotSource}\u0000${a.lotNumber}`.localeCompare(
-        `${b.productId}\u0000${b.lotSource}\u0000${b.lotNumber}`,
-      ),
-    );
-    for (const allocation of requestedAllocations) {
-      await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        `sales-lot:${allocation.productId}:${allocation.lotSource}:${allocation.lotNumber}`,
-      ]);
-    }
-
-    const legacyRequestedLots = parsedItems.flatMap((item) =>
-      item.lotAllocations?.length
-        ? []
-        : (item.lotNumbers ?? []).map((lotNumber) => ({
-            productId: item.productId!,
-            lotNumber,
-          })),
-    );
-    const lotProductIds = new Set([
-      ...requestedAllocations.map((allocation) => allocation.productId),
-      ...legacyRequestedLots.map((lot) => lot.productId),
-    ]);
-    const availableLots = (
-      await Promise.all(
-        [...lotProductIds].map((productId) =>
-          fetchAvailableProductLots(
-            (text, values) => db.query(text, values),
-            productId,
-          ),
-        ),
-      )
-    ).flat();
-    const availableByAllocation = new Map(
-      availableLots.map((lot) => [
-        `${lot.finished_product_id}\u0000${lot.lot_source}\u0000${lot.lot_number}`,
-        Number(lot.available_quantity),
-      ]),
-    );
-    const validLegacyLots = new Set(
-      availableLots.map(
-        (lot) => `${lot.finished_product_id}\u0000${lot.lot_number}`,
-      ),
-    );
-    const invalidLegacyLot = legacyRequestedLots.find(
-      ({ productId, lotNumber }) =>
-        !validLegacyLots.has(`${productId}\u0000${lotNumber}`),
-    );
-    if (invalidLegacyLot) {
-      await db.query("ROLLBACK");
-      return res.status(400).json({
-        message: `Le lot ${invalidLegacyLot.lotNumber} n'est pas associé au produit sélectionné ou n'est plus disponible.`,
-      });
-    }
-    const unavailableAllocation = requestedAllocations.find((allocation) => {
-      const available = availableByAllocation.get(
-        `${allocation.productId}\u0000${allocation.lotSource}\u0000${allocation.lotNumber}`,
-      );
-      return (
-        available === undefined || allocation.quantity > available + 0.000001
-      );
-    });
-    if (unavailableAllocation) {
-      await db.query("ROLLBACK");
-      const available =
-        availableByAllocation.get(
-          `${unavailableAllocation.productId}\u0000${unavailableAllocation.lotSource}\u0000${unavailableAllocation.lotNumber}`,
-        ) ?? 0;
-      return res.status(409).json({
-        message: `Le lot ${unavailableAllocation.lotNumber} ne contient que ${available.toLocaleString("fr-CA")} boîte(s) disponible(s).`,
-      });
-    }
     const incompatibleProducts = products.rows.filter((product) => {
       const productType = String(product.product_type ?? "")
         .trim()
@@ -560,7 +518,9 @@ router.post("/orders", writeRoles, async (req, res) => {
     );
 
     const savedItems = [];
-    for (const item of parsedItems) {
+    for (const [index, item] of parsedItems.entries()) {
+      const allocations = resolvedAllocations[index];
+      const lotNumbers = allocations.map(a => a.lotNumber);
       const product = productMap.get(item.productId!);
       const lineSubtotal = item.quantity! * item.unitPrice!;
       const lineTotal = lineSubtotal * (1 - item.discount! / 100);
@@ -581,59 +541,24 @@ router.post("/orders", writeRoles, async (req, res) => {
           item.plannedPallets,
           item.quantityPerPallet,
           item.palletType,
-          (item.lotNumbers ?? []).join(", ") || null,
+          lotNumbers.join(", ") || null,
           item.packed,
         ],
       );
-      for (const allocation of item.lotAllocations ?? []) {
-        await db.query(
-          `
-          INSERT INTO sales.order_item_lot_allocations (
-            order_id,
-            order_item_id,
-            finished_product_id,
-            lot_source,
-            lot_number,
-            quantity
-          )
-          VALUES ($1, $2, $3, $4, $5, $6)
-          `,
-          [
-            order.rows[0].id,
-            saved.rows[0].id,
-            item.productId,
-            allocation.lotSource,
-            allocation.lotNumber,
-            allocation.quantity,
-          ],
-        );
+      const savedAllocations = [];
+      for (const allocation of allocations) {
+        const inserted = await db.query(`
+          INSERT INTO sales.order_item_lot_allocations (order_id, order_item_id, lot_id, quantity)
+          VALUES ($1,$2,$3,$4) RETURNING id::text AS id
+        `, [order.rows[0].id, saved.rows[0].id, allocation.lotId, allocation.quantity]);
+        const allocationId = inserted.rows[0].id;
+        await db.query(`SELECT sales.reserve_lot_allocation($1::bigint,$2::integer)`, [allocationId, userId]);
+        savedAllocations.push({ id: allocationId, ...allocation,
+          original_quantity: allocation.quantity, allocated_boxes: allocation.quantity, reserved_boxes: allocation.quantity,
+          shipped_boxes: 0, released_boxes: 0, allocation_status: "reserved" });
       }
-      savedItems.push({
-        ...saved.rows[0],
-        lot_numbers: item.lotNumbers ?? [],
-        lot_allocations: item.lotAllocations ?? [],
-        product_weight: product.weight,
-      });
-      const updated = await db.query(
-        `UPDATE inventory.produce SET sold_qty=sold_qty+$2, balance_qty=balance_qty-$2 WHERE produce_id=$1 RETURNING sold_qty,balance_qty`,
-        [item.productId, item.quantity],
-      );
-      await db.query(
-        `INSERT INTO sales.inventory_movements (order_id,order_item_id,finished_product_id,quantity,sold_qty_before,sold_qty_after,balance_qty_before,balance_qty_after,created_by_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [
-          order.rows[0].id,
-          saved.rows[0].id,
-          item.productId,
-          item.quantity,
-          product.sold_qty,
-          updated.rows[0].sold_qty,
-          product.balance_qty,
-          updated.rows[0].balance_qty,
-          req.user?.id ?? null,
-        ],
-      );
-      product.sold_qty = updated.rows[0].sold_qty;
-      product.balance_qty = updated.rows[0].balance_qty;
+      savedItems.push({ ...saved.rows[0], lot_numbers: lotNumbers,
+        lot_allocations: savedAllocations, product_weight: product.weight });
     }
     await db.query(
       `INSERT INTO sales.order_status_history (order_id,to_status,note) VALUES ($1,$2,'Création de la vente')`,
@@ -642,18 +567,15 @@ router.post("/orders", writeRoles, async (req, res) => {
     await db.query("COMMIT");
     return res.status(201).json({ ...order.rows[0], items: savedItems });
   } catch (error) {
-    await db.query("ROLLBACK").catch(() => undefined);
-    console.error("Error creating sales order:", error);
-    return res
-      .status(500)
-      .json({ message: "Impossible d'enregistrer la vente." });
+    if (db) try { await db.query("ROLLBACK"); } catch { discard = true; }
+    return salesFailure(res, error, "Impossible d'enregistrer la vente.");
   } finally {
-    db.release();
+    db?.release(discard);
   }
 });
 
 router.patch("/orders/:id", writeRoles, async (req, res) => {
-  const orderId = positiveId(req.params.id);
+  const orderId = bigintId(req.params.id);
   if (!orderId) {
     return res.status(400).json({ message: "Commande invalide." });
   }
@@ -684,7 +606,7 @@ router.patch("/orders/:id", writeRoles, async (req, res) => {
   }
   if (has("soldTo")) {
     const soldTo = cleanText(body.soldTo);
-    if (!soldTo || !["CAN", "Ã‰-U"].includes(soldTo)) {
+    if (!soldTo || !["CAN", "É-U"].includes(soldTo)) {
       return res
         .status(400)
         .json({ message: "Le pays de vente est invalide." });
@@ -712,7 +634,7 @@ router.patch("/orders/:id", writeRoles, async (req, res) => {
     ) {
       return res
         .status(400)
-        .json({ message: "La tempÃ©rature de transport est invalide." });
+        .json({ message: "La température de transport est invalide." });
     }
     addAssignment("transport_temperature", temperature);
   }
@@ -729,7 +651,7 @@ router.patch("/orders/:id", writeRoles, async (req, res) => {
     ) {
       return res
         .status(400)
-        .json({ message: "Le numÃ©ro de drop est invalide." });
+        .json({ message: "Le numéro de drop est invalide." });
     }
     addAssignment("drop_number", dropNumber);
   }
@@ -770,9 +692,11 @@ router.patch("/orders/:id", writeRoles, async (req, res) => {
     );
   }
 
-  const db = await pool.connect();
+  let db: PoolClient | undefined;
+  let discard = false;
   try {
-    await db.query("BEGIN");
+    db = await pool.connect();
+    await beginWrite(db);
     const currentOrder = await db.query(
       "SELECT status FROM sales.orders WHERE id = $1 FOR UPDATE",
       [orderId],
@@ -833,13 +757,10 @@ router.patch("/orders/:id", writeRoles, async (req, res) => {
     await db.query("COMMIT");
     return res.json(updated.rows[0]);
   } catch (error) {
-    await db.query("ROLLBACK").catch(() => undefined);
-    console.error("Error updating sales order:", error);
-    return res
-      .status(500)
-      .json({ message: "Impossible de modifier la vente." });
+    if (db) try { await db.query("ROLLBACK"); } catch { discard = true; }
+    return salesFailure(res, error, "Impossible de modifier la vente.");
   } finally {
-    db.release();
+    db?.release(discard);
   }
 });
 
