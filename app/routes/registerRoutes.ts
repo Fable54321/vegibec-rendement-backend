@@ -90,6 +90,7 @@ import employeesRoute from "./employees";
 import journalRoute from "./journal";
 import boxesRoute from "./Inventory/boxTypes";
 import palletRoutes from "./Pallets/pallets";
+import candidateInterviewsRoute from "./CandidateInterviews/CandidateInterviews.routes";
 
 function registerPublicRoutes(app: Express): void {
   app.get("/", async (_req, res) => {
@@ -141,6 +142,7 @@ function registerProtectedRoutes(app: Express): void {
   app.use("/sales", salesOrdersRoute);
   app.use("/alternative-auth", alternativeAuthRoute);
   app.use("/hr-logs", hrLogsRoute);
+  app.use("/candidate-interviews", candidateInterviewsRoute);
   app.use(taskCostCreationRoute);
   app.use("/fix-field", addFieldsRoute);
   app.use(taskCostsRoute);
