@@ -127,11 +127,13 @@ router.get(
 
         FROM public.users u
 
-        INNER JOIN public.foreign_workers_info fwi
+        LEFT JOIN public.foreign_workers_info fwi
           ON fwi.user_id = u.id
 
         LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
           ON fwd.user_id = u.id
+
+        WHERE u.is_temporary_worker = TRUE
 
         ORDER BY u.surname ASC, u.name ASC
         `
