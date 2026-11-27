@@ -585,6 +585,7 @@ router.get(
 
         WHERE
           wi.deleted_at IS NULL
+          AND worker.is_temporary_worker IS TRUE
           AND (
             wi.status = 'completed'
 

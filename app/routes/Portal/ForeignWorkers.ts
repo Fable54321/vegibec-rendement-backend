@@ -133,7 +133,7 @@ router.get(
         LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
           ON fwd.user_id = u.id
 
-        WHERE u.is_temporary_worker = TRUE
+        WHERE u.is_temporary_worker IS TRUE
 
         ORDER BY u.surname ASC, u.name ASC
         `
@@ -274,6 +274,9 @@ router.get(
         FROM latest_contracts
         INNER JOIN public.foreign_workers_info fwi
           ON fwi.user_id = latest_contracts.user_id
+        INNER JOIN public.users u
+          ON u.id = latest_contracts.user_id
+        WHERE u.is_temporary_worker IS TRUE
       `);
 
       const totalContracts = result.rows[0]?.total_contracts ?? 0;
@@ -334,6 +337,7 @@ router.get(
           ON u.id = latest_contracts.user_id
         INNER JOIN public.foreign_workers_info fwi
           ON fwi.user_id = latest_contracts.user_id
+        WHERE u.is_temporary_worker IS TRUE
         ORDER BY
           u.surname ASC NULLS LAST,
           u.name ASC NULLS LAST,

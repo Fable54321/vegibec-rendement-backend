@@ -57,6 +57,7 @@ router.get("/", requireAppRole("schedule", ["admin", "user", "guest"]), async (r
                 ON u.id = fwd.user_id
             LEFT JOIN public.foreign_workers_info fwi
                 ON fwi.user_id = fwd.user_id
+            WHERE u.is_temporary_worker IS TRUE
             ORDER BY u.surname ASC, u.name ASC
         `);
 

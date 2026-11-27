@@ -399,6 +399,8 @@ router.get("/", access, async (_req, res) => {
         FROM evaluation.rating_answers ra
         WHERE ra.evaluation_id = e.id
       ) scores ON true
+      WHERE evaluated.is_temporary_worker IS TRUE
+        AND evaluator.is_temporary_worker IS TRUE
       ORDER BY pm.evaluation_date DESC, e.created_at DESC`,
     );
 

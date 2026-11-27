@@ -20,8 +20,11 @@ router.get("/total-occupation", async (_req, res) => {
   try {
     const result = await pool.query(
       `SELECT COUNT(*)::int AS total_occupation
-       FROM foreign_workers_schedule.foreign_workers_details
-       WHERE casa_id IS NOT NULL`,
+       FROM foreign_workers_schedule.foreign_workers_details fwd
+       INNER JOIN public.users worker
+         ON worker.id = fwd.user_id
+       WHERE fwd.casa_id IS NOT NULL
+         AND worker.is_temporary_worker IS TRUE`,
     );
 
     return res.status(200).json({
@@ -56,6 +59,12 @@ router.get("/cuartos", async (req, res) => {
          ON casa.id = cuarto.casa_id
        LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
          ON fwd.cuartos_id = cuarto.id
+         AND EXISTS (
+           SELECT 1
+           FROM public.users worker
+           WHERE worker.id = fwd.user_id
+             AND worker.is_temporary_worker IS TRUE
+         )
        WHERE ($1::bigint IS NULL OR cuarto.casa_id = $1)
        GROUP BY cuarto.id, cuarto.name, cuarto.casa_id, casa.name
        ORDER BY casa.name, cuarto.name`,
@@ -93,6 +102,12 @@ router.get("/cuartos/capacity", async (req, res) => {
            ON casa.id = cuarto.casa_id
          LEFT JOIN foreign_workers_schedule.foreign_workers_details fwd
            ON fwd.cuartos_id = cuarto.id
+           AND EXISTS (
+             SELECT 1
+             FROM public.users worker
+             WHERE worker.id = fwd.user_id
+               AND worker.is_temporary_worker IS TRUE
+           )
          WHERE ($1::bigint IS NULL OR cuarto.casa_id = $1)
          GROUP BY cuarto.id, cuarto.name, cuarto.casa_id, casa.name
        )
@@ -150,8 +165,9 @@ router.get("/occupancy-state", async (_req, res) => {
            u.name,
            u.surname
          FROM foreign_workers_schedule.foreign_workers_details fwd
-         LEFT JOIN public.users u
+         INNER JOIN public.users u
            ON u.id = fwd.user_id
+          AND u.is_temporary_worker IS TRUE
          ORDER BY u.surname NULLS LAST, u.name NULLS LAST, fwd.user_id`,
       ),
     ]);
@@ -367,8 +383,9 @@ router.get("/:id/workers", async (req, res) => {
      u.surname,
      cuarto.name AS cuarto_name
    FROM foreign_workers_schedule.foreign_workers_details fwd
-   LEFT JOIN public.users u
+   INNER JOIN public.users u
      ON u.id = fwd.user_id
+    AND u.is_temporary_worker IS TRUE
    LEFT JOIN foreign_workers_schedule.cuartos cuarto
      ON cuarto.id = fwd.cuartos_id
    WHERE fwd.casa_id = $1
