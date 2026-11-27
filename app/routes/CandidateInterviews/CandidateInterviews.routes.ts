@@ -117,15 +117,58 @@ router.post("/", async (req, res) => {
     typeof req.body?.candidate_number === "string"
       ? req.body.candidate_number.trim()
       : "";
+  const firstName =
+    typeof req.body?.first_name === "string" ? req.body.first_name.trim() : "";
+  const lastName =
+    typeof req.body?.last_name === "string" ? req.body.last_name.trim() : "";
+  const phoneNumber1 =
+    typeof req.body?.phone_number_1 === "string"
+      ? req.body.phone_number_1.trim()
+      : "";
+  const phoneNumber2 =
+    typeof req.body?.phone_number_2 === "string"
+      ? req.body.phone_number_2.trim()
+      : "";
   const answers = req.body?.answers as unknown;
 
+  const candidateFieldErrors: Record<string, string> = {};
+
   if (!candidateNumber) {
-    return res.status(400).json({ error: "Le numéro du candidat est requis." });
+    candidateFieldErrors.candidate_number = "Le numéro du candidat est requis.";
+  } else if (candidateNumber.length > 20) {
+    candidateFieldErrors.candidate_number =
+      "Le numéro du candidat doit contenir au maximum 20 caractères.";
   }
 
-  if (candidateNumber.length > 100) {
+  if (!firstName) {
+    candidateFieldErrors.first_name = "Le prénom est requis.";
+  } else if (firstName.length > 100) {
+    candidateFieldErrors.first_name = "Le prénom est trop long.";
+  }
+
+  if (!lastName) {
+    candidateFieldErrors.last_name = "Le nom de famille est requis.";
+  } else if (lastName.length > 100) {
+    candidateFieldErrors.last_name = "Le nom de famille est trop long.";
+  }
+
+  const isValidPhone = (phone: string) =>
+    phone.length <= 30 && (phone.match(/\d/g)?.length ?? 0) >= 7;
+
+  if (!phoneNumber1) {
+    candidateFieldErrors.phone_number_1 = "Le numéro de téléphone principal est requis.";
+  } else if (!isValidPhone(phoneNumber1)) {
+    candidateFieldErrors.phone_number_1 = "Le numéro de téléphone principal est invalide.";
+  }
+
+  if (phoneNumber2 && !isValidPhone(phoneNumber2)) {
+    candidateFieldErrors.phone_number_2 = "Le deuxième numéro de téléphone est invalide.";
+  }
+
+  if (Object.keys(candidateFieldErrors).length > 0) {
     return res.status(400).json({
-      error: "Le numéro du candidat doit contenir au maximum 100 caractères.",
+      error: "Les informations du candidat doivent être corrigées.",
+      field_errors: candidateFieldErrors,
     });
   }
 
@@ -203,12 +246,23 @@ router.post("/", async (req, res) => {
         INSERT INTO candidates_interviews.candidates_interviews (
           user_id,
           picture_id,
-          candidate_number
+          candidate_number,
+          first_name,
+          last_name,
+          phone_number_1,
+          phone_number_2
         )
-        VALUES ($1, NULL, $2)
+        VALUES ($1, NULL, $2, $3, $4, $5, NULLIF($6, ''))
         RETURNING id
       `,
-      [req.user.id, candidateNumber],
+      [
+        req.user.id,
+        candidateNumber,
+        firstName,
+        lastName,
+        phoneNumber1,
+        phoneNumber2,
+      ],
     );
 
     const interviewId = interviewResult.rows[0].id;
@@ -235,6 +289,10 @@ router.post("/", async (req, res) => {
       interview: {
         id: interviewId,
         candidate_number: candidateNumber,
+        first_name: firstName,
+        last_name: lastName,
+        phone_number_1: phoneNumber1,
+        phone_number_2: phoneNumber2 || null,
       },
     });
   } catch (error) {
