@@ -16,6 +16,7 @@
     "migrate:time-off-guests": "tsx app/scripts/addTimeOffGuestRequests.ts",
     "migrate:worker-interview-files": "ts-node app/scripts/createWorkerInterviewFiles.ts",
     "migrate:candidate-interview-contacts": "ts-node app/scripts/addCandidateInterviewContactFields.ts",
+    "migrate:candidate-interview-offline": "ts-node app/scripts/addCandidateInterviewOfflineSubmissions.ts",
     "migrate:sobeys-rfq-market": "ts-node app/scripts/mergeSobeysQuebecBouchervilleRfq.ts",
     "repair:impaut-signatures": "tsx app/scripts/repairImpAutSignatures.ts",
     "backfill:foreign-income-signatures": "tsx app/scripts/backfillForeignIncomeSignatures.ts",

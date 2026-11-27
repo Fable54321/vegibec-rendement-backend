@@ -18,7 +18,20 @@ type SubmittedAnswer = {
   value: unknown;
 };
 
+type CreatedInterview = {
+  id: number;
+  candidate_number: string;
+  first_name: string;
+  last_name: string;
+  phone_number_1: string;
+  phone_number_2: string | null;
+  client_submission_id: string;
+};
+
 const router = Router();
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isEmptyAnswer = (value: unknown) =>
   value === null || value === undefined ||
@@ -129,6 +142,10 @@ router.post("/", async (req, res) => {
     typeof req.body?.phone_number_2 === "string"
       ? req.body.phone_number_2.trim()
       : "";
+  const clientSubmissionId =
+    typeof req.body?.client_submission_id === "string"
+      ? req.body.client_submission_id.trim()
+      : "";
   const answers = req.body?.answers as unknown;
 
   const candidateFieldErrors: Record<string, string> = {};
@@ -165,6 +182,10 @@ router.post("/", async (req, res) => {
     candidateFieldErrors.phone_number_2 = "Le deuxième numéro de téléphone est invalide.";
   }
 
+  if (!UUID_PATTERN.test(clientSubmissionId)) {
+    candidateFieldErrors.client_submission_id = "L'identifiant de soumission est invalide.";
+  }
+
   if (Object.keys(candidateFieldErrors).length > 0) {
     return res.status(400).json({
       error: "Les informations du candidat doivent être corrigées.",
@@ -181,6 +202,29 @@ router.post("/", async (req, res) => {
 
   try {
     await client.query("BEGIN");
+
+    const existingInterview = await client.query<CreatedInterview>(
+      `
+        SELECT
+          id,
+          candidate_number,
+          first_name,
+          last_name,
+          phone_number_1,
+          phone_number_2,
+          client_submission_id
+        FROM candidates_interviews.candidates_interviews
+        WHERE client_submission_id = $1
+          AND user_id = $2
+        LIMIT 1
+      `,
+      [clientSubmissionId, req.user.id],
+    );
+
+    if (existingInterview.rows[0]) {
+      await client.query("COMMIT");
+      return res.status(200).json({ interview: existingInterview.rows[0] });
+    }
 
     const questionsResult = await client.query<QuestionRow>(
       `
@@ -241,7 +285,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const interviewResult = await client.query<{ id: number }>(
+    const interviewResult = await client.query<CreatedInterview>(
       `
         INSERT INTO candidates_interviews.candidates_interviews (
           user_id,
@@ -250,10 +294,20 @@ router.post("/", async (req, res) => {
           first_name,
           last_name,
           phone_number_1,
-          phone_number_2
+          phone_number_2,
+          client_submission_id
         )
-        VALUES ($1, NULL, $2, $3, $4, $5, NULLIF($6, ''))
-        RETURNING id
+        VALUES ($1, NULL, $2, $3, $4, $5, NULLIF($6, ''), $7)
+        ON CONFLICT (client_submission_id) WHERE client_submission_id IS NOT NULL
+        DO NOTHING
+        RETURNING
+          id,
+          candidate_number,
+          first_name,
+          last_name,
+          phone_number_1,
+          phone_number_2,
+          client_submission_id
       `,
       [
         req.user.id,
@@ -262,10 +316,39 @@ router.post("/", async (req, res) => {
         lastName,
         phoneNumber1,
         phoneNumber2,
+        clientSubmissionId,
       ],
     );
 
-    const interviewId = interviewResult.rows[0].id;
+    let interview = interviewResult.rows[0];
+
+    if (!interview) {
+      const concurrentInterview = await client.query<CreatedInterview>(
+        `
+          SELECT
+            id,
+            candidate_number,
+            first_name,
+            last_name,
+            phone_number_1,
+            phone_number_2,
+            client_submission_id
+          FROM candidates_interviews.candidates_interviews
+          WHERE client_submission_id = $1
+            AND user_id = $2
+          LIMIT 1
+        `,
+        [clientSubmissionId, req.user.id],
+      );
+      interview = concurrentInterview.rows[0];
+    }
+
+    if (!interview) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Cette soumission existe déjà." });
+    }
+
+    const interviewId = interview.id;
 
     for (const [questionId, value] of answersByQuestionId) {
       if (isEmptyAnswer(value)) continue;
@@ -286,14 +369,7 @@ router.post("/", async (req, res) => {
     await client.query("COMMIT");
 
     return res.status(201).json({
-      interview: {
-        id: interviewId,
-        candidate_number: candidateNumber,
-        first_name: firstName,
-        last_name: lastName,
-        phone_number_1: phoneNumber1,
-        phone_number_2: phoneNumber2 || null,
-      },
+      interview,
     });
   } catch (error) {
     await client.query("ROLLBACK");
