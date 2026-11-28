@@ -1,5 +1,7 @@
-import { Router } from "express";
+import { NextFunction, Request, Response, Router } from "express";
+import multer from "multer";
 import { pool } from "../../db";
+import { uploadBufferToS3 } from "../../services/s3.services";
 
 type AnswerType = "boolean" | "integer" | "rating" | "select" | "text";
 
@@ -55,6 +57,34 @@ const router = Router();
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const candidatePhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 3, fileSize: 12 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    if (file.mimetype.startsWith("image/")) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("Le fichier doit être une image."));
+  },
+});
+
+const receiveCandidatePhotos = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  candidatePhotoUpload.array("photos", 3)(req, res, (error) => {
+    if (!error) return next();
+    const message = error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE"
+      ? "Chaque photo doit avoir une taille maximale de 12 Mo."
+      : error instanceof multer.MulterError && error.code === "LIMIT_FILE_COUNT"
+        ? "Un maximum de trois photos est permis."
+        : error instanceof Error ? error.message : "Les photos sont invalides.";
+    return res.status(400).json({ error: message });
+  });
+};
 
 const isEmptyAnswer = (value: unknown) =>
   value === null || value === undefined ||
@@ -290,6 +320,134 @@ router.get("/questions", async (_req, res) => {
   } catch (error) {
     console.error("Error fetching candidate interview questions:", error);
     return res.status(500).json({ error: "Impossible de charger les questions." });
+  }
+});
+
+router.get("/candidates", async (req, res) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: "Utilisateur non authentifié." });
+  }
+
+  try {
+    const result = await pool.query<{
+      candidate_number: string;
+      first_name: string | null;
+      last_name: string | null;
+    }>(
+      `
+        SELECT DISTINCT ON (candidate_number)
+          candidate_number,
+          first_name,
+          last_name
+        FROM candidates_interviews.candidates_interviews
+        WHERE user_id = $1
+        ORDER BY candidate_number, id DESC
+      `,
+      [req.user.id],
+    );
+
+    return res.json({ candidates: result.rows });
+  } catch (error) {
+    console.error("Error fetching candidate photo options:", error);
+    return res.status(500).json({ error: "Impossible de charger les candidats." });
+  }
+});
+
+router.post("/photos", receiveCandidatePhotos, async (req, res) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: "Utilisateur non authentifié." });
+  }
+
+  const candidateNumber = typeof req.body?.candidate_number === "string"
+    ? req.body.candidate_number.trim()
+    : "";
+  const clientSubmissionId = typeof req.body?.client_submission_id === "string"
+    ? req.body.client_submission_id.trim()
+    : "";
+  const files = req.files as Express.Multer.File[] | undefined;
+
+  if (!candidateNumber || candidateNumber.length > 20) {
+    return res.status(400).json({ error: "Le numéro du candidat est invalide." });
+  }
+  if (!UUID_PATTERN.test(clientSubmissionId)) {
+    return res.status(400).json({ error: "L’identifiant de soumission est invalide." });
+  }
+  if (!files?.length || files.length > 3) {
+    return res.status(400).json({ error: "Ajoutez entre une et trois photos." });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    const interviewResult = await client.query<{ id: number }>(
+      `
+        SELECT id
+        FROM candidates_interviews.candidates_interviews
+        WHERE user_id = $1 AND candidate_number = $2
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+      [req.user.id, candidateNumber],
+    );
+    const interviewId = interviewResult.rows[0]?.id;
+
+    if (!interviewId) {
+      return res.status(404).json({ error: "Ce candidat n’a pas encore d’entrevue enregistrée." });
+    }
+
+    const safeCandidateNumber = candidateNumber.replace(/[^a-zA-Z0-9_-]+/g, "-");
+    const pictureIds: number[] = [];
+
+    await client.query("BEGIN");
+    for (const [index, file] of files.entries()) {
+      const extension = file.mimetype.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+      const s3Key = [
+        "candidate-pictures",
+        String(req.user.id),
+        safeCandidateNumber,
+        clientSubmissionId,
+        `${index + 1}.${extension}`,
+      ].join("/");
+
+      await uploadBufferToS3({
+        key: s3Key,
+        buffer: file.buffer,
+        contentType: file.mimetype,
+      });
+
+      const pictureResult = await client.query<{ id: number }>(
+        `
+          INSERT INTO candidates_interviews.candidate_pictures (user_id, s3_key)
+          VALUES ($1, $2)
+          ON CONFLICT (s3_key) DO UPDATE SET s3_key = EXCLUDED.s3_key
+          RETURNING id
+        `,
+        [req.user.id, s3Key],
+      );
+      pictureIds.push(pictureResult.rows[0].id);
+    }
+
+    await client.query(
+      `
+        UPDATE candidates_interviews.candidates_interviews
+        SET picture_id = $1
+        WHERE id = $2 AND user_id = $3
+      `,
+      [pictureIds[0], interviewId, req.user.id],
+    );
+    await client.query("COMMIT");
+
+    return res.status(201).json({
+      interview_id: interviewId,
+      primary_picture_id: pictureIds[0],
+      picture_ids: pictureIds,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error uploading candidate pictures:", error);
+    return res.status(500).json({ error: "Impossible d’enregistrer les photos du candidat." });
+  } finally {
+    client.release();
   }
 });
 
