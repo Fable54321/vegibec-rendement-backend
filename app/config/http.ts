@@ -3,6 +3,7 @@ import express, { Express } from "express";
 import cookieParser from "cookie-parser";
 
 const allowedOrigins = [
+  "https://localhost",
   "http://localhost:5173",
   "https://vegibec-rendement.netlify.app",
   "https://vegibec-usda.netlify.app",
